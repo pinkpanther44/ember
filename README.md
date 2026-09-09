@@ -89,7 +89,29 @@ connection. The result is `build/PersonalDAW_artefacts/Release/Ember.exe`.
 
 ## Licence
 
-See `LICENSE.txt`.
+Copyright (C) 2026 pinkpanther44
 
-Ember is built with [JUCE](https://juce.com) and hosts VST3 plugins.
-VST is a trademark of Steinberg Media Technologies GmbH.
+Ember is free software: you can redistribute it and/or modify it under the terms
+of the **GNU Affero General Public License, version 3 or later**, as published by
+the Free Software Foundation.
+
+Ember is distributed in the hope that it will be useful, but WITHOUT ANY
+WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+PARTICULAR PURPOSE. See the GNU Affero General Public License for more details.
+
+The full text is in `LICENSE.txt`, and also at <https://www.gnu.org/licenses/>.
+
+**The source code is at <https://github.com/pinkpanther44/ember>.**
+
+### Third-party notices
+
+| | |
+|---|---|
+| [JUCE](https://juce.com) | The framework Ember is built with, used here under the AGPLv3 option of the JUCE licence |
+| VST3 SDK | Used for hosting plugins, under the GPLv3 option. VST is a trademark of Steinberg Media Technologies GmbH, registered in Europe and other countries |
+
+Ember does **not** include the Steinberg ASIO SDK and contains no ASIO code.
+
+"Ember" and the Ember icon are not covered by the AGPLv3 — the licence covers the
+code. If you distribute a modified version, please give it a different name so
+that people can tell the two apart.

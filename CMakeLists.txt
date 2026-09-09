@@ -79,7 +79,9 @@ FetchContent_MakeAvailable(JUCE)
 # ためです。表に出る名前と内部の名前が違うのは意図的です。
 juce_add_gui_app(PersonalDAW
     PRODUCT_NAME "${MANTA_PRODUCT_NAME}"
-    COMPANY_NAME "YourName"          # 好きな名前に変更してください
+    # 8.182：**exeのプロパティに出る作者名**（Phase 221／ライセンス確定）。
+    # 仮のままだと、配ったexeの「詳細」タブに"YourName"と表示されます
+    COMPANY_NAME "pinkpanther44"
     VERSION ${PROJECT_VERSION}
 
     # 8.133：アプリのアイコン（Phase 169／改善案リスト3の44）。
