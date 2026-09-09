@@ -95,13 +95,34 @@ jobs:
           VERSION=$(grep -oP 'project\s*\(\s*PersonalDAW\s+VERSION\s+\K[0-9.]+' CMakeLists.txt)
           echo "value=$VERSION" >> "$GITHUB_OUTPUT"
 
+      # 8.181：**出来上がった実行ファイルを探して、場所を覚えておく**（Phase 220／4回目）。
+      #
+      # `build/PersonalDAW_artefacts/Ember` と決め打ちしていたら、
+      # `cp: cannot stat ... No such file or directory` で止まりました。
+      # JUCEが実際にどこへ置くかは**生成器と構成の組み合わせで変わります**
+      # （Windowsは `.../Release/Manta Studio.exe`、Ninjaはまた別）。
+      #
+      # 決め打ちをやめて、探します。**中身が変わっても壊れません**
+      - name: Find the executable
+        shell: bash
+        run: |
+          echo "--- what JUCE actually produced ---"
+          find build -path '*PersonalDAW_artefacts*' -maxdepth 4 | head -40
+          EMBER=$(find build -name Ember -type f -perm -u+x | head -1)
+          if [ -z "$EMBER" ]; then
+            echo "Could not find the Ember executable anywhere under build/"
+            exit 1
+          fi
+          echo "found: $EMBER"
+          echo "EMBER=$EMBER" >> "$GITHUB_ENV"
+
       # ---------------------------------------------------------------------
       # tar.gz。**解凍して起動できる**のがここでの目標
       - name: Stage
         run: |
           NAME="Ember-${{ steps.version.outputs.value }}-Linux-x86_64"
           mkdir -p "stage/$NAME"
-          cp build/PersonalDAW_artefacts/Ember "stage/$NAME/"
+          cp "$EMBER" "stage/$NAME/"
           cp Packaging/Ember/README.md Packaging/Ember/CHANGELOG.md Packaging/Ember/LICENSE.txt "stage/$NAME/"
           tar -C stage -czf "$NAME.tar.gz" "$NAME"
           echo "NAME=$NAME" >> "$GITHUB_ENV"
@@ -113,7 +134,7 @@ jobs:
           VERSION="${{ steps.version.outputs.value }}"
 
           mkdir -p AppDir/usr/bin AppDir/usr/share/applications AppDir/usr/share/icons/hicolor/256x256/apps
-          cp build/PersonalDAW_artefacts/Ember AppDir/usr/bin/
+          cp "$EMBER" AppDir/usr/bin/
 
           # アイコンはリポジトリのものをそのまま（1000x1000。AppImageは縮めてくれます）
           cp Resources/Icons/ember_icon.png AppDir/usr/share/icons/hicolor/256x256/apps/ember.png
