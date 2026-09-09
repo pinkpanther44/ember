@@ -59,8 +59,28 @@ jobs:
       - name: Configure
         run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DMANTA_BRAND=ember
 
+      # 8.179：**出力を残して、失敗したらエラー行だけ抜き出す**（Phase 220）。
+      #
+      # 最初の実行では、ログ901行のうち800行以上が警告で埋まり、
+      # **本当のエラーが見つけられませんでした**（GitHubのログ表示は
+      # 長いものを遅延読み込みするので、検索も全体に届きません）。
+      #
+      # `tee`で控えを取り、落ちたときに`error:`の行と末尾だけを別ステップに出します。
       - name: Build
-        run: cmake --build build
+        shell: bash
+        run: |
+          set -o pipefail
+          cmake --build build 2>&1 | tee build.log
+
+      - name: Show what failed
+        if: failure()
+        shell: bash
+        run: |
+          echo "=================== error lines ==================="
+          grep -nE "error:|FAILED:|Error [0-9]" build.log | head -60 || echo "(none found)"
+          echo ""
+          echo "=================== last 80 lines ================="
+          tail -n 80 build.log
 
       - name: Read the version
         id: version
