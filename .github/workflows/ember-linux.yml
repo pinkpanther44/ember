@@ -170,6 +170,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ember-linux
+          # 8.183：**`Ember-`で始まるものだけ**（Phase 222／本人の`ls`で発覚）。
+          # `*.AppImage`だと、AppImageを作る道具（`appimagetool`）まで
+          # 一緒に配ってしまっていました
           path: |
-            *.tar.gz
-            *.AppImage
+            Ember-*.tar.gz
+            Ember-*.AppImage

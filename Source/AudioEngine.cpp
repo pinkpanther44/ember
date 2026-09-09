@@ -92,11 +92,47 @@ juce::String AudioEngine::initialise()
     // （挿していない等）に既定のデバイスへ落ちてくれます
     auto savedState = juce::parseXML (AppSettings::getString (audioDeviceStateKey));
 
-    auto error = deviceManager.initialise (2, 2, savedState.get(), true);
+    // 8.183：**Linuxの初回だけ、入力を開かずに立ち上げます**（Phase 222／Mintでの実機確認）。
+    //
+    // Linux Mint 22（MacBook Pro）で、**起動画面から先へ進まずに落ちました。**
+    // gdbで見たら、落ちているのはEmberの中ではありませんでした：
+    //
+    //     #3  snd_pcm_mmap_readi ()          from libasound.so.2
+    //     #5  juce::ALSAThread::run ()
+    //
+    // ALSA（Linuxの音声の土台）の**録音側の読み出し**です。
+    // `initialise()`は**エラーを返しません**——開くところまでは成功していて、
+    // 音声スレッドが**実際に読み始めた瞬間**に死にます。
+    //
+    // **戻り値では守れない相手です。** 下の「出力のみで開き直す」道は、
+    // エラーが返ってきたときにしか働きません。Windowsではこれで足りていましたが、
+    // Linuxでは足りませんでした。
+    //
+    // そこで、**保存された設定が無いとき（＝初回）だけ**入力を開きません。
+    // 一度でも環境設定で入力デバイスを選べば、その設定が保存され、
+    // 次からはそれで開きます（**本人が選んだものは尊重する**）。
+    //
+    // 入力が無い状態は`updateInputConnections()`が正しく扱い、
+    // 録音しようとしたときに理由が出ます（4041行）。**起動できないよりましです。**
+   #if JUCE_LINUX
+    const int wantedInputChannels = (savedState != nullptr ? 2 : 0);
+   #else
+    const int wantedInputChannels = 2;
+   #endif
+
+    auto error = deviceManager.initialise (wantedInputChannels, 2, savedState.get(), true);
 
     if (error.isEmpty())
     {
-        inputAvailable = true;
+        // **要求した数ではなく、実際に開けた数で判断すること。**
+        // 0chで開いた場合も、ここを通ります
+        auto* device = deviceManager.getCurrentAudioDevice();
+
+        inputAvailable = device != nullptr
+                          && device->getActiveInputChannels().countNumberOfSetBits() > 0;
+
+        if (! inputAvailable)
+            inputError = utf8 ("入力デバイスは開いていません。録音するには Audio Settings... で選んでください。");
     }
     else
     {
