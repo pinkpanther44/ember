@@ -1,5 +1,12 @@
 #include "HitPointDetector.h"
 
+// 8.180：既定パラメータ版（Phase 220）。中身は本体に丸投げするだけ
+juce::Array<double> HitPointDetector::detect (const juce::File& file,
+                                               juce::AudioFormatManager& formatManager)
+{
+    return detect (file, formatManager, Parameters{});
+}
+
 juce::Array<double> HitPointDetector::detect (const juce::File& file,
                                                juce::AudioFormatManager& formatManager,
                                                const Parameters& params)

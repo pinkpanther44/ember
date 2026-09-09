@@ -46,10 +46,16 @@ public:
         読み込めない場合は空の配列を返す。 */
     static juce::Array<double> detect (const juce::File& file,
                                         juce::AudioFormatManager& formatManager,
-                                        // 8.180：**`Parameters{}`と書くこと**（Phase 220／Linuxのビルド）。
-                                        // `= {}`はMSVCでは通りますが、**GCCでは通りません**——
-                                        // 入れ子の`Parameters`をこの位置で波かっこから作れず、
-                                        // 「could not convert brace-enclosed initializer list」で止まります。
-                                        // 名前を書けば、ただの一時オブジェクトになるので迷いません
-                                        const Parameters& params = Parameters{});
+                                        const Parameters& params);
+
+    /** 8.180：**既定値で呼ぶときは、こちらのオーバーロード**（Phase 220／Linuxのビルド）。
+
+        もとは引数の既定値（`= {}` や `= Parameters{}`）で済ませていましたが、
+        **MSVCは通してもGCCは通しません**。`Parameters`はこのクラスの入れ子で、
+        メンバ初期化子（`= 0.01`など）は**クラスの終わりまで使えない**ためです。
+        「default member initializer ... required before the end of its enclosing class」
+
+        既定値をやめてオーバーロードにすれば、この順番の問題は起きません。 */
+    static juce::Array<double> detect (const juce::File& file,
+                                        juce::AudioFormatManager& formatManager);
 };
