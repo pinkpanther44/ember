@@ -1,0 +1,13 @@
+# 8.178：**リポジトリの中は改行をLFにそろえる**（Phase 220）。
+#
+# GitHub Actions は Linux で走ります。ワークフローの `run:` に書いたシェルが
+# CRLF のまま渡ると、bash が `\r` をコマンドの一部と読んで
+# **`$'\r': command not found`** で止まります——原因がまず分からない止まり方です。
+#
+# `text=auto` なら、**保存されるのは常に LF** で、Windows の作業コピーだけ CRLF に戻ります。
+* text=auto
+
+# 絵は触らせないこと（改行の変換が走ると壊れます）
+*.png binary
+*.ico binary
+*.wav binary

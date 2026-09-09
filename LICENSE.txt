@@ -1,0 +1,44 @@
+Ember
+Copyright (c) 2026 <your name here>
+
+-------------------------------------------------------------------------------
+  ⚠ TODO — 公開する前に、この 3 行を差し替えてください（Phase 217）
+-------------------------------------------------------------------------------
+
+  1) 上の <your name here> を実名かハンドル名に
+  2) 下の「LICENCE」の節を、選んだライセンスの全文に差し替え
+  3) このコメント欄ごと削除
+
+  ライセンスは自分で選ぶものなので、こちらでは決めていません。
+  ただし **選べる範囲は JUCE と VST3 SDK が決めます**：
+
+    - JUCE       … コピーレフト版（JUCE 8 以降は AGPLv3）か、商用ライセンス
+    - VST3 SDK   … GPLv3 か、Steinberg の proprietary ライセンス
+
+  無償・オープンソースで配るなら、**AGPLv3** が素直な選択です
+  （AGPLv3 と GPLv3 は組み合わせられます）。
+  その場合、このファイルには AGPLv3 の全文を入れ、
+  アプリのソースを入手できる場所を README に書いてください。
+
+  ASIO は入っていません。ASIO SDK は再配布できず、
+  プロプライエタリなので GPL/AGPL のものへリンクできないためです。
+
+-------------------------------------------------------------------------------
+  LICENCE
+-------------------------------------------------------------------------------
+
+  （ここに全文）
+
+-------------------------------------------------------------------------------
+  THIRD-PARTY NOTICES
+-------------------------------------------------------------------------------
+
+  JUCE
+    https://juce.com
+    Ember is built with the JUCE framework.
+
+  VST3 SDK (plugin hosting)
+    VST is a trademark of Steinberg Media Technologies GmbH,
+    registered in Europe and other countries.
+
+  Ember does not redistribute the Steinberg ASIO SDK and contains no ASIO code.

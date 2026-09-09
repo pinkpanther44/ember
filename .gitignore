@@ -1,0 +1,21 @@
+# ビルド成果物
+build/
+out/            # Visual Studioが「フォルダーを開く」で作るビルドディレクトリ
+out-ember/      # 8.175：Ember版のビルドフォルダ（Phase 216）
+cmake-build-*/
+
+# JUCE FetchContentのキャッシュ
+_deps/
+
+# IDE
+.vs/
+.vscode/
+*.user
+.idea/
+
+# 再配布できないもの（8.174）
+Tools/ASIOSDK/
+
+# OS
+.DS_Store
+Thumbs.db

@@ -1,0 +1,127 @@
+# =============================================================================
+#  8.178：**Ember の Linux 版をここで作る**（Phase 219／本人の要望）。
+#
+#  手元にLinuxが無いので（WSLもDockerも入っていない）、**組んで確かめる場所を
+#  GitHub側に置きました。** 押した時点で本当にビルドが通るかが分かります。
+#
+#  ─────────────────────────────────────────────────────────────────────────
+#  走らせ方
+#  ─────────────────────────────────────────────────────────────────────────
+#
+#    - GitHubの Actions タブ → "Ember (Linux)" → Run workflow
+#    - タグ（v1.0.0 など）を押したときも自動で走ります
+#
+#  できるもの（Artifacts からダウンロード）：
+#
+#    Ember-<version>-Linux-x86_64.tar.gz    解凍して ./Ember で起動
+#    Ember-<version>-x86_64.AppImage        1ファイル。chmod +x して起動
+#
+#  ─────────────────────────────────────────────────────────────────────────
+#  Windows版と違うところ
+#  ─────────────────────────────────────────────────────────────────────────
+#
+#    - **ASIOはもともと入っていません**（Ember共通。8.174）。
+#      Linuxでは ALSA / JACK になります
+#    - **MP3の書き出しができません。** Windowsの Media Foundation を使っているため
+#      （`Mp3Writer.cpp`）。WAVとFLACは今までどおり
+#    - プラグインは `~/.vst3` `/usr/local/lib/vst3` `/usr/lib/vst3` を見ます（8.178）
+# =============================================================================
+
+name: Ember (Linux)
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # JUCEがLinuxで要るもの。**ここを削らないこと**——
+      # 足りないと、CMakeの構成ではなく**コンパイルの途中**で落ちるので原因が分かりにくい
+      - name: Install JUCE's Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential cmake ninja-build pkg-config \
+            libasound2-dev libjack-jackd2-dev \
+            libfreetype-dev libfontconfig1-dev \
+            libx11-dev libxcomposite-dev libxcursor-dev libxext-dev \
+            libxinerama-dev libxrandr-dev libxrender-dev \
+            libglu1-mesa-dev mesa-common-dev \
+            libcurl4-openssl-dev
+
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DMANTA_BRAND=ember
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Read the version
+        id: version
+        run: |
+          VERSION=$(grep -oP 'project\s*\(\s*PersonalDAW\s+VERSION\s+\K[0-9.]+' CMakeLists.txt)
+          echo "value=$VERSION" >> "$GITHUB_OUTPUT"
+
+      # ---------------------------------------------------------------------
+      # tar.gz。**解凍して起動できる**のがここでの目標
+      - name: Stage
+        run: |
+          NAME="Ember-${{ steps.version.outputs.value }}-Linux-x86_64"
+          mkdir -p "stage/$NAME"
+          cp build/PersonalDAW_artefacts/Ember "stage/$NAME/"
+          cp Packaging/Ember/README.md Packaging/Ember/CHANGELOG.md Packaging/Ember/LICENSE.txt "stage/$NAME/"
+          tar -C stage -czf "$NAME.tar.gz" "$NAME"
+          echo "NAME=$NAME" >> "$GITHUB_ENV"
+
+      # ---------------------------------------------------------------------
+      # AppImage。**配るならこちら**——ディストリを問わず1ファイルで動きます
+      - name: Build the AppImage
+        run: |
+          VERSION="${{ steps.version.outputs.value }}"
+
+          mkdir -p AppDir/usr/bin AppDir/usr/share/applications AppDir/usr/share/icons/hicolor/256x256/apps
+          cp build/PersonalDAW_artefacts/Ember AppDir/usr/bin/
+
+          # アイコンはリポジトリのものをそのまま（1000x1000。AppImageは縮めてくれます）
+          cp Resources/Icons/ember_icon.png AppDir/usr/share/icons/hicolor/256x256/apps/ember.png
+          cp Resources/Icons/ember_icon.png AppDir/ember.png
+
+          cat > AppDir/ember.desktop <<'DESKTOP'
+          [Desktop Entry]
+          Type=Application
+          Name=Ember
+          Comment=Digital audio workstation
+          Exec=Ember
+          Icon=ember
+          Categories=AudioVideo;Audio;AudioVideoEditing;
+          Terminal=false
+          DESKTOP
+
+          cp AppDir/ember.desktop AppDir/usr/share/applications/
+
+          cat > AppDir/AppRun <<'APPRUN'
+          #!/bin/sh
+          HERE="$(dirname "$(readlink -f "$0")")"
+          exec "$HERE/usr/bin/Ember" "$@"
+          APPRUN
+          chmod +x AppDir/AppRun
+
+          wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x appimagetool-x86_64.AppImage
+          # ランナーにFUSEが無いので、展開して使う
+          ./appimagetool-x86_64.AppImage --appimage-extract > /dev/null
+          ARCH=x86_64 ./squashfs-root/AppRun AppDir "Ember-$VERSION-x86_64.AppImage"
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: ember-linux
+          path: |
+            *.tar.gz
+            *.AppImage
