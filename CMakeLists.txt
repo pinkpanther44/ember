@@ -386,13 +386,22 @@ target_link_libraries(PersonalDAW
 #
 # **他の警告は止めていません。** 本当の指摘は今までどおり出ます。
 # ---------------------------------------------------------------------------
+# **`target_compile_options`では効きませんでした**（Phase 220で1度踏んだ）。
+# ターゲット自身のオプションは、リンクした相手のINTERFACEオプションより**先**に並ぶので、
+# `-Wno-switch-enum ... -Wswitch-enum`の順になり、**後ろ側が勝ちます。**
+#
+# INTERFACEライブラリにして、`juce_recommended_warning_flags`より**後ろでリンク**すること。
+add_library(MantaQuietWarnings INTERFACE)
+
 if (NOT MSVC)
-    target_compile_options(PersonalDAW PRIVATE
+    target_compile_options(MantaQuietWarnings INTERFACE
         -Wno-switch-enum
         -Wno-float-equal
         -Wno-overloaded-virtual
     )
 endif()
+
+target_link_libraries(PersonalDAW PUBLIC MantaQuietWarnings)
 
 # ---------------------------------------------------------------------------
 # ソースファイル内の日本語コメント（UTF-8）を正しく扱うための設定。

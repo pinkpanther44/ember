@@ -46,5 +46,10 @@ public:
         読み込めない場合は空の配列を返す。 */
     static juce::Array<double> detect (const juce::File& file,
                                         juce::AudioFormatManager& formatManager,
-                                        const Parameters& params = {});
+                                        // 8.180：**`Parameters{}`と書くこと**（Phase 220／Linuxのビルド）。
+                                        // `= {}`はMSVCでは通りますが、**GCCでは通りません**——
+                                        // 入れ子の`Parameters`をこの位置で波かっこから作れず、
+                                        // 「could not convert brace-enclosed initializer list」で止まります。
+                                        // 名前を書けば、ただの一時オブジェクトになるので迷いません
+                                        const Parameters& params = Parameters{});
 };

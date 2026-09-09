@@ -66,11 +66,14 @@ jobs:
       # 長いものを遅延読み込みするので、検索も全体に届きません）。
       #
       # `tee`で控えを取り、落ちたときに`error:`の行と末尾だけを別ステップに出します。
+      # `-k 0` は ninja の「**止まらずに最後まで試す**」。
+      # 既定だと最初の1つで止まるので、**移植のあいだは1往復に1個しか直せません**
+      # （1回15分。エラーが5個あれば5往復）。全部出させて、まとめて直します。
       - name: Build
         shell: bash
         run: |
           set -o pipefail
-          cmake --build build 2>&1 | tee build.log
+          cmake --build build -- -k 0 2>&1 | tee build.log
 
       - name: Show what failed
         if: failure()
