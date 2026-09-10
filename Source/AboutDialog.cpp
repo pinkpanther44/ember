@@ -52,6 +52,10 @@ namespace
              << utf8 ("  ・VST3 SDK — プラグインを読み込むために使用")
              << juce::newLine
              << utf8 ("    VSTは Steinberg Media Technologies GmbH の商標です")
+             << juce::newLine
+             // 8.189：**LV2のぶんを足すこと**（Phase 227）。JUCEに同梱されている
+             // lilv／serd／sord／sratom（どれもISC、David Robillard）を通しています
+             << utf8 ("  ・LV2 と lilv / serd / sord / sratom — LV2プラグインを読み込むために使用")
              << juce::newLine;
 
         if (! Branding::hasAsioSupport)

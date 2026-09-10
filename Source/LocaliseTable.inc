@@ -9,6 +9,7 @@
     { "  ・JUCE — このアプリの土台になっているフレームワーク", "  - JUCE - the framework this application is built on", true },
     { "  ・VST3 SDK — プラグインを読み込むために使用", "  - VST3 SDK - used for hosting plugins", true },
     { "    VSTは Steinberg Media Technologies GmbH の商標です", "    VST is a trademark of Steinberg Media Technologies GmbH", true },
+    { "  ・LV2 と lilv / serd / sord / sratom — LV2プラグインを読み込むために使用", "  - LV2 with lilv / serd / sord / sratom - used for hosting LV2 plugins", true },
     { "Steinberg ASIO SDK は含まれておらず、ASIOのコードも入っていません。", "The Steinberg ASIO SDK is not included, and there is no ASIO code in this build.", true },
     { "閉じる", "Close", true },
     { "バージョン情報", "About", true },

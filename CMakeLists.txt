@@ -297,6 +297,15 @@ target_compile_definitions(PersonalDAW
         # ここで直接定義する必要がある。
         JUCE_PLUGINHOST_VST3=1
 
+        # 8.189：**LV2も読み込めるようにする**（Phase 227／本人の要望）。
+        # JUCEが`lilv`/`serd`/`sord`/`sratom`/`lv2`を**自分の中に持っています**
+        # （`LV2_SDK/`。どれもISCライセンスで、AGPLv3と問題なく組み合わせられます）。
+        # **外部ライブラリは要りません**——依存もビルド手順も増えません。
+        #
+        # **WindowsでもLinuxでも有効です。** LV2はLinuxに多い形式ですが、
+        # 片方だけ有効にすると「同じアプリなのにOSで挿せるものが違う」ことになります
+        JUCE_PLUGINHOST_LV2=1
+
         # 8.153：MP3の**読み込み**（Phase 191/D9b）。
         #
         # 書き出せるのに読み込めないのは、使う側から見て理屈が通りません。

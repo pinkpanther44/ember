@@ -169,10 +169,29 @@ void PluginManager::clearBlacklist()
     saveKnownPlugins();
 }
 
-juce::FileSearchPath PluginManager::buildSearchPath (const juce::FileSearchPath& extraFolders) const
+juce::FileSearchPath PluginManager::buildSearchPath (juce::AudioPluginFormat& format,
+                                                     const juce::FileSearchPath& extraFolders) const
 {
-    auto searchPath = getDefaultVST3SearchPath();
+    // 8.189：**探す先はフォーマットごとに違います**（Phase 227／LV2対応）。
+    //
+    // Phase 226まで、この関数は**全フォーマットにVST3用のパスを渡していました**。
+    // 1つしか無いあいだは正しかったのですが、LV2は置き場所が別です
+    // （`~/.lv2`・`/usr/lib/lv2` など）。VST3のパスを渡しても**何も見つかりません**。
+    //
+    // **VST3以外はJUCEに訊きます。** `getDefaultLocationsToSearch()`は
+    // LV2について、OSごとの標準の場所に加えて**環境変数`LV2_PATH`**まで見ます——
+    // 自分で書くと、そこを取りこぼします。
+    //
+    // **VST3だけ自前のまま**にしてあるのは、8.178でLinuxの枝を足した経緯があり、
+    // ここを入れ替えると**すでに動いている128個の走査の当たり方が変わる**ためです
+    // （変える理由が無いところは変えない）。
+    auto searchPath = format.getName().containsIgnoreCase ("VST3")
+                        ? getDefaultVST3SearchPath()
+                        : format.getDefaultLocationsToSearch();
 
+    // 本人が足したフォルダは**どのフォーマットにも渡します**。
+    // 「ここも見て」と言われた場所なので、形式で絞る理由がありません
+    // （見当違いのフォルダなら、そのフォーマットが何も見つけないだけです）
     for (int i = 0; i < extraFolders.getNumPaths(); ++i)
         searchPath.add (extraFolders[i]);
 
@@ -211,7 +230,8 @@ juce::Array<juce::PluginDescription> PluginManager::scanFoldersWithoutApplying (
     const juce::FileSearchPath& extraFolders,
     const juce::Array<juce::PluginDescription>& alreadyKnown) const
 {
-    const auto searchPath = buildSearchPath (extraFolders);
+    // 8.189：**探す先はフォーマットごとに作ります**（Phase 227）。
+    // ここで1本作って全部に配っていたのを、下のループの中へ移しました
 
     // 8.52：**自前の一覧へ集める**（Phase 91）。
     // `knownPlugins`を直接書き換えると、**別スレッドから走らせたときに
@@ -286,6 +306,9 @@ juce::Array<juce::PluginDescription> PluginManager::scanFoldersWithoutApplying (
         //
         // **Phase 194までは空の`juce::File()`を渡していました**——
         // 書く先が無いので記録も残らず、**毎回同じところで落ちていました**
+        // 8.189：**このフォーマットの探す先**（Phase 227）
+        const auto searchPath = buildSearchPath (*format, extraFolders);
+
         juce::PluginDirectoryScanner scanner (scanned, *format, searchPath, true, deadMansPedal);
 
         juce::String nameOfPluginBeingScanned;

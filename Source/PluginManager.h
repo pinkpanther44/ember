@@ -106,8 +106,14 @@ public:
     /** 「いまこれを開いている」を書いておくファイル（`juce::PluginDirectoryScanner`が使う）。 */
     static juce::File getDeadMansPedalFile();
 
-    /** 既定のVST3フォルダ（＋追加分）。**スキャンする場所の決め方はここ1箇所。** */
-    juce::FileSearchPath buildSearchPath (const juce::FileSearchPath& extraFolders) const;
+    /** そのフォーマットを探す場所（＋本人が足したフォルダ）。
+
+        **スキャンする場所の決め方はここ1箇所。**
+
+        8.189：**フォーマットを受け取るようになりました**（Phase 227／LV2対応）。
+        VST3とLV2では置き場所が違うので、1本のパスを配ることはできません。 */
+    juce::FileSearchPath buildSearchPath (juce::AudioPluginFormat& format,
+                                           const juce::FileSearchPath& extraFolders) const;
 
     /** 9.5：**Manta Studio内蔵のプラグインを一覧へ足す**（Phase 204）。
 

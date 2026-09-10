@@ -1,7 +1,7 @@
 # Ember
 
 A digital audio workstation for Windows and Linux. Record, arrange, edit MIDI,
-host VST3 plugins, and mix — with three instruments and effects built in.
+host VST3 and LV2 plugins, and mix — with three instruments and effects built in.
 
 Ember is free and open source.
 
@@ -15,7 +15,7 @@ Ember is free and open source.
 | CPU | Any x64 processor (developed on an Intel i7-9700K) |
 | RAM | 4 GB or more |
 | Audio | Any device the system can see. A dedicated audio interface is recommended but not required |
-| Plugins | VST3 (64-bit) |
+| Plugins | VST3 and LV2 (64-bit) |
 
 **No extra runtime is needed on Windows.** The Visual C++ runtime is built into
 the executable, so `Ember.exe` runs as it is.
@@ -27,7 +27,7 @@ the executable, so `Ember.exe` runs as it is.
 | Audio | ALSA or JACK, instead of Windows Audio |
 | Audio input | **Not opened on the first launch.** Choose your input under Preferences → Audio when you want to record. A broken capture device could otherwise take the whole application down with it |
 | MP3 export | **Not available.** It uses Windows Media Foundation. WAV and FLAC work as usual |
-| Plugins | Read from `~/.vst3`, `/usr/local/lib/vst3` and `/usr/lib/vst3` |
+| Plugins | VST3 from `~/.vst3`, `/usr/local/lib/vst3` and `/usr/lib/vst3`; LV2 from `~/.lv2`, `/usr/local/lib/lv2` and `/usr/lib/lv2` (and anything on `LV2_PATH`) |
 
 ## Installing
 
@@ -64,9 +64,9 @@ message the application prints if something goes wrong.
 1. **Pick your audio device.** File → Preferences → Audio. Ember uses Windows
    Audio, which shares the device with other applications, so your browser and
    media player keep working while Ember is open.
-2. **Wait for the plugin scan.** Ember looks through the standard VST3 folders
-   in the background and tells you how many it found. This takes a while the
-   first time and is quick afterwards.
+2. **Wait for the plugin scan.** Ember looks through the standard VST3 and LV2
+   folders in the background and tells you how many it found. This takes a while
+   the first time and is quick afterwards.
 3. **Choose a starting point.** The startup screen offers a template, a recent
    project, or an empty one.
 
@@ -147,6 +147,7 @@ The full text is in `LICENSE.txt`, and also at <https://www.gnu.org/licenses/>.
 | | |
 |---|---|
 | [JUCE](https://juce.com) | The framework Ember is built with, used here under the AGPLv3 option of the JUCE licence |
+| LV2, with lilv, serd, sord and sratom | Used for hosting LV2 plugins. Bundled with JUCE; ISC licence, Copyright David Robillard |
 | VST3 SDK | Used for hosting plugins, under the GPLv3 option. VST is a trademark of Steinberg Media Technologies GmbH, registered in Europe and other countries |
 
 Ember does **not** include the Steinberg ASIO SDK and contains no ASIO code.

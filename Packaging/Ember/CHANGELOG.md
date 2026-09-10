@@ -33,7 +33,8 @@ that release will contain.
 
 **Plugins**
 
-- VST3 hosting, with background scanning and a crash-resistant plugin list
+- VST3 and LV2 hosting, with background scanning and a crash-resistant plugin
+  list
 - Three built-in plugins: **Ember EQ**, **Ember Comp** and **Red Panda**
   (see the README)
 
