@@ -375,7 +375,21 @@ void PianoRollView::resized()
     // 仕様書5.3：音源はトラックごとの割り当てなので、トラック選択と同じ行の右側に置く
     // 音源名は長くなりがちだが、幅いっぱいに伸ばすと1段目がボタン1つに見えてしまう。
     // 上限を決めて、はみ出す名前はボタン側に省略させる。
-    trackRow.removeFromLeft (16);
+    // 8.185：**表示モードの2つを、この行の右端へ移しました**（Phase 224／本人の指定）。
+    //
+    // この行は音源ボタンだけで、右が大きく空いていました。2段目は逆に詰まっていたので、
+    // **空いている側へ寄せます。** 折り返しの起きる幅が1346px→1088pxまで下がるので、
+    // **13インチでも2段のまま収まります**（それより狭いと、今までどおり折り返します）。
+    //
+    // どちらも「**画面の見せ方**」を決めるものなので、
+    // 「これから置くもの」を決める2段目（刻み・ツール）とは性格が違います。分けたほうが素直です。
+    drumEditorButton.setBounds (trackRow.removeFromRight (120));
+    trackRow.removeFromRight (6);
+    colouringButton.setBounds (trackRow.removeFromRight (juce::jmin (120, trackRow.getWidth())));
+    trackRow.removeFromRight (12);
+
+    // 8.185：**左の余白を外しました**（Phase 224／本人の指定）。
+    // 16px入っていたので、**真下のクオンタイズボタンと左端が揃っていませんでした**
     instrumentButton.setBounds (trackRow.removeFromLeft (juce::jmin (240, trackRow.getWidth())));
 
     area.removeFromTop (8);
@@ -390,8 +404,7 @@ void PianoRollView::resized()
     // 下の`removeFromLeft`／`removeFromRight`の合計。**片方を変えたらここも直すこと**
     constexpr int leftGroupWidth  = 100 + 8 + 110 + 12 + 45 + 160 + 12 + 150 + 12 + 100;
     constexpr int rightGroupWidth = 12 + SnapGridSelector::preferredWidth
-                                     + 12 + (52 + 3 + 52 + 3 + 62 + 3 + 68)
-                                     + 12 + 120 + 6 + 120;
+                                     + 12 + (52 + 3 + 52 + 3 + 62 + 3 + 68);
 
     const bool wrapToolbar = ToolbarLayout::needsWrap (area.getWidth(),
                                                         leftGroupWidth, rightGroupWidth);
@@ -423,15 +436,13 @@ void PianoRollView::resized()
     // **「CC Lanes」ボタンはPhase 75で廃止しました**（8.35）：レーンは1本になり、
     // 中身の切り替えはレーンの見出し（左端）と右クリックが入口です
 
-    // 設計書2.3.3：表示モードの切り替えは右端に置く（Phase 25／Phase 46）
+    // 設計書2.3.3：表示モードの切り替え（Phase 25／Phase 46）は、
+    // **8.185で1段目の右端へ移しました**（Phase 224）。ここにはもうありません。
+
+    // 仕様書6.2：ツールのボタン（Phase 69）。**この段の右端**に置く。
     //
     // 8.184：**ここから下は`secondRow`から取ります**（Phase 223）。
-    // 折り返していないときは`quantiseRow`と同じ矩形なので、並びは変わりません
-    drumEditorButton.setBounds (secondRow.removeFromRight (120));
-    secondRow.removeFromRight (6);
-    colouringButton.setBounds (secondRow.removeFromRight (juce::jmin (120, secondRow.getWidth())));
-
-    // 仕様書6.2：ツールのボタン（Phase 69）。**表示モードの左隣**に置く。
+    // 折り返していないときは`quantiseRow`と同じ矩形なので、並びは変わりません。
     // **アレンジ画面と同じ並び**（左から 刻み → ツール）にしてあるので、
     // 画面を行き来しても同じ位置に同じものがある。
     // **Phase 68まで、ボタンはアレンジ画面にしかありませんでした**：
