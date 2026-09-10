@@ -35,6 +35,12 @@ on:
     tags:
       - 'v*'
 
+# 8.193：**Releasesへ貼るには書き込みの許可が要ります**（Phase 230）。
+# 既定は読み取りだけなので、無いと`gh release create`が403で落ちます。
+# **`contents: write`だけ**にしてあります——要らない許可は渡しません
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-24.04
@@ -91,9 +97,27 @@ jobs:
 
       - name: Read the version
         id: version
+        shell: bash
         run: |
           VERSION=$(grep -oP 'project\s*\(\s*PersonalDAW\s+VERSION\s+\K[0-9.]+' CMakeLists.txt)
           echo "value=$VERSION" >> "$GITHUB_OUTPUT"
+
+          # 8.193：**タグと`CMakeLists.txt`の版が合っているか確かめます**（Phase 230）。
+          #
+          # 合っていないまま配ると、**中身が0.1.0なのに`v0.2.0`という名前の
+          # リリースが出来ます**。あとから直すには、公開したものを引っ込めることに
+          # なります——**貼る前に止めるほうがずっと安い。**
+          if [ "${GITHUB_REF_TYPE:-}" = "tag" ]; then
+            TAG="${GITHUB_REF_NAME#v}"
+
+            if [ "$TAG" != "$VERSION" ]; then
+              echo "::error::Tag v$TAG does not match project(PersonalDAW VERSION $VERSION) in CMakeLists.txt."
+              echo "Bump the version in CMakeLists.txt, or tag v$VERSION instead."
+              exit 1
+            fi
+
+            echo "tag and CMakeLists agree on $VERSION"
+          fi
 
       # 8.181：**出来上がった実行ファイルを探して、場所を覚えておく**（Phase 220／4回目）。
       #
@@ -176,3 +200,82 @@ jobs:
           path: |
             Ember-*.tar.gz
             Ember-*.AppImage
+
+      # ---------------------------------------------------------------------
+      # 8.193：**タグを押したら、Releasesの下書きを作る**（Phase 230／本人の要望）。
+      #
+      # ─────────────────────────────────────────────────────────────────────
+      #  なぜ Releases が要るか
+      # ─────────────────────────────────────────────────────────────────────
+      #
+      #  **上の Artifacts は、GitHubにログインしないとダウンロードできません。**
+      #  リポジトリを公開にしても、そこは変わりません。
+      #  つまり**他の人に配るのには使えません。**
+      #
+      #  Releases に貼ったファイルは、**ログイン無しで誰でも取れます。**
+      #
+      # ─────────────────────────────────────────────────────────────────────
+      #  なぜ「下書き」で止めるか
+      # ─────────────────────────────────────────────────────────────────────
+      #
+      #  **Windows版はここでは作っていません。** ビルドしているのは本人のPCで、
+      #  動作確認もそこでやっています（8.191）。CIにWindowsを足すこともできますが、
+      #  **確かめていないものを自動で公開するほうが危ない。**
+      #
+      #  そこで、**Linux版を貼った下書きまで**をここで作ります。
+      #  本人が Windows の zip と Setup.exe を足して、**中身を見てから Publish**。
+      #
+      #  **公開の最後の一押しは人が持つ**——これはこの先も変えないほうがよいと思います。
+      #
+      #  `gh`はランナーに入っているので、他人のアクションを増やしていません。
+      - name: Draft a release
+        if: github.ref_type == 'tag'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${{ steps.version.outputs.value }}"
+
+          # **すでに下書きがあれば、貼り直すだけ**（作り直しはしない）。
+          # 同じタグで2回押したときに「もう有る」で落ちないように
+          if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
+            echo "release $GITHUB_REF_NAME already exists - uploading over it"
+            gh release upload "$GITHUB_REF_NAME" Ember-*.tar.gz Ember-*.AppImage --clobber
+            exit 0
+          fi
+
+          # 本文は`Packaging/Ember/CHANGELOG.md`から取りません——
+          # **その版のぶんだけを切り出す決まりが要る**ので、いまは定型文にしてあります。
+          # 下書きなので、本人が Publish の前に書き足せます
+          cat > notes.md <<'NOTES'
+          ## Downloads
+
+          | | |
+          |---|---|
+          | **Windows — installer** | `Ember-VERSION-Windows-x64-Setup.exe` |
+          | **Windows — portable** | `Ember-VERSION-Windows-x64.zip` |
+          | **Linux — AppImage** | `Ember-VERSION-x86_64.AppImage` — `chmod +x`, then run |
+          | **Linux — archive** | `Ember-VERSION-Linux-x86_64.tar.gz` |
+
+          Windows 10/11 64-bit, or a 64-bit Linux with glibc 2.39 or newer
+          (Ubuntu 24.04, Linux Mint 22 and later).
+
+          Neither download is code-signed, so Windows will say the publisher is
+          unknown. See the README for what to do about that.
+
+          Ember is free software under the GNU Affero General Public License,
+          version 3 or later. The source is this repository.
+          NOTES
+
+          sed -i "s/VERSION/$VERSION/g" notes.md
+
+          gh release create "$GITHUB_REF_NAME" \
+            --draft \
+            --title "Ember $VERSION" \
+            --notes-file notes.md \
+            Ember-*.tar.gz Ember-*.AppImage
+
+          echo "### Draft release created" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Add the Windows zip and Setup.exe, then press Publish:" >> "$GITHUB_STEP_SUMMARY"
+          echo "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases" >> "$GITHUB_STEP_SUMMARY"

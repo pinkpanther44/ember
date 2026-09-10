@@ -29,6 +29,12 @@ the executable, so `Ember.exe` runs as it is.
 | MP3 export | **Not available.** It uses Windows Media Foundation. WAV and FLAC work as usual |
 | Plugins | VST3 from `~/.vst3`, `/usr/local/lib/vst3` and `/usr/lib/vst3`; LV2 from `~/.lv2`, `/usr/local/lib/lv2` and `/usr/lib/lv2` (and anything on `LV2_PATH`) |
 
+## Downloading
+
+Every build is on the **[Releases page](https://github.com/pinkpanther44/ember/releases)** —
+the Windows installer, a portable Windows zip, a Linux AppImage, and a Linux
+`.tar.gz`. No account is needed.
+
 ## Installing
 
 ### Windows

@@ -158,5 +158,13 @@ else {
     Write-Host "              https://jrsoftware.org/isinfo.php"
 }
 
+# 8.193：**貼る先までを書きます**（Phase 230）。Linux版はタグを押した時点で
+# ワークフローが下書きへ貼っているので、**残りはこの2つだけ**です
 Write-Host ""
-Write-Host "Next: attach these to a GitHub release."
+Write-Host "Next:" -ForegroundColor Cyan
+Write-Host "  1. git tag v$version && git push origin v$version   (in the public repo)"
+Write-Host "     -> the Linux build attaches itself to a DRAFT release"
+Write-Host "  2. Add the two files above to that draft"
+Write-Host "  3. Read it over, then press Publish"
+Write-Host ""
+Write-Host "  https://github.com/pinkpanther44/ember/releases"
