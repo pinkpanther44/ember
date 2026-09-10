@@ -41,7 +41,15 @@ that release will contain.
 
 - Audio and MIDI recording with count-in and a metronome
 - Mixdown, per-track stems, and MIDI file export
-- WAV, FLAC and MP3 output
+- WAV and FLAC output on every platform; MP3 on Windows only
+
+**Platforms**
+
+- Windows 10 and 11, 64-bit
+- Linux, 64-bit, as an AppImage or a `.tar.gz` (built against glibc 2.39, so
+  Ubuntu 24.04 / Linux Mint 22 and newer). ALSA and JACK instead of Windows
+  Audio; the audio input is not opened on the first launch — choose it under
+  Preferences → Audio when you want to record
 
 **Everything else**
 

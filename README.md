@@ -1,7 +1,7 @@
 # Ember
 
-A digital audio workstation for Windows. Record, arrange, edit MIDI, host VST3
-plugins, and mix — with three instruments and effects built in.
+A digital audio workstation for Windows and Linux. Record, arrange, edit MIDI,
+host VST3 plugins, and mix — with three instruments and effects built in.
 
 Ember is free and open source.
 
@@ -11,18 +11,27 @@ Ember is free and open source.
 
 | | |
 |---|---|
-| OS | Windows 10 or 11, 64-bit |
+| OS | Windows 10 or 11, 64-bit — or a 64-bit Linux with glibc 2.39 or newer (Ubuntu 24.04, Linux Mint 22 and later) |
 | CPU | Any x64 processor (developed on an Intel i7-9700K) |
 | RAM | 4 GB or more |
-| Audio | Any device Windows can see. A dedicated audio interface is recommended but not required |
+| Audio | Any device the system can see. A dedicated audio interface is recommended but not required |
 | Plugins | VST3 (64-bit) |
 
-**No extra runtime is needed.** The Visual C++ runtime is built into the
-executable, so `Ember.exe` runs as it is.
+**No extra runtime is needed on Windows.** The Visual C++ runtime is built into
+the executable, so `Ember.exe` runs as it is.
+
+### What differs on Linux
+
+| | |
+|---|---|
+| Audio | ALSA or JACK, instead of Windows Audio |
+| Audio input | **Not opened on the first launch.** Choose your input under Preferences → Audio when you want to record. A broken capture device could otherwise take the whole application down with it |
+| MP3 export | **Not available.** It uses Windows Media Foundation. WAV and FLAC work as usual |
+| Plugins | Read from `~/.vst3`, `/usr/local/lib/vst3` and `/usr/lib/vst3` |
 
 ## Installing
 
-Two ways — pick either:
+### Windows
 
 - **Portable** — unzip anywhere and run `Ember.exe`. Nothing is written outside
   your user folders. Good if you want to keep several versions side by side.
@@ -30,6 +39,25 @@ Two ways — pick either:
 
 Windows may warn that the publisher is unknown, because the download is not
 code-signed. Choose **More info → Run anyway** if you are happy to continue.
+
+### Linux
+
+- **AppImage** — one file, any distribution:
+
+  ```
+  chmod +x Ember-*-x86_64.AppImage
+  ./Ember-*-x86_64.AppImage
+  ```
+
+  If it stops with `error loading libfuse.so.2`, your system has no FUSE 2.
+  Either run it with `--appimage-extract-and-run`, or install `libfuse2t64`
+  (`libfuse2` on older releases).
+
+- **Archive** — `tar xzf Ember-*-Linux-x86_64.tar.gz`, then run `./Ember`
+  from inside the folder.
+
+**Start it from a terminal the first time.** A desktop launcher hides any
+message the application prints if something goes wrong.
 
 ## First run
 
@@ -58,34 +86,45 @@ Three plugins are built in — nothing to install separately.
 
 ## Where your files are kept
 
-| | |
-|---|---|
-| Projects | `Documents` (change it in Preferences) |
-| Recordings | `Documents\Ember Recordings` |
-| Templates | `Documents\Ember Templates` |
-| Settings, auto-save, plugin list | `%APPDATA%\Ember` |
+| | Windows | Linux |
+|---|---|---|
+| Projects | `Documents` (change it in Preferences) | `~/Documents` |
+| Recordings | `Documents\Ember Recordings` | `~/Documents/Ember Recordings` |
+| Templates | `Documents\Ember Templates` | `~/Documents/Ember Templates` |
+| Settings, auto-save, plugin list | `%APPDATA%\Ember` | `~/.config/Ember` |
 
 Project files use the `.em1` extension.
 
 ## Uninstalling
 
-Delete the folder (portable), or use **Add or remove programs** (installer).
+On Windows: delete the folder (portable), or use **Add or remove programs**
+(installer). On Linux: delete the AppImage or the unpacked folder.
 
-The uninstaller offers to remove `%APPDATA%\Ember` as well. That folder holds your
-settings, the plugin list, any plugin presets you saved, and the auto-save backups.
-**Your projects and recordings are never touched.**
+The Windows uninstaller offers to remove `%APPDATA%\Ember` as well. That folder
+holds your settings, the plugin list, any plugin presets you saved, and the
+auto-save backups. **Your projects and recordings are never touched.**
 
-With the portable version, delete `%APPDATA%\Ember` by hand to remove the same things.
+Otherwise, delete that folder by hand to remove the same things.
 
 ## Building from source
 
 ```
-cmake -S . -B build -DMANTA_BRAND=ember
-cmake --build build --config Release
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DMANTA_BRAND=ember
+cmake --build build
 ```
 
 CMake fetches JUCE on the first configure, so the first build needs an internet
-connection. The result is `build/PersonalDAW_artefacts/Release/Ember.exe`.
+connection.
+
+On Linux, install the dependencies first:
+
+```
+sudo apt install build-essential cmake ninja-build pkg-config \
+  libasound2-dev libjack-jackd2-dev libfreetype-dev libfontconfig1-dev \
+  libx11-dev libxcomposite-dev libxcursor-dev libxext-dev libxinerama-dev \
+  libxrandr-dev libxrender-dev libxi-dev libglu1-mesa-dev mesa-common-dev \
+  libcurl4-openssl-dev
+```
 
 ## Licence
 
