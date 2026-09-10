@@ -3977,13 +3977,6 @@ juce::String AudioEngine::loadInstrumentForTrack (const juce::String& trackId,
         return isPluginBlockedByCrashes (description) ? getPluginBlockedMessage (description)
                                                       : utf8 ("プラグインを読み込めませんでした: ") + description.name;
 
-    // モデルへ記録する。プラグインの抜き差しはUndo対象にしない
-    // （モデルだけ巻き戻してもグラフ上のノードは外れず、状態が食い違うため。HANDOVER 3.1）。
-    auto track = findTrackById (trackId);
-
-    if (track.state.getParent().isValid())
-        track.setInstrument (description, nullptr);
-
     disconnectTrackChain (*nodes);
 
     // 前の音源を片付ける。エディタウィンドウはプラグイン本体より先に閉じる（HANDOVER 1.5）
@@ -3995,6 +3988,28 @@ juce::String AudioEngine::loadInstrumentForTrack (const juce::String& trackId,
     nodes->instrumentNode = newInstrumentNode;
 
     connectTrackChain (*nodes);
+
+    // 8.190：**モデルへ書くのは、エンジンを入れ替えた後**（Phase 228／本人の報告）。
+    //
+    // Phase 227まで、この行はこの関数の**先頭近く**にありました。そこが問題でした：
+    //
+    //   `setInstrument()`はValueTreeを書き換えるので、**その場で購読者へ通知が飛びます。**
+    //   ところが通知を受けた画面は`getTrackInstrumentName()`を読みます——
+    //   これは`nodes->instrumentNode`、つまり**エンジンの側**を見ています。
+    //   まだ入れ替えていないので、**前の音源の名前が返ります。**
+    //
+    // 画面は律儀に「いま正しいはずの名前」を書き込み、それが古い名前でした。
+    // **中身は変わっているのに名前だけ前のまま**という報告の正体です。
+    //
+    // **モデルの変更を知らせるのは、エンジンが辻褄の合った状態になってから。**
+    // 順番を入れ替えるだけで、通知を受けた誰もが正しい名前を読めます。
+    //
+    // プラグインの抜き差しはUndo対象にしません
+    // （モデルだけ巻き戻してもグラフ上のノードは外れず、状態が食い違うため。HANDOVER 3.1）
+    auto track = findTrackById (trackId);
+
+    if (track.state.getParent().isValid())
+        track.setInstrument (description, nullptr);
 
     // 8.69：出口は`rebuildTrackOutputConnections()`に任せる（Phase 108/D6）。
     // ここで直にマスターへ繋いでいたため、**フォルダに入れたMIDIトラックへ音源を
@@ -4019,11 +4034,6 @@ void AudioEngine::removeInstrumentFromTrack (const juce::String& trackId)
     if (nodes == nullptr)
         return;
 
-    auto track = findTrackById (trackId);
-
-    if (track.state.getParent().isValid())
-        track.removeInstrument (nullptr);
-
     disconnectTrackChain (*nodes);
 
     nodes->instrumentEditorWindow = nullptr;
@@ -4035,6 +4045,14 @@ void AudioEngine::removeInstrumentFromTrack (const juce::String& trackId)
     }
 
     connectTrackChain (*nodes);
+
+    // 8.190：**外すときも、モデルへ書くのは最後**（Phase 228）。
+    // 理由は`loadInstrumentForTrack()`と同じです——**通知を受けた画面が
+    // エンジンを読むので、エンジンを先に片付けておく**必要があります
+    auto track = findTrackById (trackId);
+
+    if (track.state.getParent().isValid())
+        track.removeInstrument (nullptr);
 
     // 8.69：出口は`rebuildTrackOutputConnections()`に任せる（Phase 108/D6。上と同じ理由）
     rebuildTrackOutputConnections();

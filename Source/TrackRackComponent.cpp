@@ -215,7 +215,24 @@ void TrackRackComponent::refreshSlotsForChangedChild (const juce::ValueTree& par
         refreshInsertSlots();
     else if (parent.hasType (IDs::SENDS))
         refreshSendSlots();
-    else if (child.hasType (IDs::INSTRUMENT))
+
+    // 8.190：**`parent`の側も見ること**（Phase 228／本人の報告）。
+    //
+    // 「音源を別のものへ差し替えると、**中身は変わるのに名前が古いまま**」という
+    // 報告でした。**足すときと差し替えるときで、飛んでくる通知が違います**：
+    //
+    // | | `Track::setInstrument()`がすること | ここへ来る形 |
+    // |---|---|---|
+    // | **足す**（`<INSTRUMENT>`が無い） | `state`へ`<INSTRUMENT>`を足す | `child` = `<INSTRUMENT>` ← **拾えていた** |
+    // | **差し替え**（すでに有る） | `<INSTRUMENT>`の中の`<PLUGININSTANCE>`を入れ替える | `parent` = `<INSTRUMENT>`、`child` = `<PLUGININSTANCE>` ← **どれにも当たらない** |
+    //
+    // 差し替えでは`<INSTRUMENT>`そのものは動かないので、`child`を見ている限り
+    // 永久に当たりません。**器の側（`parent`）で見分けます**——
+    // インサートとセンドを親の型で見分けているのと同じ形です（上の2行）。
+    //
+    // 音が変わって名前だけ古いのは、**一番たちの悪い出方**です：
+    // 画面は正しく見えるので、間違っていることに気づけません。
+    else if (child.hasType (IDs::INSTRUMENT) || parent.hasType (IDs::INSTRUMENT))
         refreshInstrumentSlot();
     else if (child.hasType (IDs::INSERTS))
         refreshInsertSlots();  // 器そのものが後から作られる場合がある（古いプロジェクト）

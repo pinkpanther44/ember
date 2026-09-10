@@ -352,6 +352,27 @@ PianoRollView::PianoRollView (ProjectModel& projectToUse, AudioEngine& engineToU
     refreshTrackList(); // 中でrefreshClipSelection()とupdateInstrumentLabel()まで行う
 }
 
+PianoRollView::~PianoRollView()
+{
+    // 8.190：**外し忘れないこと**（Phase 228）。ルートのほうが長生きします
+    subscribedProjectState.removeListener (this);
+}
+
+//==============================================================================
+// 8.190：音源の差し替えに追い付く（Phase 228／本人の報告）
+
+void PianoRollView::valueTreeChildAdded (juce::ValueTree& parent, juce::ValueTree& child)
+{
+    if (parent.hasType (IDs::INSTRUMENT) || child.hasType (IDs::INSTRUMENT))
+        updateInstrumentLabel();
+}
+
+void PianoRollView::valueTreeChildRemoved (juce::ValueTree& parent, juce::ValueTree& child, int)
+{
+    if (parent.hasType (IDs::INSTRUMENT) || child.hasType (IDs::INSTRUMENT))
+        updateInstrumentLabel();
+}
+
 void PianoRollView::paint (juce::Graphics& g)
 {
     g.fillAll (AppColours::background);
@@ -641,6 +662,15 @@ void PianoRollView::refreshFromModel()
 
 void PianoRollView::refreshTrackList()
 {
+    // 8.190：**購読先を今のプロジェクトのルートへ合わせる**（Phase 228。1.15）。
+    // プロジェクトを読み込むとルート自体が差し替わるので、毎回見比べて付け替えます
+    if (subscribedProjectState != project.getState())
+    {
+        subscribedProjectState.removeListener (this);
+        subscribedProjectState = project.getState();
+        subscribedProjectState.addListener (this);
+    }
+
     // 選択の記憶はtrackId側で持つ（番号で覚えると、トラックが増減したときにずれる。1.32）。
     // **一覧はPhase 73で左の`PianoRollTrackList`へ移りました**（コンボボックスは廃止）。
     juce::StringArray trackIds;

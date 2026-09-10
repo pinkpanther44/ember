@@ -23,10 +23,17 @@
     編集対象のクリップも、選んだトラックの中から決まる。
 */
 class PianoRollView : public juce::Component,
-                       private juce::ScrollBar::Listener
+                       private juce::ScrollBar::Listener,
+                       // 8.190：**音源の差し替えに追い付くため**（Phase 228／本人の報告）。
+                       // それまでこの画面は**モデルを一切見張っていませんでした**——
+                       // 名前を書き換えるのは「トラックを選び直したとき」と
+                       // 「自分のメニューから挿したとき」だけ。
+                       // **他の画面から差し替えると、ここだけ前の名前のまま**でした
+                       private juce::ValueTree::Listener
 {
 public:
     PianoRollView (ProjectModel& projectToUse, AudioEngine& engineToUse);
+    ~PianoRollView() override;
 
     void paint (juce::Graphics& g) override;
     void resized() override;
@@ -118,6 +125,16 @@ private:
 
     void scrollBarMoved (juce::ScrollBar* scrollBarThatHasMoved, double newRangeStart) override;
 
+    //==========================================================================
+    // 8.190：音源の差し替えに追い付く（Phase 228）。
+    //
+    // **プロパティの変更は見ていません。** 音源の抜き差しは
+    // `<INSTRUMENT>`の子の増減として届くので、この2つで足ります。
+    // 全部の変更で名前を引き直すと、ノートを1つ動かすたびに走ります
+
+    void valueTreeChildAdded (juce::ValueTree& parent, juce::ValueTree& child) override;
+    void valueTreeChildRemoved (juce::ValueTree& parent, juce::ValueTree& child, int) override;
+
     /** ピアノロール本体の大きさを、Viewportの見えている範囲に合わせる。
 
         **横はViewportにスクロールさせないので、幅＝見えている幅**にする
@@ -207,6 +224,12 @@ private:
 
     ProjectModel& project;
     AudioEngine& engine;
+
+    /** 8.190：いま購読しているプロジェクトのルート（Phase 228）。
+
+        **プロジェクトを読み込むとルート自体が差し替わる**ので、
+        毎回見比べて付け替えます（`InspectorPanel`と同じやり方。1.15）。 */
+    juce::ValueTree subscribedProjectState;
 
     // 選択中のMIDIトラックのID（設計書1.3のTrack.id）。
     // コンボボックスの選択インデックスではなくこちらを正とする。
