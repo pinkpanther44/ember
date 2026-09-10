@@ -35,8 +35,8 @@
 ; ============================================================================
 
 #define AppName        "Ember"
-#define AppPublisher   "Ember"
-#define AppURL         "https://github.com/"
+#define AppPublisher   "pinkpanther44"
+#define AppURL         "https://github.com/pinkpanther44/ember"
 #define AppExeName     "Ember.exe"
 
 ; バージョンは Package-Ember.ps1 が /DAppVersion=... で渡します
@@ -74,6 +74,13 @@ PrivilegesRequiredOverridesAllowed=dialog
 ; 署名していないので、発行元は「不明」と出ます。READMEに書いてあります
 UninstallDisplayIcon={app}\{#AppExeName}
 
+; 8.191：**Setup.exe自身にも版と作者を入れる**（Phase 229）。
+; 入れないとプロパティが空欄で、**ダウンロードしたファイルの素性が分かりません**
+VersionInfoVersion={#AppVersion}
+VersionInfoCompany={#AppPublisher}
+VersionInfoProductName={#AppName}
+VersionInfoDescription={#AppName} Setup
+
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
@@ -104,7 +111,11 @@ Filename: "{app}\{#AppExeName}"; Description: "{cm:LaunchProgram,{#AppName}}"; F
 [Code]
 { 8.177：アンインストールで %APPDATA%\Ember を消す（Phase 219／本人の方針）。
 
-  [UninstallDelete] ではなくコードにしてあるのは、**訊いてから消したい**ためです
+  8.191：**この行を "[" で始めないこと**（Phase 229／初めてコンパイルして発覚）。
+  Inno Setupは**行頭の "[" を節の見出しとして読みます**——`[Code]`の中の、
+  しかもコメントの中でも同じです。"Invalid section tag." で止まります。
+
+  UninstallDelete の節ではなくコードにしてあるのは、**訊いてから消したい**ためです
   （上の説明。プリセットとオートセーブの控えが入っています）。
   無人アンインストール（/SILENT）のときは訊かずに消します——
   訊けないので、方針どおりに倒します。 }

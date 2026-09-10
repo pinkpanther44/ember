@@ -83,6 +83,26 @@ if ($exeText -notmatch 'Ember') {
     throw "$exe does not look like an Ember build. Configure with -DMANTA_BRAND=ember."
 }
 
+# 8.191：**exeのプロパティも見ること**（Phase 229／実際に踏みました）。
+#
+# `CMakeLists.txt`の`COMPANY_NAME`を直したのに、**Ember側だけ"YourName"のまま**でした。
+# 版情報（`PersonalDAW_resources.rc`）は**juceaideがビルド時に1度作って、
+# それ以降は作り直しません**——`CMakeLists.txt`は、その生成の依存に入っていないためです。
+# 8.165のアイコンと**同じ種類の取りこぼし**で、ビルドは成功するので気づけません。
+#
+# 直すには、**`.rc`を消してからビルドし直します**。
+# ここで止めておけば、間違った作者名のまま配ることはありません。
+$info = (Get-Item $exe).VersionInfo
+
+if ($info.CompanyName -ne 'pinkpanther44' -or $info.ProductName -ne 'Ember') {
+    Write-Host ""
+    Write-Host ("  exe says   : Company='{0}' Product='{1}'" -f $info.CompanyName, $info.ProductName) -ForegroundColor Yellow
+    Write-Host  "  expected   : Company='pinkpanther44' Product='Ember'" -ForegroundColor Yellow
+    Write-Host  "  Delete this file and build again (juceaide only writes it once):" -ForegroundColor Yellow
+    Write-Host ("    $buildDir\PersonalDAW_artefacts\JuceLibraryCode\PersonalDAW_resources.rc")
+    throw "The executable's version info is stale."
+}
+
 # ランタイムを抱えているか（/MT。8.176）
 $ascii = [System.Text.Encoding]::ASCII.GetString($exeBytes)
 
@@ -112,9 +132,14 @@ Write-Host ("`n  zip       : $zip  ({0:N1} MB)" -f ((Get-Item $zip).Length / 1MB
 
 #--------------------------------------------------------------------------
 # インストーラー。**無ければ黙って飛ばします**（zipだけでも配れる）
+# 8.191：**ユーザー領域も見ること**（Phase 229）。
+# `winget install JRSoftware.InnoSetup` は管理者権限を要求しないので、
+# **`%LOCALAPPDATA%\Programs` の下へ入ります**——Program Files しか見ていないと、
+# 入れたのに「入っていません」と言われます
 $iscc = @(
     "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
-    "$env:ProgramFiles\Inno Setup 6\ISCC.exe"
+    "$env:ProgramFiles\Inno Setup 6\ISCC.exe",
+    "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe"
 ) | Where-Object { Test-Path $_ } | Select-Object -First 1
 
 if ($iscc) {
