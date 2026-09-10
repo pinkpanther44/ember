@@ -3,6 +3,7 @@
 #include "GrooveQuantise.h" // 仕様書5.3.4：グルーヴの抽出
 #include "Utf8.h"
 #include "AppSettings.h" // 設計書2.5：構成音カラーリングの設定を覚える（Phase 46）
+#include "ToolbarLayout.h" // 8.184：狭い画面でツールバーを2段に折り返す（Phase 223）
 
 PianoRollView::PianoRollView (ProjectModel& projectToUse, AudioEngine& engineToUse)
     : project (projectToUse), engine (engineToUse)
@@ -380,7 +381,30 @@ void PianoRollView::resized()
     area.removeFromTop (8);
 
     // クオンタイズ操作の行（仕様書5.3）
-    auto quantiseRow = area.removeFromTop (28);
+    //
+    // 8.184：**幅が足りないときは2段に折り返します**（Phase 223／`ToolbarLayout.h`）。
+    // 左詰めの一群（クオンタイズ〜グルーヴ）と右詰めの一群（刻み〜表示モード）を
+    // 別の段に分けます。**広い画面では、いままでと1pxも変わりません。**
+    constexpr int rowHeight = 28;
+
+    // 下の`removeFromLeft`／`removeFromRight`の合計。**片方を変えたらここも直すこと**
+    constexpr int leftGroupWidth  = 100 + 8 + 110 + 12 + 45 + 160 + 12 + 150 + 12 + 100;
+    constexpr int rightGroupWidth = 12 + SnapGridSelector::preferredWidth
+                                     + 12 + (52 + 3 + 52 + 3 + 62 + 3 + 68)
+                                     + 12 + 120 + 6 + 120;
+
+    const bool wrapToolbar = ToolbarLayout::needsWrap (area.getWidth(),
+                                                        leftGroupWidth, rightGroupWidth);
+
+    auto quantiseRow = area.removeFromTop (rowHeight);
+
+    // 折り返さないときは、2つ目の段は1つ目と同じ矩形。**以降のコードは共通です**
+    auto secondRow = quantiseRow;
+
+    if (wrapToolbar)
+        secondRow = area.removeFromTop (ToolbarLayout::gap + rowHeight)
+                        .withTrimmedTop (ToolbarLayout::gap);
+
     quantiseButton.setBounds (quantiseRow.removeFromLeft (100));
     quantiseRow.removeFromLeft (8);
     gridBox.setBounds (quantiseRow.removeFromLeft (110));
@@ -400,9 +424,12 @@ void PianoRollView::resized()
     // 中身の切り替えはレーンの見出し（左端）と右クリックが入口です
 
     // 設計書2.3.3：表示モードの切り替えは右端に置く（Phase 25／Phase 46）
-    drumEditorButton.setBounds (quantiseRow.removeFromRight (120));
-    quantiseRow.removeFromRight (6);
-    colouringButton.setBounds (quantiseRow.removeFromRight (juce::jmin (120, quantiseRow.getWidth())));
+    //
+    // 8.184：**ここから下は`secondRow`から取ります**（Phase 223）。
+    // 折り返していないときは`quantiseRow`と同じ矩形なので、並びは変わりません
+    drumEditorButton.setBounds (secondRow.removeFromRight (120));
+    secondRow.removeFromRight (6);
+    colouringButton.setBounds (secondRow.removeFromRight (juce::jmin (120, secondRow.getWidth())));
 
     // 仕様書6.2：ツールのボタン（Phase 69）。**表示モードの左隣**に置く。
     // **アレンジ画面と同じ並び**（左から 刻み → ツール）にしてあるので、
@@ -410,12 +437,12 @@ void PianoRollView::resized()
     // **Phase 68まで、ボタンはアレンジ画面にしかありませんでした**：
     // ノートを置くのがペンツールの仕事になったので、ここにも入口が要ります
     {
-        quantiseRow.removeFromRight (12);
+        secondRow.removeFromRight (12);
 
-        auto place = [&quantiseRow] (juce::TextButton& button, int width)
+        auto place = [&secondRow] (juce::TextButton& button, int width)
         {
-            button.setBounds (quantiseRow.removeFromRight (juce::jmin (width, quantiseRow.getWidth())));
-            quantiseRow.removeFromRight (3);
+            button.setBounds (secondRow.removeFromRight (juce::jmin (width, secondRow.getWidth())));
+            secondRow.removeFromRight (3);
         };
 
         // **右から置いていく**ので、並びは逆順に書く（左から 選択・ペン・カット・消しゴム）
@@ -427,9 +454,9 @@ void PianoRollView::resized()
 
     // 仕様書5.5・5.9：編集の刻み（Phase 55）。**ツールの左隣**に置く。
     // どちらも「これから置くもの」を決める設定なので、まとめて手の届く場所にある
-    quantiseRow.removeFromRight (12);
-    snapSelector.setBounds (quantiseRow.removeFromRight (juce::jmin (SnapGridSelector::preferredWidth,
-                                                                      quantiseRow.getWidth())));
+    secondRow.removeFromRight (12);
+    snapSelector.setBounds (secondRow.removeFromRight (juce::jmin (SnapGridSelector::preferredWidth,
+                                                                    secondRow.getWidth())));
 
     area.removeFromTop (8);
     statusLabel.setBounds (area.removeFromTop (22));
