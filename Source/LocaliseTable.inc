@@ -1,4 +1,18 @@
-﻿
+
+    // AboutDialog.cpp
+    { "このソフトウェアはフリーソフトウェアです。フリーソフトウェアファウンデーションが公開する", "This program is free software: you can redistribute it and/or modify it under the terms of the", true },
+    { "の条件のもとで、再配布および改変ができます。", "as published by the Free Software Foundation.", true },
+    { "有用であることを願って配布されていますが、いかなる保証もありません。", "This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;", true },
+    { "商品性や特定目的への適合性についての黙示的な保証も含みます。", "without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.", true },
+    { "詳しくはライセンス全文をご覧ください。", "See the licence for the full terms.", true },
+    { "使用しているもの", "Built with", true },
+    { "  ・JUCE — このアプリの土台になっているフレームワーク", "  - JUCE - the framework this application is built on", true },
+    { "  ・VST3 SDK — プラグインを読み込むために使用", "  - VST3 SDK - used for hosting plugins", true },
+    { "    VSTは Steinberg Media Technologies GmbH の商標です", "    VST is a trademark of Steinberg Media Technologies GmbH", true },
+    { "Steinberg ASIO SDK は含まれておらず、ASIOのコードも入っていません。", "The Steinberg ASIO SDK is not included, and there is no ASIO code in this build.", true },
+    { "閉じる", "Close", true },
+    { "バージョン情報", "About", true },
+
     // ArrangeView.cpp
     { "選択", "Select", false },
     { "選択・移動・伸縮／MIDIトラックの空きをドラッグで時間範囲を選ぶ（1）", "Select, move and resize / drag empty space on a MIDI track to pick a time range (1)", true },
@@ -101,6 +115,7 @@
     { "ヒットポイントの検出", "Detect hit points", false },
 
     // AudioEngine.cpp
+    { "入力デバイスは開いていません。録音するには Audio Settings... で選んでください。", "No audio input is open. Choose one under Audio Settings... to record.", true },
     { "インサートが見つかりません。", "Insert not found.", true },
     { "サイドチェインの設定", "Side-chain settings", false },
     { "サイドチェインのソースになるトラックが見つかりません。", "The track to use as the side-chain source was not found.", true },
@@ -369,6 +384,7 @@
     { "フォルダを開く", "Open folder", false },
     { "ファイル", "File", false },
     { "編集", "Edit", false },
+    { "ヘルプ", "Help", true },
     { "新規プロジェクト", "New project", false },
     { "新しいプロジェクトを作る", "Create a new project", true },
     { "テンプレートから新規...", "New from template...", false },
@@ -390,6 +406,8 @@
     { "打ち込んだノートを標準MIDIファイルへ書き出す", "Export the notes you entered as a standard MIDI file", true },
     { "環境設定...", "Preferences...", false },
     { "オーディオデバイスとプラグインの設定（仕様書6.2）", "Audio device and plugin settings (spec 6.2)", true },
+    { "バージョン情報...", "About...", true },
+    { "バージョン・ライセンス・ソースの入手先", "Version, licence and where to get the source", true },
     { "元に戻す: ", "Undo: ", false },
     { "元に戻す", "Undo", false },
     { "直前の操作を取り消す", "Undo the last action", true },
@@ -578,12 +596,12 @@
     { "ひとつ前の設定へ戻す", "Go back one step", true },
     { "2つの設定を切り替えて聴き比べる", "Switch between two settings to compare them", true },
     { "いまの設定を、もう片方へ写す", "Copy the current setting to the other slot", true },
+    { "その他", "Other", false },
     { "保存されたプリセットはありません", "No presets have been saved yet", true },
     { "いまの設定を保存...", "Save current setting...", false },
     { "プリセットのフォルダを開く", "Open the preset folder", false },
     { "プリセットを保存", "Save preset", false },
     { "名前を付けて保存します。", "Save it under a name.", true },
-    { "その他", "Other", false },
 
     // MantaSynthEditor.cpp
     { "同じ波を重ねる本数。増やすほど太くなります", "How many copies of the wave are stacked. More is thicker", true },

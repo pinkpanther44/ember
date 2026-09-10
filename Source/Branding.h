@@ -110,6 +110,30 @@ namespace Branding
     //==========================================================================
     // 既定値
 
+    //==========================================================================
+    // 8.188：**バージョン情報に出すもの**（Phase 226）。
+    //
+    // **ここに集めること。** 名前を直に書いて「Emberでだけ間違っていた」のを
+    // 3件やっています（8.186）。
+
+    /** 配っているかどうか。**Manta Studioは本人専用**で公開していません。
+
+        偽のときは、バージョン情報からライセンスとソースの節を丸ごと外します——
+        **配っていないものに配布の条件を書いても、読む人を混乱させるだけ**です。 */
+    inline constexpr bool isPublished = isEmber;
+
+    /** 著作権者。`Packaging/Ember/README.md`と`LICENSE`の表記と**揃えること**。 */
+    inline constexpr const char* copyrightHolder = "pinkpanther44";
+
+    inline constexpr const char* copyrightYear = "2026";
+
+    /** **AGPLv3が求める「ソースの入手先」**（8.182）。空なら出しません。 */
+    inline constexpr const char* sourceUrl = isPublished
+                                                ? "https://github.com/pinkpanther44/ember"
+                                                : "";
+
+    inline constexpr const char* licenceName = "GNU Affero General Public License, version 3 or later";
+
     /** 8.186：**ASIOが使えるかどうか**（Phase 225）。
 
         Ember版にASIOは入っていません（8.174／本人の判断）。ASIO SDKは

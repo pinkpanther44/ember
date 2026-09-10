@@ -189,6 +189,7 @@ target_sources(PersonalDAW
         Source/PluginManager.cpp
         Source/PluginScanView.cpp
         Source/PreferencesDialog.cpp
+        Source/AboutDialog.cpp
         Source/WaveformCache.cpp
         Source/ExportOptions.cpp
         Source/MixerLookAndFeel.cpp

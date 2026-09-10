@@ -6,6 +6,7 @@
 #include "ProjectChooser.h"     // 8.151：プロジェクト選択画面（Phase 189／⑰）
 #include "RecentProjects.h"     // 8.151：最近開いたプロジェクト（Phase 189／⑰）
 #include "Utf8.h"
+#include "AboutDialog.h"        // 8.188：バージョン情報（Phase 226）
 
 namespace
 {
@@ -1388,7 +1389,10 @@ namespace CommandIds
 
         // 8.151：プロジェクトテンプレート（Phase 189／8.1のD8）
         newFromTemplate,
-        saveAsTemplate
+        saveAsTemplate,
+
+        // 8.188：バージョン情報（Phase 226）。**末尾に足すこと**（上の注意書き）
+        showAbout
     };
 }
 
@@ -1491,7 +1495,10 @@ namespace
 
 juce::StringArray MainComponent::getMenuBarNames()
 {
-    return { utf8 ("ファイル"), utf8 ("編集") };
+    // 8.188：**ヘルプを足しました**（Phase 226）。中身はいまバージョン情報だけですが、
+    // **「バージョン情報」をファイルや編集に入れると探せません**——
+    // どのアプリでもここにあるので、置き場所そのものが道案内になっています
+    return { utf8 ("ファイル"), utf8 ("編集"), utf8 ("ヘルプ") };
 }
 
 juce::PopupMenu MainComponent::getMenuForIndex (int topLevelMenuIndex, const juce::String&)
@@ -1533,6 +1540,11 @@ juce::PopupMenu MainComponent::getMenuForIndex (int topLevelMenuIndex, const juc
         menu.addCommandItem (&commandManager, CommandIds::copySelection);
         menu.addCommandItem (&commandManager, CommandIds::pasteSelection);
     }
+    else if (topLevelMenuIndex == 2)
+    {
+        // 8.188：ヘルプ（Phase 226）
+        menu.addCommandItem (&commandManager, CommandIds::showAbout);
+    }
 
     return menu;
 }
@@ -1552,6 +1564,7 @@ void MainComponent::getAllCommands (juce::Array<juce::CommandID>& commands)
                           CommandIds::exportStems, CommandIds::exportMidi,
                           CommandIds::showPreferences, CommandIds::quitApp,
                           CommandIds::undo, CommandIds::redo,
+                          CommandIds::showAbout,   // 8.188（Phase 226）
 
                           // 仕様書6.2：ショートカット（Phase 47）
                           CommandIds::playStop, CommandIds::stopTransport,
@@ -1657,6 +1670,13 @@ void MainComponent::getCommandInfo (juce::CommandID commandID, juce::Application
             result.setInfo (utf8 ("環境設定..."),
                              utf8 ("オーディオデバイスとプラグインの設定（仕様書6.2）"), utf8 ("ファイル"), 0);
             result.addDefaultKeypress (',', juce::ModifierKeys::commandModifier);
+            break;
+
+        // 8.188：バージョン情報（Phase 226）。**ショートカットは割り当てません**——
+        // 押す回数が少なく、空けておいたほうが他に回せます
+        case CommandIds::showAbout:
+            result.setInfo (utf8 ("バージョン情報..."),
+                             utf8 ("バージョン・ライセンス・ソースの入手先"), utf8 ("ヘルプ"), 0);
             break;
 
         case CommandIds::undo:
@@ -2007,6 +2027,7 @@ bool MainComponent::perform (const InvocationInfo& info)
             PreferencesDialog::launch (audioEngine, &commandManager,
                                         [this] { browserPanel.refreshPluginList(); });
             return true;
+        case CommandIds::showAbout:     AboutDialog::launch(); return true;   // 8.188（Phase 226）
         case CommandIds::undo:          undo();             return true;
         case CommandIds::redo:          redo();             return true;
 
