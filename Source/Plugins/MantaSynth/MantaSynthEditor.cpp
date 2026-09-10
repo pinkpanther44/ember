@@ -1,6 +1,7 @@
 #include "MantaSynthEditor.h"
 
 #include "../../Utf8.h"
+#include "../../Branding.h" // 8.186：画面右上の名前は製品ごとに違う（Phase 225）
 
 //==============================================================================
 
@@ -33,7 +34,10 @@ MantaSynthEditor::MantaSynthEditor (MantaSynthProcessor& processorToUse)
         toolbar.setFactoryPresets (std::move (presets));
     }
 
-    titleLabel.setText ("Manta Synthesizer", juce::dontSendNotification);
+    // 8.186：**名前を直に書かないこと**（Phase 225／本人の指摘）。
+    // Ember版でも「Manta Synthesizer」と出ていました。
+    // `Branding.h`が唯一の出どころです（Manta Synthesizer／Red Panda）
+    titleLabel.setText (Branding::synthPluginName, juce::dontSendNotification);
     titleLabel.setColour (juce::Label::textColourId, MantaTheme::textDim());
     titleLabel.setFont (juce::Font (juce::FontOptions (12.0f, juce::Font::bold)));
     titleLabel.setJustificationType (juce::Justification::centredRight);

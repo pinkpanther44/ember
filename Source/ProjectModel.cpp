@@ -1,6 +1,7 @@
 #include "ProjectModel.h"
 #include <juce_audio_processors/juce_audio_processors.h> // juce::PluginDescription（設計書3.8）
 #include "Utf8.h"                                        // 日本語のアクション名に使う
+#include "Branding.h"                                     // 8.186：1本目のトラックの色は製品ごとに違う（Phase 225）
 // 8.147：半音の上限は`AudioTransform`が持つ（式と定数を2箇所に書かない。1.27）。
 // **入れるのは.cppだけ**——ProjectModel.hへ入れると、データモデル層が
 // juce_audio_formatsを引き込みます（MidiCCMessage.hと同じ理由。設計書1.1）
@@ -119,7 +120,12 @@ juce::String Track::getDefaultColourForIndex (int trackIndex)
     const int middleRowStart = columns;   // 2段目の先頭＝グレー
     const int numColours = juce::jmax (1, columns - 1);
 
-    return palette[middleRowStart + 1 + (juce::jmax (0, trackIndex) % numColours)];
+    // 8.186：**配り始めの位置は製品ごとに違います**（Phase 225／本人の指定）。
+    // Manta Studioはパープルから、Emberは**ワインレッドが基調なので赤系から**。
+    // 回り方は同じなので、**色の総数も並び順も変わりません**（`Branding.h`）
+    const int offset = Branding::defaultTrackColourOffset;
+
+    return palette[middleRowStart + 1 + ((offset + juce::jmax (0, trackIndex)) % numColours)];
 }
 
 Track Track::create (const juce::String& name, TrackType type, juce::UndoManager* undoManager)

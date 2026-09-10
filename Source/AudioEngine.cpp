@@ -2987,6 +2987,15 @@ juce::String AudioEngine::getLatencyDescription() const
          << utf8 ("（小さくしたいときはバッファサイズを下げてください。"
                    "下げすぎると音が途切れます）");
 
+    // 8.186：**Emberでは、この一文を出さないこと**（Phase 225／本人のスクリーンショット）。
+    //
+    // Ember版にASIOは入っていません（8.174）。ASIO SDKは再配布できず、
+    // プロプライエタリなのでAGPLv3のものへリンクできないためです。
+    // それなのに「ASIOを選べる環境では〜」と出ていました。
+    // **選べるようにならないものを勧めている**ことになるので、外します
+    if (! Branding::hasAsioSupport)
+        return text;
+
     // 8.85：**いちばん効くのはドライバ種別**（Phase 125）。
     // Windows AudioやDirectSoundは、バッファをいくら下げても数十msから下がりません
     if (device->getTypeName().containsIgnoreCase ("ASIO"))
