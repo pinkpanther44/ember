@@ -6,10 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [Unreleased]
+## [0.1.0] - 2026-09-10
 
-The first public release is being prepared. Everything below describes what
-that release will contain.
+The first release. Everything below is new, because there was nothing before
+it — later entries will be shorter.
 
 ### Added
 
@@ -62,10 +62,14 @@ that release will contain.
 ---
 
 <!--
-  リリースするときは、この上に次の形で節を足してください。
+  8.193：**次の版を出すときは、この上に節を足してください**（Phase 230）。
 
-  ## [1.0.0] - 2026-XX-XX
-  ### Added / Changed / Fixed / Removed
+      ## [0.2.0] - 2026-XX-XX
+      ### Added / Changed / Fixed / Removed
+
+  **`CMakeLists.txt`の`project(... VERSION ...)`と揃えること。**
+  タグとその版が食い違うと、ワークフローが**貼る前に止まります**
+  （`.github/workflows/ember-linux.yml` の「Read the version」）。
 
   **利用者に見えることだけ書くこと。** 内部の作り直しは、
   動きが変わらないなら書かなくて構いません。
