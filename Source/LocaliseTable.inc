@@ -77,10 +77,6 @@
     { "この行を隠す", "Hide this row", false },
     { "この行を削除（点も消えます）", "Delete this row (points are deleted too)", false },
     { "オートメーショントラックの削除", "Delete automation track", false },
-    { "オートメーションの行：線の上をクリックで点を追加 / ドラッグで移動 / ", "Automation row: click on the line to add a point / drag to move / ", true },
-    { "ダブルクリックで削除。行はトラックの下に並びます。", "double-click to delete. Rows sit under the track.", true },
-    { "ヘッダーは左クリックで選択、右クリックでメニュー（追加・隠す・削除）。", "Left-click the header to select, right-click for the menu (add, hide, delete).", true },
-    { "「B」でバイパス、「x」で閉じます。", "\"B\" bypasses, \"x\" closes.", true },
 
     // AudioEditorView.cpp
     { "オーディオファイルを取り込む...", "Import audio file...", false },
@@ -261,6 +257,7 @@
     { "ベース指定なし", "No bass note", false },
     { "分数コードのベース音", "Bass note for slash chords", false },
     { "組み立てたコードを挿入位置へ入れます（左の枠を直接クリックしても同じ。右クリックで試聴）", "Puts the chord you built at the insert position (clicking the box on the left does the same. Right-click to audition)", true },
+    { "+ コードトラックを作る", "+ Create a chord track", true },
     { "再生位置にコードがありません", "No chord at the playhead", true },
     { "Writeで「", "Write \"", false },
     { "」を", "\" ", false },
@@ -271,7 +268,7 @@
     { "コードトラックがありません", "No chord track", true },
     { "挿入位置：", "Insert at: ", false },
     { "小節 ", "bar ", false },
-    { "「+ Track」→「コードトラック」でコードトラックを作ってください", "Create a chord track with \"+ Track\" -> \"Chord track\"", true },
+    { "コードトラックがまだありません", "There is no chord track yet", true },
     { "コードの入力", "Enter chord", false },
 
     // ClipAudioRenderer.cpp
@@ -581,6 +578,14 @@
     { "外部SC", "Ext SC", false },
     { "Listen中", "Listening", false },
 
+    // MantaDelayEditor.cpp
+    { "反復の間隔。Syncを入れると曲のテンポに合わせます", "How far apart the repeats are. Turn on Sync to follow the song tempo", true },
+    { "返ってきた音をどれだけ戻すか。上げるほど長く反復します", "How much of the echo is fed back. Higher means the repeats last longer", true },
+    { "原音とディレイ音の混ぜ具合", "The balance between the dry signal and the delay", true },
+    { "音価。付点は「.」、3連は「T」です", "Note length. A dot means dotted, T means a triplet", true },
+    { "テンポが取れていません（Timeの値で鳴っています）", "No tempo from the host - using the Time value", true },
+    { "（Phase 2以降）", "(Phase 2 onwards)", true },
+
     // MantaEQEditor.cpp
     { "Linear Phaseは位相をずらさない代わりに遅れます", "Linear Phase keeps the phase intact, at the cost of latency", true },
     { "長くするほど低いところまで正確になり、そのぶん遅れます", "Longer is more accurate down low, and adds that much latency", true },
@@ -768,16 +773,6 @@
     { "インストゥルメント（音源）プラグインが見つかりません。", "No instrument plugins were found.", true },
     { "読み込み失敗: ", "Failed to load: ", true },
     { "音源を割り当てました。Playで打ち込んだノートが鳴ります。", "Instrument assigned. Press Play and the notes you entered will sound.", true },
-    { "MIDIトラックを選んでください（左の一覧）。", "Select a MIDI track (in the list on the left).", true },
-    { "ペン：空きをドラッグしたぶんノートを追加 / ノートは選択・移動・伸縮 / ", "Pen: drag empty space to add notes / notes can be selected, moved and resized / ", true },
-    { "ベロシティレーンをなぞって強弱をまとめて変更", "draw across the velocity lane to change several at once", true },
-    { "カット：ノートをクリックするとその位置で分割", "Cut: click a note to split it there", true },
-    { "消しゴム：触れたノートを消す（なぞると続けて消える）/ ", "Eraser: deletes notes you touch (drag to keep deleting) / ", true },
-    { "レーンの点も同じように消せる", "lane points are deleted the same way", true },
-    { "ドラッグで移動 / 左右の端をドラッグで長さ変更 / 空きをドラッグで範囲選択 / ", "Drag to move / drag either end to change the length / drag empty space to select a range / ", true },
-    { "鍵盤をクリックでその音を全部選択 / 右クリックまたはDeleteで削除", "click the keyboard to select every note of that pitch / right-click or Delete to remove", true },
-    { "　｜　下のレーン：", "　|　Lower lane: ", false },
-    { "（見出しをクリックで切り替え）", " (click the header to switch)", true },
     { "(読込失敗) ", "(load failed) ", false },
 
     // PluginSandboxHost.cpp
@@ -950,6 +945,7 @@
     { "コード区間の移動", "Move chord region", false },
     { "オートメーションのバイパス", "Bypass automation", false },
     { "クリップの貼り付け", "Paste clips", false },
+    { "トラックを移動", "Move tracks", true },
     { "クリップの移動", "Move clip", false },
     { "クリップのトリム", "Trim clip", false },
     { "フェードの変更", "Change fade", false },

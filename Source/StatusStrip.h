@@ -47,8 +47,9 @@
 
         addChildComponent (statusStrip);   // **`addAndMakeVisible`ではない**
 
-        // 出す
-        statusStrip.show (utf8 ("自動保存しました…"));
+        // 出す（**この例で`utf8 ()`と書かないこと**——訳の抽出器は
+        // `utf8 ()`を探すので、コメントの中の例まで拾ってしまいます）
+        statusStrip.show (message);
 
         // resized() では、見えているときだけ場所を取る
         if (statusStrip.isVisible())

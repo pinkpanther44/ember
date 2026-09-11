@@ -99,6 +99,9 @@ namespace Branding
     /** シンセだけ名前が揃っていないのは**本人の指定**です（`Red Panda`）。 */
     inline constexpr const char* synthPluginName = isEmber ? "Red Panda" : "Manta Synthesizer";
 
+    /** 8.204：4つめ（Phase 238／本人の指定）。Ember側は`Hawkbill Delay`。 */
+    inline constexpr const char* delayPluginName = isEmber ? "Hawkbill Delay" : "Manta Delay";
+
     /** プリセットの置き場所（`%APPDATA%\<data>\Presets\<これ>\`）。
 
         **プラグイン名とは別に持ちます。** 名前を変えたときに
@@ -106,6 +109,7 @@ namespace Branding
     inline constexpr const char* eqPresetFolder = "MantaEQ";
     inline constexpr const char* compPresetFolder = "MantaComp";
     inline constexpr const char* synthPresetFolder = "MantaSynth";
+    inline constexpr const char* delayPresetFolder = "MantaDelay";   // 8.204（Phase 238）
 
     //==========================================================================
     // 既定値
@@ -205,4 +209,30 @@ namespace Branding
 
         return dark ? 0xffff9a55 : 0xffff8a3d;       // オレンジ（Phase 34からの値）
     }
+
+    /** 8.204：**ディレイだけ、アプリとは違う色を使います**（Phase 238／本人の指定）。
+
+        | | 主 | 副 |
+        |---|---|---|
+        | Manta Delay | パープル | オレンジ（**アプリと同じ＝従来どおり**） |
+        | Hawkbill Delay | **ブルー** | **イエロー** |
+
+        EQ・コンプ・シンセは`MantaTheme::accent()`／`curve()`（＝アプリのアクセント）を
+        そのまま使っています。**ディレイはそこから外れる初めてのもの**なので、
+        枠を2つ足しました。
+
+        > **地・枠・文字は`MantaTheme`のままにすること。** そこまで変えると
+        > 「同じアプリの中の別のアプリ」に見えます。**変えるのはアクセント2色だけ。** */
+    inline constexpr juce::uint32 delayAccentPrimary (bool dark)
+    {
+        if (isEmber) return dark ? 0xff4a9eff : 0xff2f7fd6;   // ブルー
+        return accentPrimary (dark);                           // パープル（従来どおり）
+    }
+
+    inline constexpr juce::uint32 delayAccentSecondary (bool dark)
+    {
+        if (isEmber) return dark ? 0xffe8c84a : 0xffc9a72c;   // イエロー
+        return accentSecondary (dark);                          // オレンジ（従来どおり）
+    }
+
 }

@@ -75,6 +75,14 @@ juce::String AudioEngine::initialise()
     // （JUCE公式チュートリアル「Cascading plug-in effects」の標準手順）。
     graph.enableAllBuses();
 
+    // 8.205：**プラグインへ「いま何拍目で、テンポはいくつか」を渡す**（Phase 238）。
+    //
+    // JUCEのグラフは各ノードの`process()`のたびにこれを配りますが、
+    // **`setPlayHead()`を誰も呼んでいませんでした**——つまり、挿してあるプラグインが
+    // `getPlayHead()`を呼ぶと`nullptr`。**テンポに同期する市販のVST3が
+    // 全部同期できていなかった**ことになります（`EnginePlayHead.h`）
+    graph.setPlayHead (&playHead);
+
     // 仕様書5.4：録音のため、入力2ch・出力2chで開く。
     // ただし入力デバイスが無い／他アプリに専有されている環境は普通にあり得るので、
     // 失敗しても諦めずに「出力のみ」でもう一度開き直す。ここで打ち切ってしまうと、

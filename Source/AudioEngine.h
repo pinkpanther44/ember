@@ -14,6 +14,7 @@
 #include "TrackChannelProcessor.h"
 #include "SendGainProcessor.h"
 #include "Transport.h"
+#include "EnginePlayHead.h"   // 8.205：プラグインへ渡す再生位置とテンポ（Phase 238）
 #include "ProjectModel.h"
 #include "PluginCrashTracker.h"
 #include "PluginSandboxHost.h"
@@ -875,6 +876,14 @@ private:
 
     juce::AudioDeviceManager deviceManager;
     juce::AudioProcessorPlayer player;
+
+    /** 8.205：プラグインへ渡す再生位置とテンポ（Phase 238／`EnginePlayHead.h`）。
+
+        **`graph`より前に置くこと。** `graph.setPlayHead()`へ渡しているので、
+        後ろに置くと**破棄が逆順になり、グラフが消えたものを指したまま**になります。
+        （最初にそう書いて、自分で踏みました） */
+    EnginePlayHead playHead { project, transport };
+
     juce::AudioProcessorGraph graph;
 
     juce::AudioProcessorGraph::Node::Ptr outputNode;

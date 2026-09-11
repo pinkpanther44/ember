@@ -3,6 +3,7 @@
 #include "MantaEQ/MantaEQProcessor.h"
 #include "MantaComp/MantaCompProcessor.h"
 #include "MantaSynth/MantaSynthProcessor.h"
+#include "MantaDelay/MantaDelayProcessor.h"   // 8.204：4つめ（Phase 238）
 #include "../Branding.h"   // 8.175：ブランドごとの名前（Phase 216）
 
 namespace MantaPlugins
@@ -56,6 +57,19 @@ namespace MantaPlugins
                 [] () -> std::unique_ptr<juce::AudioPluginInstance>
                 {
                     return std::make_unique<MantaCompProcessor>();
+                }
+            },
+            {
+                "manta:delay",
+                Branding::delayPluginName,
+                "Delay",
+                "Fx|Delay",
+                "1.0.0",
+                0x4d444c31,   // 'MDL1'
+                false,
+                [] () -> std::unique_ptr<juce::AudioPluginInstance>
+                {
+                    return std::make_unique<MantaDelayProcessor>();
                 }
             },
             {

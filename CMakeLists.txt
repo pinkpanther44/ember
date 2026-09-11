@@ -279,6 +279,12 @@ target_sources(PersonalDAW
         Source/Plugins/MantaSynth/MantaSynthParameters.cpp
         Source/Plugins/MantaSynth/MantaSynthProcessor.cpp
         Source/Plugins/MantaSynth/MantaSynthEditor.cpp
+
+        # 8.204：4つめ「Manta Delay」（Phase 238/ディレイ設計書8章のPhase 1）。
+        # **エンジン・表示・色はヘッダだけ**（DSPはJUCEのdspモジュールを使うだけなので薄い）
+        Source/Plugins/MantaDelay/MantaDelayParameters.cpp
+        Source/Plugins/MantaDelay/MantaDelayProcessor.cpp
+        Source/Plugins/MantaDelay/MantaDelayEditor.cpp
 )
 
 target_compile_definitions(PersonalDAW
