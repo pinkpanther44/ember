@@ -6,6 +6,31 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- **Hawkbill Delay**, a fourth built-in plugin: one echo line with tempo sync
+  (dotted and triplet divisions), feedback, mix, and a timeline showing where
+  the repeats fall. More is planned - characters, filters, modulation,
+  multi-tap and dual engines
+- Plugins now receive the song tempo and position from Ember, so **third-party
+  plugins that sync to tempo work**. They could not before
+- Chord Pad can create a chord track when there is not one yet
+
+### Changed
+
+- Buttons that do the same kind of job share a width, and the piano roll tool
+  row lines up with the display-mode buttons above it
+- "+ Track" and "+ Audio" moved into the corner above the track headers,
+  freeing a row of working space
+- The status areas below the arrange view and the piano roll toolbar now
+  appear only when there is something to say, and retire themselves
+- Dragging a multiple selection onto a folder track moves all of it, in one
+  undo step. A folder row shows a faint block spanning what its tracks contain
+
+---
+
 ## [0.1.0] - 2026-09-10
 
 The first release. Everything below is new, because there was nothing before

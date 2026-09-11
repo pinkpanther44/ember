@@ -82,13 +82,14 @@ message the application prints if something goes wrong.
 
 ## What is included
 
-Three plugins are built in — nothing to install separately.
+Four plugins are built in — nothing to install separately.
 
 | | |
 |---|---|
 | **Ember EQ** | 12-band parametric EQ. Nine shapes, 6–96 dB/oct slopes, Mid/Side per band, dynamic EQ, spectrum analyser, and a linear-phase mode |
 | **Ember Comp** | Compressor. Soft knee, auto/adaptive envelope, look-ahead, external side-chain, parallel mix, and a transfer curve overlaid on the level history |
 | **Red Panda** | Virtual analog synthesizer. Two unison oscillators, sub and noise, filter, two envelopes, two LFOs, a 4-slot modulation matrix, two effect slots, EQ — and 156 factory presets |
+| **Hawkbill Delay** | Delay. One echo line with tempo sync (dotted and triplet divisions), feedback and mix, and a timeline showing where the repeats fall. **More is on the way** — characters, filters, modulation, multi-tap and dual engines are planned |
 
 ## Where your files are kept
 
