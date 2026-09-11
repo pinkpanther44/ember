@@ -31,6 +31,28 @@
 namespace MantaDelayParams
 {
     //==========================================================================
+    /** 8.217：**エンジンは2つ**（Phase 244／仕様書3-1）。
+
+        ### エンジンAのIDは、今までのまま
+
+        **`timeMs`は`timeMs`のままです。** `engineA_timeMs`のように付け替えると、
+        **保存済みのプロジェクトがディレイの設定を全部見失います**
+        （オートメーションも外れます）。
+
+        エンジンBだけが`b_`で始まります。`engineParamId()`がその1箇所です。
+
+        ```
+            エンジンA：timeMs        tap1_step        （Phase 1〜4のまま）
+            エンジンB：b_timeMs      b_tap1_step      （Phase 5で足したぶん）
+        ```
+
+        **見た目は不揃いですが、揃えるために古いIDを変えてはいけません**（9.5）。 */
+    inline constexpr int numEngines = 2;
+
+    /** エンジンごとのID（上の説明）。**エンジン0は素通し**です。 */
+    juce::String engineParamId (int engine, const char* suffix);
+
+    //==========================================================================
     // 5-1：基本
 
     /** フリー（ms）のディレイタイム。`sync`がONのときは使いません。 */
@@ -98,12 +120,31 @@ namespace MantaDelayParams
 
         1本ぶんずつ別のパラメータとして持ちます——**まとめて1つのIDに詰めない**こと。
         詰めるとオートメーションが掛けられず、A/Bもプリセットも
-        「タップ3のLevelだけ違う」を表せません。 */
-    juce::String tapParamId (int tapIndex, const char* suffix);
+        「タップ3のLevelだけ違う」を表せません。
+
+        8.217：エンジンの番号も要るようになりました（Phase 244）。
+        **エンジンAは`tap1_step`のまま**、Bが`b_tap1_step`です。 */
+    juce::String tapParamId (int engine, int tapIndex, const char* suffix);
 
     inline constexpr const char* tapStep  = "step";
     inline constexpr const char* tapLevel = "level";
     inline constexpr const char* tapPan   = "pan";
+
+    //==========================================================================
+    // 8.217：Phase 5のデュアルエンジン（仕様書3-1・5-7）
+
+    /** ルーティングモード（`MantaDelayRouting::Mode`）。**エンジン共通**。 */
+    inline constexpr const char* routingMode = "routingMode";
+
+    /** そのエンジンの出口のレベルと定位（仕様書5-1の`Level / Pan`）。
+
+        **エンジンごと**です。DualでAとBを混ぜるときの釣り合いがこれ。
+        **既定は100%・真ん中**なので、Singleでは何も変わりません。
+
+        `Width`は入れていません——仕様書5-1には並んでいますが、
+        **Split L/RとPanで届く範囲が重なる**ので、要ると分かってからにします。 */
+    inline constexpr const char* engineLevel = "engineLevel";
+    inline constexpr const char* enginePan   = "enginePan";
 
     //==========================================================================
     /** 5-1：音価の一覧。**並びを変えないこと**（保存されるのは番号です）。

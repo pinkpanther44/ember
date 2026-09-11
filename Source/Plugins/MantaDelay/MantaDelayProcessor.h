@@ -4,10 +4,12 @@
 
 #include "MantaDelayEngine.h"
 #include "MantaDelayParameters.h"
+#include "MantaDelayRouting.h"
 #include "MantaDelayTaps.h"
 
 #include <array>
 #include <atomic>
+#include <vector>
 
 //==============================================================================
 /** 8.214：画面だけが覚えていること（Phase 243）。
@@ -21,6 +23,9 @@ namespace MantaDelayUiState
 {
     /** つまみが指しているタップ（0起点）。 */
     extern const juce::Identifier selectedTap;
+
+    /** 8.217：つまみが映しているエンジン（0＝A、1＝B。Phase 244）。 */
+    extern const juce::Identifier selectedEngine;
 }
 
 //==============================================================================
@@ -38,10 +43,13 @@ namespace MantaDelayUiState
     | Phase 1 | Single Echo、Time／Feedback／Mix／テンポシンク |
     | Phase 2 | キャラクター（Digital Clean・Analog BBD・Tape Echo・Lo-Fi） |
     | Phase 3 | フィードバック内フィルター、LFOモジュレーション、ダッキング |
-    | **Phase 4（いまここ）** | マルチタップ（最大8本。`MantaDelayTaps.h`） |
+    | Phase 4 | マルチタップ（最大8本。`MantaDelayTaps.h`） |
+    | **Phase 5a（いまここ）** | **デュアルエンジンとルーティング**（`MantaDelayRouting.h`） |
 
-    **先の段階のものは入っていません。** デュアルエンジン、
-    リバース、ディフュージョン、Freeze——ここからです。
+    **Ping-Pongとクロスフィードバックは、まだ入っていません**（Phase 5b）——
+    あの2つだけ**エンジンの中を開ける**必要があるためです（`MantaDelayRouting.h`）。
+
+    そのあとはリバース、ディフュージョン、Freeze。
 
     ### テンポシンク
 
@@ -103,7 +111,11 @@ public:
 
         つまみの値ではなく**寄せている最中の値**です（`MantaDelayEngine`）——
         つまみと違う値が出ているあいだは、実際にそう鳴っています。 */
-    double getCurrentDelaySeconds() const { return engine.getDisplayDelaySeconds(); }
+    double getCurrentDelaySeconds (int engine) const
+    {
+        return engines[(size_t) juce::jlimit (0, MantaDelayParams::numEngines - 1, engine)]
+                   .getDisplayDelaySeconds();
+    }
 
     /** 同期の基準にしているテンポ（BPM）。**取れていないときは0**。
 
@@ -111,16 +123,28 @@ public:
         **黙って別の値で鳴らすより、出ていないと言うほうがよい**（8.161と同じ考え）。 */
     double getSyncBpm() const { return syncBpm.load(); }
 
+    /** 8.217：いまのルーティング（Phase 244）。画面のグレーアウトが見ます。 */
+    MantaDelayRouting::Mode getRoutingMode() const
+    {
+        return (MantaDelayRouting::Mode)
+                   juce::jlimit (0, MantaDelayRouting::getModeCount() - 1,
+                                  juce::roundToInt (parameters.routingMode->load()));
+    }
+
     /** 8.212：ダッキングがいまどれだけ絞っているか（0〜1。Phase 242）。
 
         画面の細い帯がこれを出します——**絞られたぶんは「音が小さい」だけ**なので、
         AttackとReleaseを回しても、見えないと何が起きているか読めません。 */
-    float getDuckReduction() const { return engine.getDisplayDuckReduction(); }
+    float getDuckReduction (int engine) const
+    {
+        return engines[(size_t) juce::jlimit (0, MantaDelayParams::numEngines - 1, engine)]
+                   .getDisplayDuckReduction();
+    }
 
     /** 8.214：いまのタップの並び（Phase 243）。ディスプレイとタップ帯が描きます。
 
         **`processBlock()`が使うのと同じ`buildTapPattern()`**を通します（1.27）。 */
-    MantaDelayTaps::Pattern getTapPattern() const { return buildTapPattern(); }
+    MantaDelayTaps::Pattern getTapPattern (int engine) const { return buildTapPattern (engine); }
 
     juce::ValueTree getUiState();
 
@@ -129,21 +153,25 @@ private:
 
         **換算は`MantaDelayParams::getQuarterNotes()`ただ1つ**を通します（1.27）——
         画面も同じ関数を使うので、**描いている位置と鳴っている位置がずれません。** */
-    double resolveDelaySeconds();
+    double resolveDelaySeconds (int engine);
+
+    /** 8.217：1エンジンぶんの設定を組み立てる（Phase 244）。 */
+    MantaDelayEngine::Settings buildEngineSettings (int engine);
 
     juce::AudioProcessorValueTreeState apvts;
-    MantaDelayEngine engine;
+
+    /** 8.217：エンジンは2つ（Phase 244）。**Singleのときも両方`prepare()`します**——
+        途中でモードを変えたときに、**Bだけ用意されていない**状態を作らないため。 */
+    std::array<MantaDelayEngine, (size_t) MantaDelayParams::numEngines> engines;
 
     /** パラメータの読み出し口。**文字列で引くのは作るときの1回だけ**
         （毎ブロック引き直すと、それだけで無視できない時間になります）。 */
-    struct Pointers
+    struct EnginePointers
     {
         std::atomic<float>* timeMs = nullptr;
         std::atomic<float>* sync = nullptr;
         std::atomic<float>* syncDivision = nullptr;
         std::atomic<float>* feedback = nullptr;
-        std::atomic<float>* mix = nullptr;
-        std::atomic<float>* outputGain = nullptr;
 
         // 8.208：Phase 2（Phase 240）
         std::atomic<float>* character = nullptr;
@@ -180,15 +208,36 @@ private:
         };
 
         std::array<Tap, (size_t) MantaDelayTaps::maxTaps> taps;
+
+        // 8.217：Phase 5（Phase 244）
+        std::atomic<float>* level = nullptr;
+        std::atomic<float>* pan = nullptr;
     };
 
-    Pointers parameters;
+    /** エンジン共通のもの。**`mix`と`outputGain`はここ**（8.217）。 */
+    struct GlobalPointers
+    {
+        std::atomic<float>* mix = nullptr;
+        std::atomic<float>* outputGain = nullptr;
+        std::atomic<float>* routingMode = nullptr;
+    };
+
+    GlobalPointers parameters;
+    std::array<EnginePointers, (size_t) MantaDelayParams::numEngines> engineParameters;
 
     /** 8.214：つまみの値からタップの並びを組み立てる（Phase 243）。
 
         **音の側と画面の側で同じものを使います**（1.27）——
         別々に組み立てると、**描いている並びと鳴っている並びがずれます。** */
-    MantaDelayTaps::Pattern buildTapPattern() const;
+    MantaDelayTaps::Pattern buildTapPattern (int engine) const;
+
+    //==========================================================================
+    /** 8.217：ルーティングで使う場所（Phase 244）。
+
+        **`prepareToPlay()`で確保します**——`processBlock()`で`setSize()`を呼ぶと、
+        そこで確保が起きます（9.4）。`dryMono`はダッキングが見る原音です。 */
+    juce::AudioBuffer<float> engineBufferA, engineBufferB;
+    std::vector<float> dryMono;
 
     std::atomic<double> syncBpm { 0.0 };
 

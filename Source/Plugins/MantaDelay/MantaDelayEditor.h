@@ -19,13 +19,12 @@
     ┌────────────────────────────────────────────────────┐
     │ Undo Redo │ A Copy │ Presets           Manta Delay │ ← 共有ツールバー
     ├────────────────────────────────────────────────────┤
-    │  ECHO                                              │
-    │  ┌──────────────┐  ┌──────────────────────────┐   │
-    │  │ Time         │  │                          │   │
-    │  │ (Sync/Free)  │  │  反復のタイムライン        │   │
-    │  │ Feedback     │  │  （`MantaDelayDisplay`）  │   │
-    │  │ Mix          │  │                          │   │
-    │  └──────────────┘  └──────────────────────────┘   │
+    │  Echo [A][B]              Routing [Single ▾] …     │
+    │  ┌──────────────────┐  ┌──────────────────────┐   │
+    │  │ Time  Fb   Level │  │                      │   │
+    │  │      (Sync)      │  │  反復のタイムライン    │   │
+    │  │ Mix   Out  Pan   │  │ （`MantaDelayDisplay`）│   │
+    │  └──────────────────┘  └──────────────────────┘   │
     │                                                    │
     │  Character [combo]  Drive Tone Wow … （Phase 2）   │
     │  ┌ Taps ────────────────────────────────────────┐  │
@@ -35,9 +34,17 @@
     │  │ [Type][Pre/Po]││ [Shape]     ││  ▭▬▬▬▬       │  │
     │  │ Freq  Q  Gain ││ Rate  Depth ││ Duck Atk Rel │  │
     │  └───────────────┘└─────────────┘└──────────────┘  │
-    │  ▁▁▁▁▁▁▁ Phase 5以降の場所 ▁▁▁▁▁▁▁               │
+    │  ▁▁▁▁▁▁▁ Phase 5b以降の場所 ▁▁▁▁▁▁▁              │
     └────────────────────────────────────────────────────┘
     ```
+
+    ### 8.217：映しているのは**1エンジンぶんだけ**（Phase 244）
+
+    `[A]` `[B]`で切り替えます。**`Mix`と`Output`と`Routing`以外は全部**、
+    そのエンジンのものです（`rebuildEngineAttachments()`が繋ぎ直します）。
+
+    Manta EQが12バンドでやっているのと同じ形です——
+    **2エンジンぶんのつまみを一度に出す場所はありません。**
 
     ### 8.216：大きさは **900×680**（Phase 243／本人の判断）
 
@@ -94,8 +101,9 @@ public:
 private:
     void timerCallback() override;
 
+    /** 8.217：**見た目だけ**（Phase 244）。繋ぎは`rebuildEngineAttachments()`。 */
     void setupKnob (ValueEntrySlider& slider, juce::Label& caption, const juce::String& text,
-                     const char* parameterId, juce::Colour colour);
+                     juce::Colour colour);
 
     void setupSectionLabel (juce::Label& label, const juce::String& text);
 
@@ -123,6 +131,18 @@ private:
 
         **Manta EQの`rebuildBandAttachments()`と同じ形**です。 */
     void rebuildTapAttachments();
+
+    /** 8.217：選んでいるエンジンへ、**つまみを丸ごと繋ぎ直す**（Phase 244）。
+
+        タップのときと同じ理由でこの形です（8.215）——
+        **表に出ているのは1エンジンぶんだけ**で、切り替えるのは人が押したときだけ。 */
+    void rebuildEngineAttachments();
+
+    /** 8.217：エンジンの選び直し（押されたとき・開いたとき）。 */
+    void setSelectedEngine (int engine);
+
+    /** 8.217：ルーティングで効かなくなるものをグレーアウト（Phase 244）。 */
+    void refreshRoutingControls();
 
     /** 8.214：本数の外のタップを選んでいたら中へ戻す＋グレーアウトの更新。 */
     void refreshTapControls();
@@ -160,9 +180,31 @@ private:
     ValueEntrySlider mixSlider      { juce::Slider::RotaryHorizontalVerticalDrag, juce::Slider::TextBoxBelow };
     ValueEntrySlider outputSlider   { juce::Slider::RotaryHorizontalVerticalDrag, juce::Slider::TextBoxBelow };
 
-    juce::Label timeCaption, feedbackCaption, mixCaption, outputCaption;
+    /** 8.217：そのエンジンの出口（Phase 244）。**Dualで釣り合いを取るところ**。 */
+    ValueEntrySlider levelSlider { juce::Slider::RotaryHorizontalVerticalDrag, juce::Slider::TextBoxBelow };
+    ValueEntrySlider panSlider   { juce::Slider::RotaryHorizontalVerticalDrag, juce::Slider::TextBoxBelow };
+
+    juce::Label timeCaption, feedbackCaption, mixCaption, outputCaption, levelCaption, panCaption;
 
     juce::TextButton syncButton;
+
+    //==========================================================================
+    // 8.217：Phase 5aのデュアルエンジン（Phase 244）
+
+    /** どちらのエンジンを映しているか（`[A]` `[B]`）。 */
+    juce::TextButton engineAButton, engineBButton;
+
+    juce::Label routingCaption;
+    juce::ComboBox routingBox;
+
+    /** モードの説明（`MantaDelayRouting::getModeDescription()`）。
+
+        **名前だけでは何が起きるか分かりません**——「Series」と書いてあっても、
+        AとBのどちらが前か読めない。 */
+    juce::Label routingDescription;
+
+    /** つまみが映しているエンジン（0＝A）。**`getUiState()`に残ります。** */
+    int selectedEngine = 0;
 
     //==========================================================================
     // 8.208：Phase 2（キャラクター。Phase 240）
@@ -236,15 +278,20 @@ private:
     using ButtonAttachment = juce::AudioProcessorValueTreeState::ButtonAttachment;
     using ComboAttachment  = juce::AudioProcessorValueTreeState::ComboBoxAttachment;
 
-    juce::OwnedArray<SliderAttachment> sliderAttachments;
-    std::unique_ptr<ButtonAttachment> syncAttachment;
-    std::unique_ptr<SliderAttachment> divisionAttachment;   // 8.207（Phase 239）
-    std::unique_ptr<ComboAttachment> characterAttachment;   // 8.208（Phase 240）
+    /** エンジン共通のつなぎ（`Mix`・`Output`・`Routing`）。**作ったら外しません。** */
+    juce::OwnedArray<SliderAttachment> globalAttachments;
+    std::unique_ptr<ComboAttachment> routingAttachment;
 
-    // 8.210〜8.211（Phase 242）
-    std::unique_ptr<ComboAttachment> filterTypeAttachment;
-    std::unique_ptr<ButtonAttachment> filterPositionAttachment;
-    std::unique_ptr<ComboAttachment> lfoShapeAttachment;
+    /** 8.217：**エンジンごとのつなぎ**（Phase 244）。
+
+        A/Bを切り替えるたびに**全部作り直します**（`rebuildEngineAttachments()`）。
+        Manta EQのバンドと同じ考え方で、**表に出ているのは1エンジンぶんだけ**だからです。
+
+        まとめて持っているのは、**外し忘れを作らないため**——
+        1本ずつ`std::unique_ptr`で持つと、足したときにリセットを書き忘れます。 */
+    juce::OwnedArray<SliderAttachment> engineSliderAttachments;
+    juce::OwnedArray<ComboAttachment> engineComboAttachments;
+    juce::OwnedArray<ButtonAttachment> engineButtonAttachments;
 
     /** 8.214：タップのつなぎ先（Phase 243）。
 
@@ -271,7 +318,14 @@ private:
     static constexpr int fixedHeight = 680;
 
     // 並びの寸法。**`paint()`と`resized()`の両方が見る**ので、数字を直に書かない（1.27）
-    static constexpr int knobPanelWidth = 200;
+    //
+    // 8.217：**200→300**（Phase 244）。Phase 5で`Level`と`Pan`が増えたので、
+    // 段を足すのではなく**横に伸ばして1段3つ**にしました——
+    // 縦はもう空いていません（左の列は304pxのうち208pxを使っています）
+    static constexpr int knobPanelWidth = 300;
+
+    /** 8.217：`Echo`／`[A][B]`／`Routing`が並ぶ行（Phase 244）。 */
+    static constexpr int headerHeight = 26;
     static constexpr int knobWidth = 76;
     static constexpr int knobHeight = 84;
     static constexpr int sectionTitleHeight = 18;

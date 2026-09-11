@@ -28,7 +28,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
     number of Time steps back, so the same pattern plays the same rhythm
     whether Time is free or synced to the tempo. The feedback repeats the
     pattern as a unit
-  - Still to come: dual engines, reverse, diffusion and freeze
+  - Two engines, A and B, wired as Single, Dual, Series or Split L/R, each
+    with its own time, character, filter, modulation, ducking and taps, plus a
+    level and a pan to balance them. The knobs show one engine at a time
+  - Still to come: ping-pong and cross-feedback, reverse, diffusion and freeze
 - Plugins now receive the song tempo and position from Ember, so **third-party
   plugins that sync to tempo work**. They could not before
 - Chord Pad can create a chord track when there is not one yet

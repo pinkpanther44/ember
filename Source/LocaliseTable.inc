@@ -581,7 +581,13 @@
     // MantaDelayEditor.cpp
     { "反復の間隔。Syncを入れると曲のテンポに合わせます", "How far apart the repeats are. Turn on Sync to follow the song tempo", true },
     { "返ってきた音をどれだけ戻すか。上げるほど長く反復します", "How much of the echo is fed back. Higher means the repeats last longer", true },
-    { "原音とディレイ音の混ぜ具合", "The balance between the dry signal and the delay", true },
+    { "このエンジンの音量。AとBの釣り合いを取ります", "This engine's level - it balances A against B", true },
+    { "このエンジンの左右の位置", "Where this engine sits left to right", true },
+    { "原音とディレイ音の混ぜ具合（AとBで共通）", "Dry against delay, shared by A and B", true },
+    { "出口の音量（AとBで共通）", "The output level, shared by A and B", true },
+    { "つまみをEngine Aに向けます", "Point the knobs at Engine A", true },
+    { "つまみをEngine Bに向けます", "Point the knobs at Engine B", true },
+    { "AとBの繋ぎ方", "How A and B are wired together", true },
     { "音価。付点は「.」、3連は「T」です", "Note length. A dot means dotted, T means a triplet", true },
     { "音色モデル。効かないつまみは灰色になります", "The colour model. Knobs it does not use are greyed out", true },
     { "Tapeでは飽和の強さ、Lo-Fiでは削り具合", "Saturation on Tape, how hard it is crushed on Lo-Fi", true },
@@ -599,7 +605,7 @@
     { "そのタップの音量", "The level of this tap", true },
     { "そのタップの左右の位置", "Where this tap sits left to right", true },
     { "テンポが取れていません（Timeの値で鳴っています）", "No tempo from the host - using the Time value", true },
-    { "Dual Engine  ·  Reverse  ·  Diffusion  ·  Freeze　（Phase 5以降）", "Dual Engine  ·  Reverse  ·  Diffusion  ·  Freeze  (Phase 5 onwards)", true },
+    { "Ping-Pong  ·  Cross-Feedback  ·  Reverse  ·  Diffusion  ·  Freeze　（Phase 5b以降）", "Ping-Pong  ·  Cross-Feedback  ·  Reverse  ·  Diffusion  ·  Freeze  (Phase 5b onwards)", true },
 
     // MantaEQEditor.cpp
     { "Linear Phaseは位相をずらさない代わりに遅れます", "Linear Phase keeps the phase intact, at the cost of latency", true },

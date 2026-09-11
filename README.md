@@ -89,7 +89,7 @@ Four plugins are built in — nothing to install separately.
 | **Ember EQ** | 12-band parametric EQ. Nine shapes, 6–96 dB/oct slopes, Mid/Side per band, dynamic EQ, spectrum analyser, and a linear-phase mode |
 | **Ember Comp** | Compressor. Soft knee, auto/adaptive envelope, look-ahead, external side-chain, parallel mix, and a transfer curve overlaid on the level history |
 | **Red Panda** | Virtual analog synthesizer. Two unison oscillators, sub and noise, filter, two envelopes, two LFOs, a 4-slot modulation matrix, two effect slots, EQ — and 156 factory presets |
-| **Hawkbill Delay** | Delay. One echo line with tempo sync (dotted and triplet divisions), feedback and mix, and a timeline showing where the repeats fall. Four characters — Digital Clean, Analog BBD, Tape Echo and Lo-Fi — a filter inside the feedback loop, an LFO on the delay time, ducking, and up to eight taps with their own level and pan. **More is on the way** — dual engines, reverse and diffusion are planned |
+| **Hawkbill Delay** | Delay. One echo line with tempo sync (dotted and triplet divisions), feedback and mix, and a timeline showing where the repeats fall. Four characters — Digital Clean, Analog BBD, Tape Echo and Lo-Fi — a filter inside the feedback loop, an LFO on the delay time, ducking, and up to eight taps with their own level and pan. Two engines can run as Single, Dual, Series or Split L/R. **More is on the way** — ping-pong, reverse and diffusion are planned |
 
 ## Where your files are kept
 

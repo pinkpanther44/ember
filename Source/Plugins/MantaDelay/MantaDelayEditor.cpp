@@ -6,6 +6,7 @@
 #include "MantaDelayCharacter.h"   // 8.208：キャラクターの名前と可否（Phase 240）
 #include "MantaDelayFilter.h"      // 8.210：フィルターの形と可否（Phase 242）
 #include "MantaDelayLfo.h"         // 8.211：波形の名前（Phase 242）
+#include "MantaDelayRouting.h"     // 8.217：ルーティングの名前（Phase 244）
 
 //==============================================================================
 
@@ -35,19 +36,75 @@ MantaDelayEditor::MantaDelayEditor (MantaDelayProcessor& processorToUse)
 
     // **主の色は「反復そのものを決めるところ」**（8.204の表）
     setupKnob (timeSlider, timeCaption, "Time",
-                MantaDelayParams::timeMs, MantaDelayTheme::accent());
+                MantaDelayTheme::accent());
     setupKnob (feedbackSlider, feedbackCaption, "Feedback",
-                MantaDelayParams::feedback, MantaDelayTheme::accent());
+                MantaDelayTheme::accent());
+
+    // 8.217：そのエンジンの出口（Phase 244）
+    setupKnob (levelSlider, levelCaption, "Level",
+                MantaDelayTheme::accent());
+    setupKnob (panSlider, panCaption, "Pan",
+                MantaDelayTheme::accent());
 
     // **副の色は「原音との混ぜ具合」**
     setupKnob (mixSlider, mixCaption, "Mix",
-                MantaDelayParams::mix, MantaDelayTheme::highlight());
+                MantaDelayTheme::highlight());
     setupKnob (outputSlider, outputCaption, "Output",
-                MantaDelayParams::outputGain, MantaDelayTheme::highlight());
+                MantaDelayTheme::highlight());
+
+    // 8.217：**この2つだけエンジン共通**（Phase 244）。作ったところで繋ぎます
+    globalAttachments.add (new SliderAttachment (processor.getValueTreeState(),
+                                                  MantaDelayParams::mix, mixSlider));
+    globalAttachments.add (new SliderAttachment (processor.getValueTreeState(),
+                                                  MantaDelayParams::outputGain, outputSlider));
 
     timeSlider.setTooltip (utf8 ("反復の間隔。Syncを入れると曲のテンポに合わせます"));
     feedbackSlider.setTooltip (utf8 ("返ってきた音をどれだけ戻すか。上げるほど長く反復します"));
-    mixSlider.setTooltip (utf8 ("原音とディレイ音の混ぜ具合"));
+    levelSlider.setTooltip (utf8 ("このエンジンの音量。AとBの釣り合いを取ります"));
+    panSlider.setTooltip (utf8 ("このエンジンの左右の位置"));
+
+    // **エンジン共通のものは、そう書いておくこと**——A/Bを切り替えても
+    // 動かないつまみが2つあると、壊れているように見えます
+    mixSlider.setTooltip (utf8 ("原音とディレイ音の混ぜ具合（AとBで共通）"));
+    outputSlider.setTooltip (utf8 ("出口の音量（AとBで共通）"));
+
+    //--------------------------------------------------------------------------
+    // 8.217：Phase 5aのデュアルエンジン（Phase 244／仕様書3-1）
+
+    for (auto* button : { &engineAButton, &engineBButton })
+    {
+        MantaPluginToolbar::styleButton (*button, button == &engineAButton ? "A" : "B");
+        button->setClickingTogglesState (true);
+        button->setRadioGroupId (1);
+        button->setColour (juce::TextButton::buttonOnColourId, MantaDelayTheme::accent());
+        addAndMakeVisible (*button);
+    }
+
+    engineAButton.setTooltip (utf8 ("つまみをEngine Aに向けます"));
+    engineBButton.setTooltip (utf8 ("つまみをEngine Bに向けます"));
+
+    engineAButton.onClick = [this] { setSelectedEngine (0); };
+    engineBButton.onClick = [this] { setSelectedEngine (1); };
+
+    routingCaption.setText ("Routing", juce::dontSendNotification);
+    routingCaption.setColour (juce::Label::textColourId, MantaTheme::textDim());
+    routingCaption.setFont (juce::Font (juce::FontOptions (11.0f)));
+    routingCaption.setJustificationType (juce::Justification::centredRight);
+    addAndMakeVisible (routingCaption);
+
+    routingBox.addItemList (MantaDelayRouting::getModeNames(), 1);
+    routingBox.setTooltip (utf8 ("AとBの繋ぎ方"));
+    addAndMakeVisible (routingBox);
+
+    routingAttachment = std::make_unique<ComboAttachment> (
+        processor.getValueTreeState(), MantaDelayParams::routingMode, routingBox);
+
+    routingBox.onChange = [this] { refreshRoutingControls(); };
+
+    routingDescription.setColour (juce::Label::textColourId, MantaTheme::textDim());
+    routingDescription.setFont (juce::Font (juce::FontOptions (11.0f)));
+    routingDescription.setJustificationType (juce::Justification::centredLeft);
+    addAndMakeVisible (routingDescription);
 
     //--------------------------------------------------------------------------
     // テンポシンク
@@ -57,9 +114,6 @@ MantaDelayEditor::MantaDelayEditor (MantaDelayProcessor& processorToUse)
     syncButton.setColour (juce::TextButton::buttonOnColourId, MantaDelayTheme::highlight());
     addAndMakeVisible (syncButton);
 
-    syncAttachment = std::make_unique<ButtonAttachment> (
-        processor.getValueTreeState(), MantaDelayParams::sync, syncButton);
-
     // **`onClick`ではなく`onStateChange`。** オートメーションや
     // プリセットの読み込みで変わったときにも呼ばれます（押したときだけではない）
     syncButton.onStateChange = [this] { refreshTimeControls(); };
@@ -67,10 +121,10 @@ MantaDelayEditor::MantaDelayEditor (MantaDelayProcessor& processorToUse)
     // 8.207：**Syncのときは、同じ場所が音価のつまみになります**（Phase 239/本人の指定）。
     // `setupKnob()`を通すので、**大きさも見た目もTimeと同じ**です
     setupKnob (divisionSlider, timeCaption, "Time",
-                MantaDelayParams::syncDivision, MantaDelayTheme::accent());
+                MantaDelayTheme::accent());
 
-    // **つなぎ先はこちらで持ちます**（`setupKnob()`が`sliderAttachments`へ入れたぶんは
-    // そのままで構いません——出し分けるのは見た目だけで、繋ぎは両方生かしておきます）
+    // **繋ぎは両方生かしておきます**（`rebuildEngineAttachments()`が2本とも繋ぎます）——
+    // 出し分けるのは見た目だけです
 
     // **段々に回します。** `syncDivision`は`AudioParameterChoice`なので
     // `SliderAttachment`が0〜13・刻み1の範囲を入れますが、
@@ -101,26 +155,23 @@ MantaDelayEditor::MantaDelayEditor (MantaDelayProcessor& processorToUse)
     characterBox.setTooltip (utf8 ("音色モデル。効かないつまみは灰色になります"));
     addAndMakeVisible (characterBox);
 
-    characterAttachment = std::make_unique<ComboAttachment> (
-        processor.getValueTreeState(), MantaDelayParams::character, characterBox);
-
     // **`onChange`はオートメーションやプリセットの読み込みでも呼ばれます**
     characterBox.onChange = [this] { refreshCharacterControls(); };
 
     // **色の分け方は上と同じ**（主＝音を作るところ、副＝揺らすところ）
     setupKnob (driveSlider, driveCaption, "Drive",
-                MantaDelayParams::drive, MantaDelayTheme::accent());
+                MantaDelayTheme::accent());
     setupKnob (toneSlider, toneCaption, "Tone",
-                MantaDelayParams::tone, MantaDelayTheme::accent());
+                MantaDelayTheme::accent());
 
     setupKnob (wowDepthSlider, wowDepthCaption, "Wow",
-                MantaDelayParams::wowDepth, MantaDelayTheme::highlight());
+                MantaDelayTheme::highlight());
     setupKnob (wowRateSlider, wowRateCaption, "Wow Rate",
-                MantaDelayParams::wowRate, MantaDelayTheme::highlight());
+                MantaDelayTheme::highlight());
     setupKnob (flutterDepthSlider, flutterDepthCaption, "Flutter",
-                MantaDelayParams::flutterDepth, MantaDelayTheme::highlight());
+                MantaDelayTheme::highlight());
     setupKnob (flutterRateSlider, flutterRateCaption, "Flutter Rate",
-                MantaDelayParams::flutterRate, MantaDelayTheme::highlight());
+                MantaDelayTheme::highlight());
 
     driveSlider.setTooltip (utf8 ("Tapeでは飽和の強さ、Lo-Fiでは削り具合"));
     toneSlider.setTooltip (utf8 ("反復するたびに落ちる高域の量"));
@@ -134,9 +185,6 @@ MantaDelayEditor::MantaDelayEditor (MantaDelayProcessor& processorToUse)
     filterTypeBox.setTooltip (utf8 ("フィードバックの中に入るフィルター。反復するたびに掛かります"));
     addAndMakeVisible (filterTypeBox);
 
-    filterTypeAttachment = std::make_unique<ComboAttachment> (
-        processor.getValueTreeState(), MantaDelayParams::filterType, filterTypeBox);
-
     filterTypeBox.onChange = [this] { refreshFilterControls(); };
 
     MantaPluginToolbar::styleButton (filterPositionButton, "Pre");
@@ -144,9 +192,6 @@ MantaDelayEditor::MantaDelayEditor (MantaDelayProcessor& processorToUse)
     filterPositionButton.setColour (juce::TextButton::buttonOnColourId, MantaDelayTheme::highlight());
     filterPositionButton.setTooltip (utf8 ("フィルターとキャラクターの順番。Preは削ってから歪ませ、Postは歪ませてから削ります"));
     addAndMakeVisible (filterPositionButton);
-
-    filterPositionAttachment = std::make_unique<ButtonAttachment> (
-        processor.getValueTreeState(), MantaDelayParams::filterPost, filterPositionButton);
 
     // **`onClick`ではなく`onStateChange`**（オートメーションやプリセットでも呼ばれる）
     filterPositionButton.onStateChange = [this]
@@ -162,11 +207,11 @@ MantaDelayEditor::MantaDelayEditor (MantaDelayProcessor& processorToUse)
 
     // **主の色**——フィルターは「反復そのものを作り変える」側（8.204の表）
     setupKnob (filterFreqSlider, filterFreqCaption, "Freq",
-                MantaDelayParams::filterFreq, MantaDelayTheme::accent());
+                MantaDelayTheme::accent());
     setupKnob (filterQSlider, filterQCaption, "Q",
-                MantaDelayParams::filterQ, MantaDelayTheme::accent());
+                MantaDelayTheme::accent());
     setupKnob (filterGainSlider, filterGainCaption, "Gain",
-                MantaDelayParams::filterGain, MantaDelayTheme::accent());
+                MantaDelayTheme::accent());
 
     filterGainSlider.setTooltip (utf8 ("Bellのときだけ効きます。上げた帯は他より遅く減衰します"));
 
@@ -179,14 +224,11 @@ MantaDelayEditor::MantaDelayEditor (MantaDelayProcessor& processorToUse)
     lfoShapeBox.setTooltip (utf8 ("揺れの形。Randomは1周ごとに値が飛びます"));
     addAndMakeVisible (lfoShapeBox);
 
-    lfoShapeAttachment = std::make_unique<ComboAttachment> (
-        processor.getValueTreeState(), MantaDelayParams::lfoShape, lfoShapeBox);
-
     // **副の色**——Wow／Flutterと同じ「揺らすところ」
     setupKnob (lfoDepthSlider, lfoDepthCaption, "LFO",
-                MantaDelayParams::lfoDepth, MantaDelayTheme::highlight());
+                MantaDelayTheme::highlight());
     setupKnob (lfoRateSlider, lfoRateCaption, "LFO Rate",
-                MantaDelayParams::lfoRate, MantaDelayTheme::highlight());
+                MantaDelayTheme::highlight());
 
     lfoDepthSlider.setTooltip (utf8 ("ディレイタイムを揺らす深さ。どのキャラクターでも効きます"));
 
@@ -198,11 +240,11 @@ MantaDelayEditor::MantaDelayEditor (MantaDelayProcessor& processorToUse)
     addAndMakeVisible (duckMeter);
 
     setupKnob (duckAmountSlider, duckAmountCaption, "Duck",
-                MantaDelayParams::duckAmount, MantaDelayTheme::highlight());
+                MantaDelayTheme::highlight());
     setupKnob (duckAttackSlider, duckAttackCaption, "Attack",
-                MantaDelayParams::duckAttack, MantaDelayTheme::highlight());
+                MantaDelayTheme::highlight());
     setupKnob (duckReleaseSlider, duckReleaseCaption, "Release",
-                MantaDelayParams::duckRelease, MantaDelayTheme::highlight());
+                MantaDelayTheme::highlight());
 
     duckAmountSlider.setTooltip (utf8 ("原音が鳴っているあいだ、ディレイ音をどれだけ絞るか"));
     duckAttackSlider.setTooltip (utf8 ("絞りはじめるまでの速さ"));
@@ -229,36 +271,11 @@ MantaDelayEditor::MantaDelayEditor (MantaDelayProcessor& processorToUse)
         refreshTapControls();
     };
 
-    // **主の色**——タップは「反復そのものの置き場所」。
-    //
-    // **本数は繋ぎっぱなし**なので`setupKnob()`でそのまま繋ぎます
-    // （`sliderAttachments`が持ってくれます。ここで`SliderAttachment`をもう1本
-    // 作ってはいけません——**同じつまみに2本ぶら下がる**ことになります）
-    setupKnob (tapCountSlider, tapCountCaption, "Taps",
-                MantaDelayParams::tapCount, MantaDelayTheme::accent());
-
-    // **`setupKnob()`は使えません**（あちらはIDを1つ受けて繋いでしまう）。
-    // 3つは**選んだタップへ繋ぎ直す**ので、繋ぎだけ別に持ちます
-    const auto setupTapKnob = [this] (ValueEntrySlider& slider, juce::Label& caption,
-                                       const juce::String& text, juce::Colour colour)
-    {
-        slider.setLookAndFeel (&knobLookAndFeel.get());
-        slider.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 68, 15);
-        slider.setColour (juce::Slider::rotarySliderFillColourId, colour);
-        slider.setColour (juce::Slider::textBoxTextColourId, MantaTheme::text());
-        slider.setColour (juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
-        addAndMakeVisible (slider);
-
-        caption.setText (text, juce::dontSendNotification);
-        caption.setColour (juce::Label::textColourId, MantaTheme::textDim());
-        caption.setFont (juce::Font (juce::FontOptions (10.0f)));
-        caption.setJustificationType (juce::Justification::centred);
-        addAndMakeVisible (caption);
-    };
-
-    setupTapKnob (tapStepSlider, tapStepCaption, "Step", MantaDelayTheme::accent());
-    setupTapKnob (tapLevelSlider, tapLevelCaption, "Level", MantaDelayTheme::highlight());
-    setupTapKnob (tapPanSlider, tapPanCaption, "Pan", MantaDelayTheme::highlight());
+    // **主の色**——タップは「反復そのものの置き場所」
+    setupKnob (tapCountSlider, tapCountCaption, "Taps", MantaDelayTheme::accent());
+    setupKnob (tapStepSlider, tapStepCaption, "Step", MantaDelayTheme::accent());
+    setupKnob (tapLevelSlider, tapLevelCaption, "Level", MantaDelayTheme::highlight());
+    setupKnob (tapPanSlider, tapPanCaption, "Pan", MantaDelayTheme::highlight());
 
     tapCountSlider.setTooltip (utf8 ("鳴らすタップの本数"));
     tapStepSlider.setTooltip (utf8 ("そのタップをTimeの何個ぶん後ろに置くか"));
@@ -268,16 +285,27 @@ MantaDelayEditor::MantaDelayEditor (MantaDelayProcessor& processorToUse)
     // **本数を変えたら、選んでいるタップが外に出ていないか見ます**
     tapCountSlider.onValueChange = [this] { refreshTapControls(); };
 
+    //--------------------------------------------------------------------------
+    // **覚えていたものを戻してから繋ぎます**（音には関係しないので`UI`の子。8.214）
+
     selectedTap = juce::jlimit (0, MantaDelayTaps::maxTaps - 1,
                                  (int) processor.getUiState()
                                            .getProperty (MantaDelayUiState::selectedTap, 0));
 
-    rebuildTapAttachments();
+    selectedEngine = juce::jlimit (0, MantaDelayParams::numEngines - 1,
+                                    (int) processor.getUiState()
+                                              .getProperty (MantaDelayUiState::selectedEngine, 0));
+
+    (selectedEngine == 0 ? engineAButton : engineBButton).setToggleState (true, juce::dontSendNotification);
+
+    // **繋ぐのはここ1回。** `rebuildEngineAttachments()`がタップまで面倒を見ます
+    rebuildEngineAttachments();
 
     refreshTimeControls();
     refreshCharacterControls();
     refreshFilterControls();
     refreshTapControls();
+    refreshRoutingControls();
 
     setSize (fixedWidth, fixedHeight);
     setResizable (false, false);   // 8.172：内蔵プラグインの画面は固定
@@ -298,15 +326,23 @@ MantaDelayEditor::~MantaDelayEditor()
                            &lfoRateSlider, &lfoDepthSlider,
                            &duckAmountSlider, &duckAttackSlider, &duckReleaseSlider,
                            // 8.214：Phase 4で足したぶん（Phase 243）
-                           &tapCountSlider, &tapStepSlider, &tapLevelSlider, &tapPanSlider })
+                           &tapCountSlider, &tapStepSlider, &tapLevelSlider, &tapPanSlider,
+                           // 8.217：Phase 5で足したぶん（Phase 244）
+                           &levelSlider, &panSlider })
         slider->setLookAndFeel (nullptr);
 }
 
 //==============================================================================
 
+/** 8.217：**見た目だけ**（Phase 244）。
+
+    Phase 4まではここで`SliderAttachment`も作っていましたが、
+    **つまみのほとんどがエンジンごとになった**ので、繋ぎは
+    `rebuildEngineAttachments()`が一手に引き受けます。
+
+    エンジン共通の`Mix`と`Output`だけ、作ったところで繋いでいます。 */
 void MantaDelayEditor::setupKnob (ValueEntrySlider& slider, juce::Label& caption,
-                                   const juce::String& text, const char* parameterId,
-                                   juce::Colour colour)
+                                   const juce::String& text, juce::Colour colour)
 {
     slider.setLookAndFeel (&knobLookAndFeel.get());
     slider.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 68, 15);
@@ -320,8 +356,6 @@ void MantaDelayEditor::setupKnob (ValueEntrySlider& slider, juce::Label& caption
     caption.setFont (juce::Font (juce::FontOptions (10.0f)));
     caption.setJustificationType (juce::Justification::centred);
     addAndMakeVisible (caption);
-
-    sliderAttachments.add (new SliderAttachment (processor.getValueTreeState(), parameterId, slider));
 }
 
 void MantaDelayEditor::setupSectionLabel (juce::Label& label, const juce::String& text)
@@ -432,11 +466,132 @@ void MantaDelayEditor::rebuildTapAttachments()
 
     auto& state = processor.getValueTreeState();
 
-    const auto id = [tap] (const char* suffix) { return MantaDelayParams::tapParamId (tap, suffix); };
+    // 8.217：**エンジンの番号も要ります**（Phase 244）
+    const int engine = juce::jlimit (0, MantaDelayParams::numEngines - 1, selectedEngine);
+
+    const auto id = [engine, tap] (const char* suffix)
+    {
+        return MantaDelayParams::tapParamId (engine, tap, suffix);
+    };
 
     tapStepAttachment  = std::make_unique<SliderAttachment> (state, id (MantaDelayParams::tapStep), tapStepSlider);
     tapLevelAttachment = std::make_unique<SliderAttachment> (state, id (MantaDelayParams::tapLevel), tapLevelSlider);
     tapPanAttachment   = std::make_unique<SliderAttachment> (state, id (MantaDelayParams::tapPan), tapPanSlider);
+}
+
+//==============================================================================
+// 8.217：Phase 5aのデュアルエンジン（Phase 244）
+
+void MantaDelayEditor::rebuildEngineAttachments()
+{
+    const int engine = juce::jlimit (0, MantaDelayParams::numEngines - 1, selectedEngine);
+
+    // **いったん全部外してから**（8.215と同じ理由。同じつまみに2本ぶら下がると、
+    // 片方が前のエンジンへ書き戻します）
+    engineSliderAttachments.clear();
+    engineComboAttachments.clear();
+    engineButtonAttachments.clear();
+
+    auto& state = processor.getValueTreeState();
+
+    const auto id = [engine] (const char* suffix)
+    {
+        return MantaDelayParams::engineParamId (engine, suffix);
+    };
+
+    const auto addSlider = [&] (ValueEntrySlider& slider, const char* suffix)
+    {
+        engineSliderAttachments.add (new SliderAttachment (state, id (suffix), slider));
+    };
+
+    // **足したつまみをここへ入れ忘れないこと**——入れ忘れると、
+    // **そのつまみだけエンジンAに繋がったまま**になります（音は出るので気づきにくい）
+    addSlider (timeSlider, MantaDelayParams::timeMs);
+    addSlider (divisionSlider, MantaDelayParams::syncDivision);   // 8.207：Timeと重ねてある2本目
+    addSlider (feedbackSlider, MantaDelayParams::feedback);
+    addSlider (levelSlider, MantaDelayParams::engineLevel);
+    addSlider (panSlider, MantaDelayParams::enginePan);
+
+    addSlider (driveSlider, MantaDelayParams::drive);
+    addSlider (toneSlider, MantaDelayParams::tone);
+    addSlider (wowDepthSlider, MantaDelayParams::wowDepth);
+    addSlider (wowRateSlider, MantaDelayParams::wowRate);
+    addSlider (flutterDepthSlider, MantaDelayParams::flutterDepth);
+    addSlider (flutterRateSlider, MantaDelayParams::flutterRate);
+
+    addSlider (filterFreqSlider, MantaDelayParams::filterFreq);
+    addSlider (filterQSlider, MantaDelayParams::filterQ);
+    addSlider (filterGainSlider, MantaDelayParams::filterGain);
+
+    addSlider (lfoDepthSlider, MantaDelayParams::lfoDepth);
+    addSlider (lfoRateSlider, MantaDelayParams::lfoRate);
+
+    addSlider (duckAmountSlider, MantaDelayParams::duckAmount);
+    addSlider (duckAttackSlider, MantaDelayParams::duckAttack);
+    addSlider (duckReleaseSlider, MantaDelayParams::duckRelease);
+
+    addSlider (tapCountSlider, MantaDelayParams::tapCount);
+
+    engineComboAttachments.add (new ComboAttachment (state, id (MantaDelayParams::character), characterBox));
+    engineComboAttachments.add (new ComboAttachment (state, id (MantaDelayParams::filterType), filterTypeBox));
+    engineComboAttachments.add (new ComboAttachment (state, id (MantaDelayParams::lfoShape), lfoShapeBox));
+
+    engineButtonAttachments.add (new ButtonAttachment (state, id (MantaDelayParams::sync), syncButton));
+    engineButtonAttachments.add (new ButtonAttachment (state, id (MantaDelayParams::filterPost), filterPositionButton));
+
+    // **タップも繋ぎ直します**（`attachedTap`を無効にして、必ず作り直させる）
+    attachedTap = -1;
+    rebuildTapAttachments();
+
+    // **繋ぎ直したら、出し分けも見直すこと。** Aが Sync ON・Bが OFF のとき、
+    // 繋ぎ替えただけだと**Timeのつまみが出たまま**になります
+    refreshTimeControls();
+    refreshCharacterControls();
+    refreshFilterControls();
+    refreshTapControls();
+}
+
+void MantaDelayEditor::setSelectedEngine (int engine)
+{
+    const int wanted = juce::jlimit (0, MantaDelayParams::numEngines - 1, engine);
+
+    if (wanted == selectedEngine)
+        return;
+
+    selectedEngine = wanted;
+
+    processor.getUiState().setProperty (MantaDelayUiState::selectedEngine, wanted, nullptr);
+
+    rebuildEngineAttachments();
+}
+
+void MantaDelayEditor::refreshRoutingControls()
+{
+    const auto mode = (MantaDelayRouting::Mode)
+                         juce::jlimit (0, MantaDelayRouting::getModeCount() - 1,
+                                        routingBox.getSelectedItemIndex());
+
+    routingDescription.setText (MantaDelayRouting::getModeDescription (mode),
+                                 juce::dontSendNotification);
+
+    // **SingleではBが鳴りません。** 押せてしまうと「Bを直したのに音が変わらない」
+    // になるので、**触れないことを見せます**（8.208と同じグレーアウト）
+    const bool usesB = MantaDelayRouting::usesEngineB (mode);
+
+    engineBButton.setEnabled (usesB);
+    engineBButton.setAlpha (usesB ? 1.0f : 0.4f);
+
+    // Bを映したままSingleへ戻ったら、**Aへ引き戻します**——
+    // 鳴らないエンジンのつまみを回し続けることになるため
+    if (! usesB && selectedEngine != 0)
+    {
+        engineAButton.setToggleState (true, juce::dontSendNotification);
+        setSelectedEngine (0);
+    }
+
+    // Singleでは`Level`と`Pan`も意味がありません（混ぜる相手がいない）
+    setControlActive (levelSlider, levelCaption, usesB);
+    setControlActive (panSlider, panCaption, usesB);
 }
 
 void MantaDelayEditor::refreshTapControls()
@@ -474,13 +629,14 @@ void MantaDelayEditor::timerCallback()
     MantaDelayDisplay::State state;
 
     // **つまみの値ではなく、エンジンがいま鳴らしている値**（1.27）
-    state.delaySeconds = processor.getCurrentDelaySeconds();
+    // 8.217：**映しているエンジンのぶんを描きます**（Phase 244）
+    state.delaySeconds = processor.getCurrentDelaySeconds (selectedEngine);
     state.feedback = feedbackSlider.getValue();
     state.mix = mixSlider.getValue();
 
     // 8.214：**タップの並びはプロセッサから**（Phase 243）。
     // つまみを1本ずつ読み直すと、**画面が数え直すことになります**（1.27）
-    state.taps = processor.getTapPattern();
+    state.taps = processor.getTapPattern (selectedEngine);
     state.selectedTap = selectedTap;
 
     display.setState (state);
@@ -488,7 +644,8 @@ void MantaDelayEditor::timerCallback()
     tapStrip.setPattern (state.taps, selectedTap);
 
     // 8.212：ダッキングの帯（Phase 242）。**つまみの値ではなく、エンジンの実測**
-    duckMeter.setReduction (processor.getDuckReduction(), duckAmountSlider.getValue() > 0.0);
+    duckMeter.setReduction (processor.getDuckReduction (selectedEngine),
+                             duckAmountSlider.getValue() > 0.0);
 
     //--------------------------------------------------------------------------
     // テンポが来ていないときは、そう出す（8.161：黙って違う動きをしない）
@@ -531,8 +688,8 @@ void MantaDelayEditor::paint (juce::Graphics& g)
     // ASCIIしか入っていない文字列は素で渡して構いませんが、
     // **ASCIIでない文字が1つでも混ざったら`utf8()`**です（中黒・全角空白・矢印も同じ）。
     // 「日本語かどうか」ではなく「ASCIIかどうか」で見ること
-    g.drawText (utf8 ("Dual Engine  ·  Reverse  ·  Diffusion  ·  Freeze"
-                       "　（Phase 5以降）"),
+    g.drawText (utf8 ("Ping-Pong  ·  Cross-Feedback  ·  Reverse  ·  Diffusion  ·  Freeze"
+                       "　（Phase 5b以降）"),
                  future, juce::Justification::centred);
 
     //--------------------------------------------------------------------------
@@ -612,7 +769,29 @@ void MantaDelayEditor::resized()
 
     auto content = area.reduced (12, 8);
 
-    echoTitle.setBounds (content.removeFromTop (sectionTitleHeight));
+    //--------------------------------------------------------------------------
+    // 8.217：`Echo`／`[A][B]`／`Routing`（Phase 244）
+
+    {
+        auto header = content.removeFromTop (headerHeight);
+
+        echoTitle.setBounds (header.removeFromLeft (46).withSizeKeepingCentre (46, sectionTitleHeight));
+
+        header.removeFromLeft (4);
+        engineAButton.setBounds (header.removeFromLeft (30).reduced (0, 2));
+        header.removeFromLeft (4);
+        engineBButton.setBounds (header.removeFromLeft (30).reduced (0, 2));
+
+        // **Routingは右端へ。** エンジンのつまみと混ざらない場所に置きます
+        auto routing = header.removeFromRight (300);
+
+        routingCaption.setBounds (routing.removeFromLeft (60));
+        routing.removeFromLeft (6);
+        routingBox.setBounds (routing.removeFromLeft (120).reduced (0, 2));
+        routing.removeFromLeft (8);
+        routingDescription.setBounds (routing);
+    }
+
     content.removeFromTop (4);
 
     //--------------------------------------------------------------------------
@@ -646,8 +825,12 @@ void MantaDelayEditor::resized()
         }
     };
 
+    // 8.217：**1段3つ**（Phase 244）。`Level`と`Pan`は**そのエンジンのもの**、
+    // `Mix`と`Output`は**エンジン共通**です（下の段の右端だけが共通ではない、
+    // という並びになりますが、そのためにPhase 1の2つを動かすことはしません）
     placeKnobRow (knobs.removeFromTop (knobHeight), { { &timeSlider, &timeCaption },
-                                                       { &feedbackSlider, &feedbackCaption } });
+                                                       { &feedbackSlider, &feedbackCaption },
+                                                       { &levelSlider, &levelCaption } });
 
     // 8.207：**音価のつまみはTimeと同じ場所へ**（Phase 239/本人の指定）。
     // どちらか片方しか出ていないので、重ねて置いて構いません——
@@ -667,7 +850,8 @@ void MantaDelayEditor::resized()
     knobs.removeFromTop (10);
 
     placeKnobRow (knobs.removeFromTop (knobHeight), { { &mixSlider, &mixCaption },
-                                                       { &outputSlider, &outputCaption } });
+                                                       { &outputSlider, &outputCaption },
+                                                       { &panSlider, &panCaption } });
 
     //--------------------------------------------------------------------------
     // 右：タイムライン表示

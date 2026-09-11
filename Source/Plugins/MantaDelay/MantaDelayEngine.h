@@ -101,8 +101,9 @@ public:
     {
         double delaySeconds = 0.375;
         float  feedback     = 0.35f;
-        float  mix          = 0.30f;
-        float  outputGain   = 1.0f;
+
+        // 8.217：`mix`と`outputGain`はここから出ました（Phase 244）。
+        // **エンジン共通**なので、混ぜるのも音量もプロセッサ側の仕事です
 
         // 8.208：Phase 2（キャラクター）
         MantaDelayCharacter::Settings character;
@@ -238,9 +239,18 @@ public:
         }
     }
 
-    /** その場で処理する（in-place）。**音のスレッドから呼ばれます**——
-        確保も、ロックも、`juce::String`もここには書かないこと（9.4）。 */
-    void process (juce::AudioBuffer<float>& buffer)
+    /** 8.217：**ウェットだけを作ります**（Phase 244）。渡された`buffer`は
+        入口の音で、**返るときには反復だけ**に置き換わっています。
+
+        混ぜるのも出口の音量も、**プロセッサの仕事**です——
+        エンジンごとに原音を混ぜてしまうと、Dualで**原音が2回足されます。**
+
+        `dryMono`は**プラグインの入口の音**（左右をまとめたもの）。ダッキングが見ます——
+        Seriesのとき、Bの入口はAの出口なので、**そこを見ると自分の反復で自分を絞ります。**
+
+        **音のスレッドから呼ばれます**——確保も、ロックも、`juce::String`も
+        ここには書かないこと（9.4）。 */
+    void processWet (juce::AudioBuffer<float>& buffer, const float* dryMono)
     {
         // **`juce::dsp::DelayLine`は`getNumChannels()`を持っていません**（Phase 238で踏んだ）。
         // `prepare()`へ渡した数を自分で覚えておきます
@@ -259,13 +269,9 @@ public:
             currentDelaySamples = targetSamples;   // 最初の1回だけ、いきなり合わせる
 
         const float feedback = juce::jlimit (0.0f, 0.99f, settings.feedback);
-        const float wet = juce::jlimit (0.0f, 1.0f, settings.mix);
-        const float dry = 1.0f - wet;
-        const float gain = settings.outputGain;
 
         const bool filterActive = filterDesign.active;
         const bool filterPost = settings.filter.post;
-        const float invChannels = 1.0f / (float) numChannels;
 
         for (int i = 0; i < numSamples; ++i)
         {
@@ -287,15 +293,10 @@ public:
 
             // 8.212：ダッキング（Phase 242）。**原音を見ます**——ディレイ音ではありません。
             //
-            // **書き込む前に、全チャンネルぶん読んでおくこと。** 下の輪は
-            // `data[i]`を上書きするので、そのあとで読むと**混ぜたあとの値**を見ます。
-            // 左右をまとめた1つの値で動かします（片側だけ絞ると定位が動きます）
-            float monoInput = 0.0f;
-
-            for (int channel = 0; channel < numChannels; ++channel)
-                monoInput += buffer.getReadPointer (channel)[i];
-
-            const float duckGain = ducker.advance (monoInput * invChannels);
+            // 8.217：**その原音はプロセッサからもらいます**（Phase 244）。
+            // Phase 4までは`buffer`から作っていましたが、Seriesではそこに
+            // **Aの反復が入っている**ので、自分の出した音で自分を絞ることになります
+            const float duckGain = ducker.advance (dryMono != nullptr ? dryMono[i] : 0.0f);
 
             // 8.214：**パターンの終わり**（Phase 243）。フィードバックはここから戻します
             const double patternDelay = clampDelay ((double) patternSteps * currentDelaySamples
@@ -352,7 +353,9 @@ public:
 
                 // 8.212：**ダッキングは出口のウェットにだけ。** 戻すほう（`pushSample`）には
                 // 掛けません——掛けると減衰の速さが入力の大きさで変わります（`MantaDelayDucker`）
-                data[i] = (input * dry + wetSample * wet * duckGain) * gain;
+                //
+                // 8.217：**原音はもう足しません**（Phase 244。`processWet()`の説明）
+                data[i] = wetSample * duckGain;
             }
         }
 
