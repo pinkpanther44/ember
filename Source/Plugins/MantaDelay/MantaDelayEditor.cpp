@@ -64,7 +64,32 @@ MantaDelayEditor::MantaDelayEditor (MantaDelayProcessor& processorToUse)
     globalAttachments.add (new SliderAttachment (processor.getValueTreeState(),
                                                   MantaDelayParams::crossFeedback, crossSlider));
 
-    crossSlider.setTooltip (utf8 ("AとBで戻りをどれだけ入れ替えるか。Dualのときだけ効きます"));
+    // 8.225：**「同じもの同士を入れ替えても何も起きない」と書いておくこと**
+    // （Phase 247／本人の報告「Crossの違いが微妙」）。
+    // Dualに切り替えた直後はBの既定値がAと同じなので、**本当に何も起きません**
+    crossSlider.setTooltip (utf8 ("AとBで戻りをどれだけ入れ替えるか。Dual専用。"
+                                   "AとBのTimeやCharacterが同じだと違いは出ません"));
+
+    //--------------------------------------------------------------------------
+    // 8.219〜8.221：Phase 6（Phase 246／仕様書5-1・5-5）
+
+    // **副の色**——滲みは「反復そのもの」ではなく、その周りの手触り
+    setupKnob (diffuseSlider, diffuseCaption, "Diffuse",
+                MantaDelayTheme::highlight());
+
+    diffuseSlider.setTooltip (utf8 ("反復を滲ませてリバーブに近づけます"));
+
+    MantaPluginToolbar::styleButton (freezeButton, "Freeze");
+    freezeButton.setClickingTogglesState (true);
+    freezeButton.setColour (juce::TextButton::buttonOnColourId, MantaDelayTheme::highlight());
+    freezeButton.setTooltip (utf8 ("いま線の中にある音をそのまま回し続けます（新しい音は入りません）"));
+    addAndMakeVisible (freezeButton);
+
+    MantaPluginToolbar::styleButton (reverseButton, "Reverse");
+    reverseButton.setClickingTogglesState (true);
+    reverseButton.setColour (juce::TextButton::buttonOnColourId, MantaDelayTheme::highlight());
+    reverseButton.setTooltip (utf8 ("入口を裏返します。裏返す長さはTimeと同じです"));
+    addAndMakeVisible (reverseButton);
 
     timeSlider.setTooltip (utf8 ("反復の間隔。Syncを入れると曲のテンポに合わせます"));
     feedbackSlider.setTooltip (utf8 ("返ってきた音をどれだけ戻すか。上げるほど長く反復します"));
@@ -336,7 +361,9 @@ MantaDelayEditor::~MantaDelayEditor()
                            // 8.214：Phase 4で足したぶん（Phase 243）
                            &tapCountSlider, &tapStepSlider, &tapLevelSlider, &tapPanSlider,
                            // 8.217〜8.218：Phase 5で足したぶん（Phase 244・245）
-                           &levelSlider, &panSlider, &crossSlider })
+                           &levelSlider, &panSlider, &crossSlider,
+                           // 8.220：Phase 6で足したぶん（Phase 246）
+                           &diffuseSlider })
         slider->setLookAndFeel (nullptr);
 }
 
@@ -540,12 +567,18 @@ void MantaDelayEditor::rebuildEngineAttachments()
 
     addSlider (tapCountSlider, MantaDelayParams::tapCount);
 
+    addSlider (diffuseSlider, MantaDelayParams::diffusion);   // 8.220（Phase 246）
+
     engineComboAttachments.add (new ComboAttachment (state, id (MantaDelayParams::character), characterBox));
     engineComboAttachments.add (new ComboAttachment (state, id (MantaDelayParams::filterType), filterTypeBox));
     engineComboAttachments.add (new ComboAttachment (state, id (MantaDelayParams::lfoShape), lfoShapeBox));
 
     engineButtonAttachments.add (new ButtonAttachment (state, id (MantaDelayParams::sync), syncButton));
     engineButtonAttachments.add (new ButtonAttachment (state, id (MantaDelayParams::filterPost), filterPositionButton));
+
+    // 8.219・8.221（Phase 246）
+    engineButtonAttachments.add (new ButtonAttachment (state, id (MantaDelayParams::freeze), freezeButton));
+    engineButtonAttachments.add (new ButtonAttachment (state, id (MantaDelayParams::reverse), reverseButton));
 
     // **タップも繋ぎ直します**（`attachedTap`を無効にして、必ず作り直させる）
     attachedTap = -1;
@@ -686,23 +719,17 @@ void MantaDelayEditor::paint (juce::Graphics& g)
     auto area = getLocalBounds();
     area.removeFromTop (MantaPluginToolbar::preferredHeight);
 
-    // Phase 5以降の場所。**黙って空けない**（何も無い灰色の面は「壊れている」ようにも見える）
-    auto future = area.removeFromBottom (futureAreaHeight).reduced (12, 4);
-
-    g.setColour (MantaTheme::textDim().withAlpha (0.6f));
-    g.setFont (juce::Font (juce::FontOptions (11.0f)));
-
-    // 8.208：Characterが入ったので消し、8.210〜8.212でFilter・LFO・Duckingも消しました。
+    // 8.222：**これから入るものの行は、消しました**（Phase 246）。
     //
-    // 8.213：**中黒も`utf8()`に通すこと**（Phase 242／本人のスクリーンショットで発覚）。
-    // Phase 240で書いたこの行は`"Filter  ·  LFO …"`を生の文字列リテラルで渡していて、
-    // **`Filter Â· LFO`と化けて出ていました。**
+    // Phase 1からずっと「**空きは黙って空けない**」で、いちばん下に
+    // 薄く「Character · Filter · …（Phase 2以降）」と出していました。
+    // **Phase 6で設計書のスコープが全部入った**ので、書くことがありません。
     //
-    // ASCIIしか入っていない文字列は素で渡して構いませんが、
-    // **ASCIIでない文字が1つでも混ざったら`utf8()`**です（中黒・全角空白・矢印も同じ）。
-    // 「日本語かどうか」ではなく「ASCIIかどうか」で見ること
-    g.drawText (utf8 ("Reverse  ·  Diffusion  ·  Freeze　（Phase 6）"),
-                 future, juce::Justification::centred);
+    // **空になった行は、残さず片付けること**——「まだ何か来る」と読めてしまいます。
+    // 空いた26pxはディスプレイへ回しました。
+    //
+    // 8.213の教訓（中黒も`utf8()`を通すこと）は、この行で踏んだものです。
+    // 行は消えましたが、**9.4に残してあります。**
 
     //--------------------------------------------------------------------------
     // 8.210：Phase 3の帯（Phase 242）。3つの箱に分けて描きます。
@@ -769,8 +796,6 @@ void MantaDelayEditor::resized()
         auto toolbarArea = toolbar.getLocalBounds().reduced (8, 0);
         statusLabel.setBounds (toolbarArea.removeFromRight (toolbarArea.getWidth() / 2));
     }
-
-    area.removeFromBottom (futureAreaHeight);   // Phase 5以降の1行（`paint()`が描く）
 
     // 8.210：Phase 3の帯（Phase 242）。**先に取り分けます**——
     // 残りを上のPhase 1・2が使う形なので、ここで取らないと下へはみ出します
@@ -851,12 +876,22 @@ void MantaDelayEditor::resized()
 
     knobs.removeFromTop (6);
 
-    // Sync と音価
+    // Sync と、8.219・8.221：Freeze／Reverse（Phase 246）
     {
         auto syncRow = knobs.removeFromTop (24);
 
-        // 8.207：音価のコンボは廃止しました（Phase 239）。Timeのつまみが兼ねます
-        syncButton.setBounds (syncRow.withSizeKeepingCentre (80, syncRow.getHeight()));
+        // 8.207：音価のコンボは廃止しました（Phase 239）。Timeのつまみが兼ねます。
+        // **3つまとめて真ん中へ**（`withSizeKeepingCentre`を入れ子にしない。8.172）
+        constexpr int buttonWidth = 82;
+        constexpr int buttonGap = 6;
+
+        auto row = syncRow.withSizeKeepingCentre (buttonWidth * 3 + buttonGap * 2, syncRow.getHeight());
+
+        syncButton.setBounds (row.removeFromLeft (buttonWidth));
+        row.removeFromLeft (buttonGap);
+        freezeButton.setBounds (row.removeFromLeft (buttonWidth));
+        row.removeFromLeft (buttonGap);
+        reverseButton.setBounds (row.removeFromLeft (buttonWidth));
     }
 
     knobs.removeFromTop (10);
@@ -869,7 +904,8 @@ void MantaDelayEditor::resized()
     // （左の列は296pxのうち208pxを使っていました）
     knobs.removeFromTop (4);
 
-    placeKnobRow (knobs.removeFromTop (knobHeight), { { &crossSlider, &crossCaption } });
+    placeKnobRow (knobs.removeFromTop (knobHeight), { { &crossSlider, &crossCaption },
+                                                       { &diffuseSlider, &diffuseCaption } });
 
     //--------------------------------------------------------------------------
     // 右：タイムライン表示

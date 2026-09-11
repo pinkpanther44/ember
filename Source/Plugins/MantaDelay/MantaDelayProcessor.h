@@ -45,9 +45,11 @@ namespace MantaDelayUiState
     | Phase 3 | フィードバック内フィルター、LFOモジュレーション、ダッキング |
     | Phase 4 | マルチタップ（最大8本。`MantaDelayTaps.h`） |
     | Phase 5a | デュアルエンジンとルーティング（`MantaDelayRouting.h`） |
-    | **Phase 5b（いまここ）** | **Ping-Pongとクロスフィードバック** |
+    | Phase 5b | Ping-Pongとクロスフィードバック |
+    | **Phase 6（いまここ。最後）** | **リバース・ディフュージョン・Freeze** |
 
-    **残っているのはPhase 6だけ**です（リバース、ディフュージョン、Freeze、UIの仕上げ）。
+    **設計書8章のスコープは、これで全部です。**
+    `Pitch Shift`だけ**非採用**（設計書4-5：ライト版でも★4相当が下限）。
 
     ### 8.218：1サンプルずつ回します（Phase 245）
 
@@ -217,6 +219,11 @@ private:
         // 8.217：Phase 5（Phase 244）
         std::atomic<float>* level = nullptr;
         std::atomic<float>* pan = nullptr;
+
+        // 8.219〜8.221：Phase 6（Phase 246）
+        std::atomic<float>* freeze = nullptr;
+        std::atomic<float>* reverse = nullptr;
+        std::atomic<float>* diffusion = nullptr;
     };
 
     /** エンジン共通のもの。**`mix`と`outputGain`はここ**（8.217）。 */

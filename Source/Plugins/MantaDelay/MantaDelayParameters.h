@@ -153,6 +153,22 @@ namespace MantaDelayParams
     inline constexpr const char* crossFeedback = "crossFeedback";
 
     //==========================================================================
+    // 8.219〜8.221：Phase 6（仕様書5-1・5-5）。**エンジンごと**
+
+    /** フィードバックを1にして、新しい入力を止める（仕様書5-1のFreeze）。
+
+        **Feedbackの上限を95%にした代わりの機能**です（Phase 1の`maxFeedback`）——
+        100%は「減衰しないので止める手段が無いまま鳴り続ける」ので入れず、
+        **止められる形で別に持つ**ことにしてありました。 */
+    inline constexpr const char* freeze = "freeze";
+
+    /** 入口を裏返す（仕様書5-5）。窓の長さはディレイタイムと同じ（`MantaDelayReverse`）。 */
+    inline constexpr const char* reverse = "reverse";
+
+    /** 滲ませる量（仕様書5-5／設計書4-3のライト版）。 */
+    inline constexpr const char* diffusion = "diffusion";
+
+    //==========================================================================
     /** 5-1：音価の一覧。**並びを変えないこと**（保存されるのは番号です）。
 
         付点（Dotted）と3連（Triplet）は仕様書5-1の指定どおり。

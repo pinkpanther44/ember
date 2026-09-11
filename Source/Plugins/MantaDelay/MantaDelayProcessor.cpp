@@ -93,6 +93,11 @@ MantaDelayProcessor::MantaDelayProcessor()
         // 8.217：Phase 5（Phase 244）
         pointers.level = id (MantaDelayParams::engineLevel);
         pointers.pan   = id (MantaDelayParams::enginePan);
+
+        // 8.219〜8.221：Phase 6（Phase 246）
+        pointers.freeze    = id (MantaDelayParams::freeze);
+        pointers.reverse   = id (MantaDelayParams::reverse);
+        pointers.diffusion = id (MantaDelayParams::diffusion);
     }
 }
 
@@ -278,6 +283,11 @@ MantaDelayEngine::Settings MantaDelayProcessor::buildEngineSettings (int engine)
 
     // 8.214：Phase 4（Phase 243）。**画面と同じ`buildTapPattern()`**を通します（1.27）
     settings.taps = buildTapPattern (engine);
+
+    // 8.219〜8.221：Phase 6（Phase 246）
+    settings.freeze    = pointers.freeze->load() > 0.5f;
+    settings.reverse   = pointers.reverse->load() > 0.5f;
+    settings.diffusion = pointers.diffusion->load();
 
     return settings;
 }

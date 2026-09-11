@@ -78,6 +78,30 @@ namespace MantaDelayRouting
         | **Ping-Pong** | **全交換そのもの**がこのモードの定義です（つまみで減らせると、ただのDualになります） | */
     inline bool usesCrossFeedback (Mode mode) { return mode == Mode::dual; }
 
+    /** 8.225：**AとBが同じ設定だと、Crossは何も変えません**（Phase 247／本人の報告）。
+
+        バグではなく算数です。2本の線に同じ音が入っていれば`fbA == fbB`なので、
+
+        ```
+            toA = fbA×(1−x) + fbB×x  =  fbA        ← xが何でも同じ
+        ```
+
+        **Dualに切り替えた直後は、Bの既定値がAと同じ**なので、本当に何も起きません。
+
+        **Ping-Pongで効くのは、入口がAだけだから**です（Bに直接の入力が無いので、
+        2本は最初から違う状態にあります）。
+
+        効かせるには**Time（かCharacter、フィルター、タップ）を変えること。**
+        `Pan`だけでは足りません——パンは**出口**に掛かるもので、
+        **線の中身は同じまま**だからです。
+
+        > つまみのツールチップにも書いてあります。
+        > **「知らないと必ず踏むもの」は、コードのコメントだけでなく画面にも出すこと。** */
+    inline const char* getCrossFeedbackNote()
+    {
+        return "Cross does nothing while A and B are set the same";
+    }
+
     /** 8.218：戻りをどれだけ入れ替えるか（0＝自分のまま、1＝そっくり相手のもの）。
 
         **Ping-Pongは常に1**です（上の表）。 */

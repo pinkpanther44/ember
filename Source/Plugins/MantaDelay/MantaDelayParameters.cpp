@@ -301,6 +301,40 @@ namespace MantaDelayParams
 
         addFloat (crossFeedback, "Cross", { 0.0f, 1.0f, 0.001f }, 0.0f, formatPercent);
 
+        //----------------------------------------------------------------------
+        // 8.219〜8.221：Phase 6（仕様書5-1・5-5／Phase 246）。
+        //
+        // **エンジンごとのぶんを足すのに、末尾でもう1周します。**
+        //
+        // `addEngineParameters()`の中へ足したくなりますが、そうすると
+        // **Aのぶんが`routingMode`より前に入って、そこから後ろが全部ずれます**——
+        // 本体のオートメーションは`insert:<スロット>:<パラメータ番号>`で覚えているので
+        // （9.5）、**保存済みのオートメーションが別のつまみに付きます。**
+        //
+        // 見た目は不揃いですが、**番号を動かさないほうが大事**です（8.217と同じ話）。
+
+        const auto addPhase6Parameters = [&] (int engine)
+        {
+            const auto id = [engine] (const char* suffix) { return engineParamId (engine, suffix); };
+
+            const auto label = [engine] (const juce::String& text)
+            {
+                return engine == 0 ? text : "B " + text;
+            };
+
+            layout.add (std::make_unique<juce::AudioParameterBool> (
+                juce::ParameterID { id (freeze), 1 }, label ("Freeze"), false));
+
+            layout.add (std::make_unique<juce::AudioParameterBool> (
+                juce::ParameterID { id (reverse), 1 }, label ("Reverse"), false));
+
+            // **既定は0%**（挿しただけでは滲みません。8.209で引いた線）
+            addFloat (id (diffusion), label ("Diffuse"), { 0.0f, 1.0f, 0.001f }, 0.0f, formatPercent);
+        };
+
+        addPhase6Parameters (0);
+        addPhase6Parameters (1);
+
         return layout;
     }
 }

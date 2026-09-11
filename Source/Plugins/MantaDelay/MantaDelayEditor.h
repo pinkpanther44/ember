@@ -22,9 +22,9 @@
     │  Echo [A][B]              Routing [Single ▾] …     │
     │  ┌──────────────────┐  ┌──────────────────────┐   │
     │  │ Time  Fb   Level │  │                      │   │
-    │  │      (Sync)      │  │  反復のタイムライン    │   │
+    │  │ Sync Freeze Rev  │  │  反復のタイムライン    │   │
     │  │ Mix   Out  Pan   │  │ （`MantaDelayDisplay`）│   │
-    │  │      Cross       │  │                      │   │
+    │  │  Cross  Diffuse  │  │                      │   │
     │  └──────────────────┘  └──────────────────────┘   │
     │                                                    │
     │  Character [combo]  Drive Tone Wow … （Phase 2）   │
@@ -35,9 +35,17 @@
     │  │ [Type][Pre/Po]││ [Shape]     ││  ▭▬▬▬▬       │  │
     │  │ Freq  Q  Gain ││ Rate  Depth ││ Duck Atk Rel │  │
     │  └───────────────┘└─────────────┘└──────────────┘  │
-    │  ▁▁▁▁▁▁▁ Phase 6の場所 ▁▁▁▁▁▁▁                   │
     └────────────────────────────────────────────────────┘
     ```
+
+    ### 8.222：「これから入るもの」の行は消しました（Phase 246）
+
+    Phase 1からずっと、いちばん下に薄く出していました
+    （「Character · Filter · …（Phase 2以降）」）。
+    **設計書のスコープが全部入ったので、書くことがありません。**
+
+    **空になった行は、残さず片付けること**——「まだ何か来る」と読めてしまいます。
+    26pxはディスプレイへ回りました。
 
     ### 8.217：映しているのは**1エンジンぶんだけ**（Phase 244）
 
@@ -191,7 +199,16 @@ private:
     juce::Label timeCaption, feedbackCaption, mixCaption, outputCaption,
                 levelCaption, panCaption, crossCaption;
 
+    /** 8.220：滲ませる量（Phase 246）。**エンジンごと**。 */
+    ValueEntrySlider diffuseSlider { juce::Slider::RotaryHorizontalVerticalDrag, juce::Slider::TextBoxBelow };
+
+    juce::Label diffuseCaption;
+
     juce::TextButton syncButton;
+
+    /** 8.219・8.221：Phase 6（Phase 246）。**Syncと同じ行に並べます**——
+        どれも「そのエンジンの回り方」を決めるものだからです。 */
+    juce::TextButton freezeButton, reverseButton;
 
     //==========================================================================
     // 8.217：Phase 5aのデュアルエンジン（Phase 244）
@@ -347,9 +364,10 @@ private:
         （どのタップを直すかは、右の一覧を押して決めます）。 */
     static constexpr int tapsAreaHeight = 128;
 
-    /** 8.210：**細い1行だけ**に縮めました（Phase 242）。
-        Phase 2までは74pxの箱でしたが、その場所はPhase 3の帯が使います。 */
-    static constexpr int futureAreaHeight = 26;
+    // 8.222：`futureAreaHeight`は**消しました**（Phase 246）。
+    // Phase 1から「これから入るもの」を薄く出していた行です——
+    // **設計書のスコープが全部入ったので、書くことがありません。**
+    // 空いた26pxはディスプレイへ回りました（`paint()`の説明）。
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MantaDelayEditor)
 };

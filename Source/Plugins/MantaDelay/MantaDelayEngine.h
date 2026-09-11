@@ -7,6 +7,8 @@
 #include "MantaDelayFilter.h"      // 8.210：ループ内フィルター（Phase 242）
 #include "MantaDelayLfo.h"         // 8.211：LFO（Phase 242）
 #include "MantaDelayTaps.h"        // 8.214：マルチタップ（Phase 243）
+#include "MantaDelayDiffuser.h"    // 8.220：ディフュージョン（Phase 246）
+#include "MantaDelayReverse.h"     // 8.219：リバース（Phase 246）
 
 #include <array>
 #include <atomic>
@@ -124,6 +126,13 @@ public:
 
         // 8.214：Phase 4（Phase 243）
         MantaDelayTaps::Pattern taps;
+
+        //----------------------------------------------------------------------
+        // 8.219〜8.221：Phase 6（Phase 246）
+
+        bool  freeze    = false;
+        bool  reverse   = false;
+        float diffusion = 0.0f;
     };
 
     void prepare (double sampleRateToUse, int maximumBlockSize, int numChannels,
@@ -162,6 +171,18 @@ public:
         lfo.prepare (sampleRate);
         ducker.prepare (sampleRate);
 
+        // 8.219〜8.220：Phase 6（Phase 246）。**滲みは道ごと・チャンネルごと**
+        reverseUnit.prepare (sampleRate, preparedChannels);
+
+        // 8.223：**チャンネルの番号を渡します**（Phase 247）——
+        // 左右で段の長さを少しずらさないと、滲みが真ん中に固まります。
+        // **道（鳴らす／戻す）は同じ番号**にすること（同じチャンネルの音なので）
+        for (int channel = 0; channel < (int) feedbackDiffusers.size(); ++channel)
+        {
+            feedbackDiffusers[(size_t) channel].prepare (sampleRate, channel);
+            wetDiffusers[(size_t) channel].prepare (sampleRate, channel);
+        }
+
         delayLine.prepare (spec);
         delayLine.reset();
 
@@ -194,6 +215,14 @@ public:
 
         lfo.reset();
         ducker.reset();
+
+        reverseUnit.reset();
+
+        for (auto& diffuser : feedbackDiffusers)
+            diffuser.reset();
+
+        for (auto& diffuser : wetDiffusers)
+            diffuser.reset();
     }
 
     void setSettings (const Settings& newSettings)
@@ -238,6 +267,18 @@ public:
             // **モノラルではパンを使いません**（行き先が無いので、Levelだけ）
             tapMonoGains[(size_t) tap] = level;
         }
+
+        //----------------------------------------------------------------------
+        // 8.219〜8.220：Phase 6（Phase 246）
+
+        // **窓の長さはディレイタイムと同じ**（`MantaDelayReverse`の説明）
+        reverseUnit.setSettings (settings.reverse, settings.delaySeconds);
+
+        for (auto& diffuser : feedbackDiffusers)
+            diffuser.setAmount (settings.diffusion);
+
+        for (auto& diffuser : wetDiffusers)
+            diffuser.setAmount (settings.diffusion);
     }
 
     /** 8.217：**ウェットだけを作ります**（Phase 244）。渡された`buffer`は
@@ -325,6 +366,7 @@ public:
         blockFeedback = juce::jlimit (0.0f, 0.99f, settings.feedback);
         blockFilterActive = filterDesign.active;
         blockFilterPost = settings.filter.post;
+        blockFreeze = settings.freeze;   // 8.221（Phase 246）
 
         return blockChannels;
     }
@@ -410,11 +452,19 @@ public:
             // 掛けると減衰の速さが入力の大きさで変わります（`MantaDelayDucker`）
             wetOut = colour (tapSum, wetFilters[(size_t) channel],
                               wetCharacters[(size_t) channel],
+                              wetDiffusers[(size_t) channel],
                               filterActive, filterPost) * currentDuckGain;
 
-            feedbackOut = colour (feedbackSource, feedbackFilters[(size_t) channel],
-                                   feedbackCharacters[(size_t) channel],
-                                   filterActive, filterPost);
+            // 8.221：**Freezeのあいだは、戻す道に何も掛けません**（Phase 246）。
+            //
+            // 掛けると**一周ごとに暗く・汚く・滲んでいきます**——
+            // 「止める」と言いながら**少しずつ変わり続ける**ことになります。
+            // 素通しにすれば、線の中身がそのまま回り続けます
+            feedbackOut = blockFreeze ? feedbackSource
+                                       : colour (feedbackSource, feedbackFilters[(size_t) channel],
+                                                  feedbackCharacters[(size_t) channel],
+                                                  feedbackDiffusers[(size_t) channel],
+                                                  filterActive, filterPost);
         }
     }
 
@@ -424,7 +474,26 @@ public:
         Ping-Pongなら相手のもの、Dualなら自分と相手を混ぜたもの、Singleなら自分のもの。 */
     void writeChannel (int channel, float input, float feedbackIn)
     {
-        delayLine.pushSample (channel, input + feedbackIn * blockFeedback);
+        // 8.219：**入口を裏返すのはここ**（Phase 246）。
+        // **戻りは通しません**——通すと1回目は逆、2回目は順……と落ち着きません
+        // （`MantaDelayReverse`の説明）
+        const float written = reverseUnit.isActive() ? reverseUnit.processSample (channel, input)
+                                                      : input;
+
+        // 8.221：**Freezeは「戻りを1倍で、入口を止める」**（Phase 246）。
+        //
+        // `feedback`を1にしただけでは、**新しい音が入り続けて溜まります。**
+        // 入口を止めただけでは、**`feedback`のぶんずつ減って消えます。**
+        // **両方でやっと「そのまま回り続ける」**になります
+        if (blockFreeze)
+            delayLine.pushSample (channel, feedbackIn);
+        else
+            delayLine.pushSample (channel, written + feedbackIn * blockFeedback);
+
+        // 8.219：**進めるのは全チャンネルを処理したあとに1回だけ**
+        // （チャンネルごとに進めると、右が左の1サンプル先を読みます）
+        if (channel >= blockChannels - 1)
+            reverseUnit.advance();
 
         // 表示用。**音のスレッドから書いて、画面が読むだけ**なので`atomic`。
         // **チャンネルごとに書いても同じ値**なので、まとめずにここで済ませます
@@ -461,6 +530,7 @@ private:
         写しを作ると、片方だけPre／Postを直す日が来ます。 */
     float colour (float input, MantaBiquad::Biquad& filter,
                    MantaDelayCharacter::Processor& character,
+                   MantaDelayDiffuser& diffuser,
                    bool filterActive, bool filterPost) const
     {
         float x = input;
@@ -469,6 +539,11 @@ private:
         // 状態（`filter`）だけが道ごと・チャンネルごとです
         if (filterActive && ! filterPost)
             x = filter.process (x, filterDesign.coeffs);
+
+        // 8.220：**順番は仕様書3-2の信号フローどおり**（Phase 246）——
+        // `Filter → Diffusion → Saturation/Character`。
+        // 滲ませてから歪ませます（逆にすると、歪みの粒が散らずに固まります）
+        x = diffuser.processSample (x);
 
         x = character.processSample (x);
 
@@ -515,6 +590,15 @@ private:
     std::array<MantaBiquad::Biquad, 2> feedbackFilters;
     std::array<MantaBiquad::Biquad, 2> wetFilters;
 
+    /** 8.220：ディフュージョン（Phase 246）。**フィルターと同じ数え方**——
+        道（鳴らす／戻す）×チャンネルで4つ。 */
+    std::array<MantaDelayDiffuser, 2> feedbackDiffusers;
+    std::array<MantaDelayDiffuser, 2> wetDiffusers;
+
+    /** 8.219：リバース（Phase 246）。**1つだけ**——入口に置くものなので、
+        道の数だけ要りません（チャンネルは中で持っています）。 */
+    MantaDelayReverse reverseUnit;
+
     /** 8.214：タップの係数（Phase 243）。**`setSettings()`で出して、毎サンプル読むだけ。** */
     int activeTaps = 1;
     int patternSteps = 1;
@@ -530,6 +614,7 @@ private:
     float blockFeedback = 0.0f;
     bool blockFilterActive = false;
     bool blockFilterPost = false;
+    bool blockFreeze = false;   // 8.221（Phase 246）
 
     float currentDuckGain = 1.0f;
     double currentPatternDelay = 1.0;

@@ -36,7 +36,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
     At zero the two run in parallel; turn it up and the repeats start bouncing
     between them. The swap is a blend, so the repeats never grow louder than
     the feedback amount allows, however far it is turned
-  - Still to come: reverse, diffusion and freeze
+  - **Freeze**, which loops what is in the delay line right now and lets
+    nothing new in. Nothing is coloured while it is held, so what loops stays
+    exactly as it was rather than slowly darkening
+  - **Reverse**, which turns the input around over a window as long as the
+    delay time, so the reversed phrase lands neatly between the repeats and
+    sits on the beat when Time is synced
+  - **Diffuse**, which smears the repeats towards a reverb. Four fixed
+    all-pass stages, slightly different lengths left and right so the smear
+    opens outwards instead of collecting in the middle
 - Plugins now receive the song tempo and position from Ember, so **third-party
   plugins that sync to tempo work**. They could not before
 - Chord Pad can create a chord track when there is not one yet
