@@ -1,5 +1,7 @@
 #include "MantaDelayParameters.h"
 #include "MantaDelayCharacter.h"   // 8.208：キャラクターの名前（Phase 240）
+#include "MantaDelayFilter.h"      // 8.210：フィルターの形の名前（Phase 242）
+#include "MantaDelayLfo.h"         // 8.211：波形の名前（Phase 242）
 
 #include <cmath>
 
@@ -44,6 +46,24 @@ namespace MantaDelayParams
         {
             return juce::String (value, value < 10.0f ? 2 : (value < 100.0f ? 1 : 0)) + " ms";
         }
+
+        //----------------------------------------------------------------------
+        // 8.210：Phase 3で足したもの（Phase 242）
+
+        /** フィルターの周波数。**`formatHz`とは別にします**——
+            あちらはLFOの0.05〜20Hz用で小数2桁、こちらは20〜20000Hz用です
+            （「2000.00 Hz」は読めません）。
+
+            **出し方はManta EQに合わせます**（Phase 208／本人の要望）——
+            小数点以下は出さず、kHz表記も使いません。`ValueEntrySlider`は
+            数字を打ち込めるので、**打った値と出てくる値が食い違うと気持ち悪い**
+            （"3 kHz"だと3150Hzも同じ表示になります）。 */
+        juce::String formatFilterHz (float value, int)
+        {
+            return juce::String (juce::roundToInt (value)) + " Hz";
+        }
+
+        juce::String formatQ (float value, int) { return juce::String (value, 2); }
     }
 
     juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
@@ -111,6 +131,55 @@ namespace MantaDelayParams
 
         addFloat (flutterRate, "Flutter Rate", { 3.0f, 20.0f, 0.1f }, 8.0f, formatHz);
         addFloat (flutterDepth, "Flutter", { 0.0f, 1.0f, 0.001f }, 0.20f, formatPercent);
+
+        //----------------------------------------------------------------------
+        // 8.210：Phase 3のフィルター（仕様書5-2）。**末尾へ足すこと**（9.5）
+        //
+        // **既定は`Off`。** 8.209で決めたことをそのまま当てています——
+        // 挿しただけで音が変わるべきではありません
+
+        layout.add (std::make_unique<juce::AudioParameterChoice> (
+            juce::ParameterID { filterType, 1 }, "Filter",
+            MantaDelayFilter::getTypeNames(), 0));
+
+        // **周波数は対数**（EQと同じ。200Hzと400Hzの差は聞いて分かりますが、
+        // 10kHzと10.2kHzは同じに聞こえます）
+        addFloat (filterFreq, "Freq", makeLogRange (20.0f, 20000.0f), 2000.0f, formatFilterHz);
+
+        // **Qの上は8まで。** これ以上は共振の山が高くなりすぎて、
+        // 1倍に戻したときに**山以外がほとんど消えます**（`MantaDelayFilter`）
+        addFloat (filterQ, "Q", makeLogRange (0.2f, 8.0f), 0.707f, formatQ);
+
+        // Bellのときだけ効きます（`MantaDelayFilter::usesGain()`）
+        addFloat (filterGain, "Gain", { -18.0f, 18.0f, 0.1f }, 0.0f, formatDb);
+
+        layout.add (std::make_unique<juce::AudioParameterBool> (
+            juce::ParameterID { filterPost, 1 }, "Filter Post", false));
+
+        //----------------------------------------------------------------------
+        // 8.211：Phase 3のLFO（仕様書5-3）
+
+        layout.add (std::make_unique<juce::AudioParameterChoice> (
+            juce::ParameterID { lfoShape, 1 }, "LFO Shape",
+            MantaDelayLfo::getShapeNames(), 0));
+
+        // **0.05Hzまで下げられます**（20秒で1周）。ゆっくり揺らすと
+        // テープの伸び縮みのように聞こえます
+        addFloat (lfoRate, "LFO Rate", makeLogRange (0.05f, 20.0f), 0.5f, formatHz);
+
+        // **既定は0%**（挿しただけで揺れない）
+        addFloat (lfoDepth, "LFO", { 0.0f, 1.0f, 0.001f }, 0.0f, formatPercent);
+
+        //----------------------------------------------------------------------
+        // 8.212：Phase 3のダッキング（仕様書5-4）
+
+        // **既定は0%**（挿しただけで絞られない）
+        addFloat (duckAmount, "Duck", { 0.0f, 1.0f, 0.001f }, 0.0f, formatPercent);
+
+        // **AttackとReleaseは対数**（1msと3msの差は効きますが、
+        // 180msと200msの差はほとんど分かりません）
+        addFloat (duckAttack, "Attack", makeLogRange (0.5f, 200.0f), 8.0f, formatMs);
+        addFloat (duckRelease, "Release", makeLogRange (20.0f, 2000.0f), 250.0f, formatMs);
 
         return layout;
     }

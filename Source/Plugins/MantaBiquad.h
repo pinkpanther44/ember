@@ -99,4 +99,65 @@ namespace MantaBiquad
         return normalise (base * 0.5, -base, base * 0.5,
                            1.0 + alpha, -2.0 * cosw, 1.0 - alpha);
     }
+
+    //==========================================================================
+    // 8.210：ここから下はPhase 242で移してきたもの。
+    //
+    // **Manta EQの`.cpp`の中に閉じていた式**です。ディレイのフィードバック内
+    // フィルターが同じ形を要るようになったので、**共有のほうへ出しました**（1.27）——
+    // 2つ目の写しを作ると、片方だけ直したときに**同じ名前の違う音**ができます。
+    //
+    // EQ側は`designLowPass()`のときと同じ形で呼び直しています
+    // （Qの範囲はEQが自分で詰めてから渡す。`MantaEQParams::minQ`が
+    // ちょうど下の`jmax (0.025, q)`と同じ値なので、**音は変わりません**）。
+
+    /** ピークが0dBのバンドパス（RBJの"constant 0 dB peak gain"）。 */
+    inline Coeffs designBandPass (double hz, double q, double sampleRate) noexcept
+    {
+        const double w0 = 2.0 * juce::MathConstants<double>::pi * limitFrequency (hz, sampleRate) / sampleRate;
+        const double cosw = std::cos (w0);
+        const double alpha = std::sin (w0) / (2.0 * juce::jmax (0.025, q));
+
+        return normalise (alpha, 0.0, -alpha,
+                           1.0 + alpha, -2.0 * cosw, 1.0 - alpha);
+    }
+
+    /** ベル（ピーキング）。`gainDb`が正なら持ち上げ、負なら削ります。 */
+    inline Coeffs designBell (double hz, double q, double gainDb, double sampleRate) noexcept
+    {
+        const double w0 = 2.0 * juce::MathConstants<double>::pi * limitFrequency (hz, sampleRate) / sampleRate;
+        const double cosw = std::cos (w0);
+        const double alpha = std::sin (w0) / (2.0 * juce::jmax (0.025, q));
+        const double A = std::pow (10.0, gainDb / 40.0);
+
+        return normalise (1.0 + alpha * A, -2.0 * cosw, 1.0 - alpha * A,
+                           1.0 + alpha / A, -2.0 * cosw, 1.0 - alpha / A);
+    }
+
+    /** ノッチ（その周波数だけを落とす）。 */
+    inline Coeffs designNotch (double hz, double q, double sampleRate) noexcept
+    {
+        const double w0 = 2.0 * juce::MathConstants<double>::pi * limitFrequency (hz, sampleRate) / sampleRate;
+        const double cosw = std::cos (w0);
+        const double alpha = std::sin (w0) / (2.0 * juce::jmax (0.025, q));
+
+        return normalise (1.0, -2.0 * cosw, 1.0,
+                           1.0 + alpha, -2.0 * cosw, 1.0 - alpha);
+    }
+
+    /** 8.210：**分子だけを倍する**（Phase 242）。
+
+        フィードバックループの中では、**フィルターの山が1倍を超えてはいけません**
+        （8.209と同じ理由——一周の利得が`feedback`を超えると発振します）。
+        後ろで掛け算を1つ足すのではなく、**係数を作るときに畳んでおきます。**
+
+        分母（`a1`・`a2`）は触りません——**触ると極が動いて、形そのものが変わります。** */
+    inline Coeffs withGain (Coeffs c, float scale) noexcept
+    {
+        c.b0 *= scale;
+        c.b1 *= scale;
+        c.b2 *= scale;
+
+        return c;
+    }
 }

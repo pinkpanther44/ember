@@ -15,15 +15,16 @@
     EQ・コンプ・シンセと同じく`juce::AudioPluginFormat`に載せてあるので、
     挿す・保存する・開き直す・オートメーションが**外のVST3と同じ道**を通ります。
 
-    ### 入っているもの（ディレイ設計書8章のPhase 1）
+    ### 入っているもの（ディレイ設計書8章の段階表）
 
     | | 中身 |
     |---|---|
-    | **Phase 1（いまここ）** | Single Echo、Character＝Digital Cleanのみ、Time／Feedback／Mix／テンポシンク |
+    | Phase 1 | Single Echo、Time／Feedback／Mix／テンポシンク |
+    | Phase 2 | キャラクター（Digital Clean・Analog BBD・Tape Echo・Lo-Fi） |
+    | **Phase 3（いまここ）** | フィードバック内フィルター、LFOモジュレーション、ダッキング |
 
-    **先の段階のものは入っていません。** キャラクター、フィルター、
-    モジュレーション、ダッキング、マルチタップ、デュアルエンジン、
-    リバース、ディフュージョン——全部これからです。
+    **先の段階のものは入っていません。** マルチタップ、デュアルエンジン、
+    リバース、ディフュージョン——ここからです。
 
     ### テンポシンク
 
@@ -37,7 +38,7 @@
     ### レイテンシー
 
     **報告しません。** ディレイ自体は意図した遅れなので補正の対象外です
-    （設計書7章）。オーバーサンプリングはPhase 1では使っていません。
+    （設計書7章）。オーバーサンプリングはまだ使っていません。
 */
 class MantaDelayProcessor : public juce::AudioPluginInstance
 {
@@ -93,6 +94,12 @@ public:
         **黙って別の値で鳴らすより、出ていないと言うほうがよい**（8.161と同じ考え）。 */
     double getSyncBpm() const { return syncBpm.load(); }
 
+    /** 8.212：ダッキングがいまどれだけ絞っているか（0〜1。Phase 242）。
+
+        画面の細い帯がこれを出します——**絞られたぶんは「音が小さい」だけ**なので、
+        AttackとReleaseを回しても、見えないと何が起きているか読めません。 */
+    float getDuckReduction() const { return engine.getDisplayDuckReduction(); }
+
     juce::ValueTree getUiState();
 
 private:
@@ -124,6 +131,21 @@ private:
         std::atomic<float>* wowDepth = nullptr;
         std::atomic<float>* flutterRate = nullptr;
         std::atomic<float>* flutterDepth = nullptr;
+
+        // 8.210〜8.212：Phase 3（Phase 242）
+        std::atomic<float>* filterType = nullptr;
+        std::atomic<float>* filterFreq = nullptr;
+        std::atomic<float>* filterQ = nullptr;
+        std::atomic<float>* filterGain = nullptr;
+        std::atomic<float>* filterPost = nullptr;
+
+        std::atomic<float>* lfoShape = nullptr;
+        std::atomic<float>* lfoRate = nullptr;
+        std::atomic<float>* lfoDepth = nullptr;
+
+        std::atomic<float>* duckAmount = nullptr;
+        std::atomic<float>* duckAttack = nullptr;
+        std::atomic<float>* duckRelease = nullptr;
     };
 
     Pointers parameters;

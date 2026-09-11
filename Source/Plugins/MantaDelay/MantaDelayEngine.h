@@ -3,6 +3,9 @@
 #include <juce_dsp/juce_dsp.h>
 
 #include "MantaDelayCharacter.h"   // 8.208：音色モデル（Phase 240）
+#include "MantaDelayDucker.h"      // 8.212：ダッキング（Phase 242）
+#include "MantaDelayFilter.h"      // 8.210：ループ内フィルター（Phase 242）
+#include "MantaDelayLfo.h"         // 8.211：LFO（Phase 242）
 
 #include <array>
 #include <atomic>
@@ -11,16 +14,39 @@
 /**
     Manta Delay の音を作る部分（ディレイ設計書2章の`DelayEngine`）。
 
-    ### Phase 1の範囲
+    ### いまの範囲（設計書8章）
 
-    **Single Echo／Digital Cleanのみ**です（設計書8章）。
-    キャラクター・フィルター・モジュレーション・マルチタップは入っていません。
+    **Single Echo**です。マルチタップ・デュアルエンジン・リバースは入っていません。
+
+    | Phase | 入っているもの |
+    |---|---|
+    | 1 | ディレイライン、テンポシンク、Feedback／Mix |
+    | 2 | キャラクター（`MantaDelayCharacter`） |
+    | **3（いまここ）** | ループ内フィルター、LFO、ダッキング |
+
+    ### フィードバックループの順番
+
+    仕様書3-2の信号フローに沿っています（**ダッキングだけ外しました**。理由は
+    `MantaDelayDucker`の頭に書いてあります）。
+
+    ```
+        pop()
+          ↓  ┌─ Pre（既定）
+        フィルター
+          ↓
+        キャラクター（飽和・帯域・ビット・Wow/Flutter）
+          ↓  └─ Post
+        フィルター
+          ↓
+        × feedback → push()
+    ```
 
     ### 補間はLagrange3rd
 
     設計書7章：**ディレイタイムを動かしている最中の劣化が少ない**ほうを選びます。
-    Phase 1に変調はありませんが、**つまみを回すこと自体が変調**です——
+    Phase 1に変調はありませんでしたが、**つまみを回すこと自体が変調**です——
     Thiranは内部状態を持つので、回している最中に音が濁ります。
+    （Phase 2でWow/Flutter、Phase 3でLFOが入り、**選んでおいて正解でした。**）
 
     ### 時間の変え方は「テープ的」
 
@@ -53,6 +79,19 @@ public:
 
         // 8.208：Phase 2（キャラクター）
         MantaDelayCharacter::Settings character;
+
+        //----------------------------------------------------------------------
+        // 8.210〜8.212：Phase 3（Phase 242）
+
+        MantaDelayFilter::Settings filter;
+
+        MantaDelayLfo::Shape lfoShape = MantaDelayLfo::Shape::sine;
+        float lfoRateHz = 0.5f;
+        float lfoDepth  = 0.0f;
+
+        float duckAmount    = 0.0f;
+        float duckAttackMs  = 10.0f;
+        float duckReleaseMs = 200.0f;
     };
 
     void prepare (double sampleRateToUse, int maximumBlockSize, int numChannels,
@@ -76,6 +115,15 @@ public:
         for (auto& processor : characters)
             processor.prepare (sampleRate);
 
+        // 8.210〜8.212：Phase 3（Phase 242）。**係数はチャンネルで共有、状態はチャンネルごと**
+        for (auto& filter : feedbackFilters)
+            filter.reset();
+
+        filterDesign = {};
+
+        lfo.prepare (sampleRate);
+        ducker.prepare (sampleRate);
+
         delayLine.prepare (spec);
         delayLine.reset();
 
@@ -96,6 +144,12 @@ public:
 
         for (auto& processor : characters)
             processor.reset();
+
+        for (auto& filter : feedbackFilters)
+            filter.reset();
+
+        lfo.reset();
+        ducker.reset();
     }
 
     void setSettings (const Settings& newSettings)
@@ -106,6 +160,12 @@ public:
         // 呼ぶと、それだけで無視できない時間になります
         for (auto& processor : characters)
             processor.setSettings (settings.character);
+
+        // 8.210〜8.212：Phase 3（Phase 242）。**どれもブロックの頭で1回**
+        filterDesign = MantaDelayFilter::design (settings.filter, sampleRate);
+
+        lfo.setSettings (settings.lfoShape, settings.lfoRateHz, settings.lfoDepth);
+        ducker.setSettings (settings.duckAmount, settings.duckAttackMs, settings.duckReleaseMs);
     }
 
     /** その場で処理する（in-place）。**音のスレッドから呼ばれます**——
@@ -133,6 +193,10 @@ public:
         const float dry = 1.0f - wet;
         const float gain = settings.outputGain;
 
+        const bool filterActive = filterDesign.active;
+        const bool filterPost = settings.filter.post;
+        const float invChannels = 1.0f / (float) numChannels;
+
         for (int i = 0; i < numSamples; ++i)
         {
             // **毎サンプル寄せる。** ブロックの頭で1回だけ動かすと、
@@ -140,13 +204,30 @@ public:
             currentDelaySamples += (targetSamples - currentDelaySamples) * smoothingCoefficient;
 
             // 8.208：Wow/Flutterの揺れ（Phase 240）。
+            // 8.211：LFOの揺れ（Phase 242）。**足す先は同じ**ですが、
+            // Wow/Flutterはキャラクターのもの、LFOは効果として掛けるものです。
+            //
             // **チャンネルごとに進めないこと**——左右で違う揺れになると定位が動きます。
             // ここで1回進めて、同じ値を両チャンネルへ使います
-            const double modulated = currentDelaySamples + characters[0].advanceModulation();
+            const double modulated = currentDelaySamples
+                                        + characters[0].advanceModulation()
+                                        + lfo.advance();
 
             delayLine.setDelay ((float) juce::jlimit (1.0,
                                                       (double) delayLine.getMaximumDelayInSamples() - 2.0,
                                                       modulated));
+
+            // 8.212：ダッキング（Phase 242）。**原音を見ます**——ディレイ音ではありません。
+            //
+            // **書き込む前に、全チャンネルぶん読んでおくこと。** 下の輪は
+            // `data[i]`を上書きするので、そのあとで読むと**混ぜたあとの値**を見ます。
+            // 左右をまとめた1つの値で動かします（片側だけ絞ると定位が動きます）
+            float monoInput = 0.0f;
+
+            for (int channel = 0; channel < numChannels; ++channel)
+                monoInput += buffer.getReadPointer (channel)[i];
+
+            const float duckGain = ducker.advance (monoInput * invChannels);
 
             for (int channel = 0; channel < numChannels; ++channel)
             {
@@ -157,23 +238,43 @@ public:
                 // **読んでから書く**（上の説明）
                 const float delayed = delayLine.popSample (channel);
 
+                float wetSample = delayed;
+
+                // 8.210：**フィルターもフィードバックの中**（Phase 242）。
+                // Pre／Postはキャラクターとの前後です（仕様書5-2の`Position`）——
+                // **Preは削ってから歪ませ、Postは歪ませてから削ります**
+                if (filterActive && ! filterPost)
+                    wetSample = feedbackFilters[(size_t) channel].process (wetSample, filterDesign.coeffs);
+
                 // 8.208：**キャラクターはフィードバックの中**（Phase 240）。
                 // 反復するたびに掛かるので、1回目より2回目が暗く、汚れていきます。
                 // **入口に1度だけ掛けると、何回反復しても同じ音**になります
-                const float coloured = characters[(size_t) channel].processSample (delayed);
+                wetSample = characters[(size_t) channel].processSample (wetSample);
 
-                delayLine.pushSample (channel, input + coloured * feedback);
+                if (filterActive && filterPost)
+                    wetSample = feedbackFilters[(size_t) channel].process (wetSample, filterDesign.coeffs);
 
-                data[i] = (input * dry + coloured * wet) * gain;
+                delayLine.pushSample (channel, input + wetSample * feedback);
+
+                // 8.212：**ダッキングは出口のウェットにだけ。** 戻すほう（`pushSample`）には
+                // 掛けません——掛けると減衰の速さが入力の大きさで変わります（`MantaDelayDucker`）
+                data[i] = (input * dry + wetSample * wet * duckGain) * gain;
             }
         }
 
         // 表示用。**音のスレッドから書いて、画面が読むだけ**なので`atomic`
         displayDelaySeconds.store (currentDelaySamples / sampleRate);
+        displayDuckReduction.store (ducker.getReductionForDisplay());
     }
 
     /** 画面がいま出すべきディレイタイム（寄せている最中の値）。 */
     double getDisplayDelaySeconds() const { return displayDelaySeconds.load(); }
+
+    /** 8.212：いまダッキングがどれだけ絞っているか（0〜1。Phase 242）。
+
+        **これが無いと、AttackとReleaseを回しても何が起きているか見えません。**
+        絞られたぶんは「音が小さい」だけなので、耳だけでは掛かり具合が読めません。 */
+    float getDisplayDuckReduction() const { return displayDuckReduction.load(); }
 
 private:
     juce::dsp::DelayLine<float, juce::dsp::DelayLineInterpolationTypes::Lagrange3rd> delayLine;
@@ -193,5 +294,20 @@ private:
         モノラルかステレオしか通しません）。 */
     std::array<MantaDelayCharacter::Processor, 2> characters;
 
+    /** 8.210：フィードバック内フィルター（Phase 242）。
+
+        **係数は1つ、状態はチャンネルごと**（`MantaBiquad`の決まり）——
+        同じ形を左右に掛けるのに、係数を2組作る理由はありません。
+        一方、内部状態を共有すると**左右が混ざって定位が潰れます。** */
+    MantaDelayFilter::Design filterDesign;
+    std::array<MantaBiquad::Biquad, 2> feedbackFilters;
+
+    /** 8.211：LFO（Phase 242）。**1つだけ**——左右で同じ揺れを使います。 */
+    MantaDelayLfo::Oscillator lfo;
+
+    /** 8.212：ダッキング（Phase 242）。**1つだけ**——左右をまとめて見ます。 */
+    MantaDelayDucker ducker;
+
     std::atomic<double> displayDelaySeconds { 0.375 };
+    std::atomic<float> displayDuckReduction { 0.0f };
 };

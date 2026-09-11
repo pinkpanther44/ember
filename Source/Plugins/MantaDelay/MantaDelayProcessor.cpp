@@ -34,6 +34,21 @@ MantaDelayProcessor::MantaDelayProcessor()
     parameters.wowDepth     = get (MantaDelayParams::wowDepth);
     parameters.flutterRate  = get (MantaDelayParams::flutterRate);
     parameters.flutterDepth = get (MantaDelayParams::flutterDepth);
+
+    // 8.210〜8.212：Phase 3（Phase 242）
+    parameters.filterType = get (MantaDelayParams::filterType);
+    parameters.filterFreq = get (MantaDelayParams::filterFreq);
+    parameters.filterQ    = get (MantaDelayParams::filterQ);
+    parameters.filterGain = get (MantaDelayParams::filterGain);
+    parameters.filterPost = get (MantaDelayParams::filterPost);
+
+    parameters.lfoShape = get (MantaDelayParams::lfoShape);
+    parameters.lfoRate  = get (MantaDelayParams::lfoRate);
+    parameters.lfoDepth = get (MantaDelayParams::lfoDepth);
+
+    parameters.duckAmount  = get (MantaDelayParams::duckAmount);
+    parameters.duckAttack  = get (MantaDelayParams::duckAttack);
+    parameters.duckRelease = get (MantaDelayParams::duckRelease);
 }
 
 MantaDelayProcessor::~MantaDelayProcessor() = default;
@@ -148,6 +163,29 @@ void MantaDelayProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 
     // **BBDのカットオフはディレイタイムで決まります**（設計書4-1）
     settings.character.delaySeconds = settings.delaySeconds;
+
+    //--------------------------------------------------------------------------
+    // 8.210〜8.212：Phase 3（Phase 242）
+
+    settings.filter.type = (MantaDelayFilter::Type)
+                              juce::jlimit (0, MantaDelayFilter::getTypeCount() - 1,
+                                             (int) parameters.filterType->load());
+
+    settings.filter.frequencyHz = parameters.filterFreq->load();
+    settings.filter.q           = parameters.filterQ->load();
+    settings.filter.gainDb      = parameters.filterGain->load();
+    settings.filter.post        = parameters.filterPost->load() > 0.5f;
+
+    settings.lfoShape = (MantaDelayLfo::Shape)
+                           juce::jlimit (0, MantaDelayLfo::getShapeCount() - 1,
+                                          (int) parameters.lfoShape->load());
+
+    settings.lfoRateHz = parameters.lfoRate->load();
+    settings.lfoDepth  = parameters.lfoDepth->load();
+
+    settings.duckAmount    = parameters.duckAmount->load();
+    settings.duckAttackMs  = parameters.duckAttack->load();
+    settings.duckReleaseMs = parameters.duckRelease->load();
 
     engine.setSettings (settings);
     engine.process (buffer);

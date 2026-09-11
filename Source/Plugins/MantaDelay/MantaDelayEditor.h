@@ -3,6 +3,7 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 
 #include "MantaDelayDisplay.h"
+#include "MantaDelayDuckMeter.h"   // 8.212（Phase 242）
 #include "MantaDelayProcessor.h"
 #include "MantaDelayTheme.h"
 #include "../MantaKnobLookAndFeel.h"
@@ -25,7 +26,12 @@
     │  │ Mix          │  │                          │   │
     │  └──────────────┘  └──────────────────────────┘   │
     │                                                    │
-    │  ▁▁▁▁▁▁▁ Phase 2以降の場所 ▁▁▁▁▁▁▁               │
+    │  Character [combo]  Drive Tone Wow … （Phase 2）   │
+    │  ┌ Filter ──────┐┌ Modulation ─┐┌ Ducking ─────┐  │
+    │  │ [Type][Pre/Po]││ [Shape]     ││  ▭▬▬▬▬       │  │
+    │  │ Freq  Q  Gain ││ Rate  Depth ││ Duck Atk Rel │  │
+    │  └───────────────┘└─────────────┘└──────────────┘  │
+    │  ▁▁▁▁▁▁▁ Phase 4以降の場所 ▁▁▁▁▁▁▁               │
     └────────────────────────────────────────────────────┘
     ```
 
@@ -34,12 +40,23 @@
     **820×560**（Manta EQと同じ）。本人の指定です——
     「最初から最終形の大きさで作り、ケースバイケースで微調整」。
 
-    Phase 1では**下半分が空きます**が、段階ごとに寸法を変えると
-    **開くたびに大きさが違う**ことになります（8.172：画面は固定）。
+    段階ごとに寸法を変えると**開くたびに大きさが違う**ことになります
+    （8.172：画面は固定）。Phase 3で**中身がほぼ埋まりました**——
+    Phase 1のときに空いていた下半分が、Phase 2（キャラクター）と
+    Phase 3（フィルター・LFO・ダッキング）で埋まった形です。
+
+    ### 前の段階のものは動かさない
+
+    **左のつまみの列（Time・Sync・Mix・Output）はPhase 1のまま**、
+    キャラクターの並びもPhase 2のままです。
+    **段階を進めるたびに前の段階のものが動くと、覚え直しになります。**
+
+    Phase 3のぶんは**下に帯を1本足して**、そこに3つ並べてあります。
+    ディスプレイの高さだけは縮みました（そこ以外に取れる場所がない）。
 
     ### 空きは黙って空けない
 
-    下の帯には**これから何が入るか**を薄く出してあります。
+    いちばん下の細い行に**これから何が入るか**を薄く出してあります。
     **何も無い灰色の面**は「壊れている」ようにも見えるので、
     「まだ作っていない」と分かる形にしてあります。
 
@@ -77,6 +94,21 @@ private:
     void refreshCharacterControls();   // 8.208：効かないつまみをグレーアウト（Phase 240）
 
     void refreshTimeControls();
+
+    /** 8.210：フィルターの形で効かなくなるつまみをグレーアウト（Phase 242）。
+
+        **判断は`MantaDelayFilter`の`isActive()`／`usesGain()`だけ**（1.27）——
+        画面と音で別々に決めると、触れるのに効かないつまみができます。 */
+    void refreshFilterControls();
+
+    /** グレーアウトの掛け方。**Phase 2とPhase 3で同じものを使います**（1.27）。 */
+    void setControlActive (juce::Component& control, juce::Label& caption, bool active);
+
+    /** 8.210：Phase 3の3つの箱（Filter・Modulation・Ducking。Phase 242）。
+
+        **`paint()`と`resized()`が同じものを見ます**（1.27）——
+        別々に数えると、**枠と中身がずれます。** */
+    juce::Array<juce::Rectangle<int>> getPhase3Columns (juce::Rectangle<int> band) const;
 
     //==========================================================================
     /** **いちばん最初に宣言すること**（つまみより後に壊れるように。8.168）。 */
@@ -132,6 +164,39 @@ private:
                 flutterDepthCaption, flutterRateCaption;
 
     //==========================================================================
+    // 8.210〜8.212：Phase 3（Phase 242）
+
+    juce::Label filterTitle, modulationTitle, duckingTitle;
+
+    juce::ComboBox filterTypeBox;
+
+    /** 仕様書5-2の`Position`。**押すと表の文字が変わります**（Pre ⇄ Post）——
+        「Post」と書いたボタンが押されている／いないの2通りより、
+        **いまどちらなのか**がそのまま読めるほうがよい。 */
+    juce::TextButton filterPositionButton;
+
+    ValueEntrySlider filterFreqSlider { juce::Slider::RotaryHorizontalVerticalDrag, juce::Slider::TextBoxBelow };
+    ValueEntrySlider filterQSlider    { juce::Slider::RotaryHorizontalVerticalDrag, juce::Slider::TextBoxBelow };
+    ValueEntrySlider filterGainSlider { juce::Slider::RotaryHorizontalVerticalDrag, juce::Slider::TextBoxBelow };
+
+    juce::Label filterFreqCaption, filterQCaption, filterGainCaption;
+
+    juce::ComboBox lfoShapeBox;
+
+    ValueEntrySlider lfoRateSlider  { juce::Slider::RotaryHorizontalVerticalDrag, juce::Slider::TextBoxBelow };
+    ValueEntrySlider lfoDepthSlider { juce::Slider::RotaryHorizontalVerticalDrag, juce::Slider::TextBoxBelow };
+
+    juce::Label lfoRateCaption, lfoDepthCaption;
+
+    MantaDelayDuckMeter duckMeter;
+
+    ValueEntrySlider duckAmountSlider  { juce::Slider::RotaryHorizontalVerticalDrag, juce::Slider::TextBoxBelow };
+    ValueEntrySlider duckAttackSlider  { juce::Slider::RotaryHorizontalVerticalDrag, juce::Slider::TextBoxBelow };
+    ValueEntrySlider duckReleaseSlider { juce::Slider::RotaryHorizontalVerticalDrag, juce::Slider::TextBoxBelow };
+
+    juce::Label duckAmountCaption, duckAttackCaption, duckReleaseCaption;
+
+    //==========================================================================
     using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
     using ButtonAttachment = juce::AudioProcessorValueTreeState::ButtonAttachment;
     using ComboAttachment  = juce::AudioProcessorValueTreeState::ComboBoxAttachment;
@@ -140,6 +205,11 @@ private:
     std::unique_ptr<ButtonAttachment> syncAttachment;
     std::unique_ptr<SliderAttachment> divisionAttachment;   // 8.207（Phase 239）
     std::unique_ptr<ComboAttachment> characterAttachment;   // 8.208（Phase 240）
+
+    // 8.210〜8.211（Phase 242）
+    std::unique_ptr<ComboAttachment> filterTypeAttachment;
+    std::unique_ptr<ButtonAttachment> filterPositionAttachment;
+    std::unique_ptr<ComboAttachment> lfoShapeAttachment;
 
     /** 画面の大きさ。**固定です**（8.172）。 */
     static constexpr int fixedWidth = 820;
@@ -150,7 +220,16 @@ private:
     static constexpr int knobWidth = 76;
     static constexpr int knobHeight = 84;
     static constexpr int sectionTitleHeight = 18;
-    static constexpr int futureAreaHeight = 74;   // 8.208：Phase 2が下半分を使うので縮めた
+
+    /** 8.210〜8.212：Phase 3の3つ（Filter・Modulation・Ducking）が入る帯（Phase 242）。
+
+        `sectionTitleHeight`＋コンボの行＋つまみ1段ぶん。**寸法を直に書かない**（1.27）。 */
+    static constexpr int phase3AreaHeight = 154;
+    static constexpr int phase3ComboRowHeight = 24;
+
+    /** 8.210：**細い1行だけ**に縮めました（Phase 242）。
+        Phase 2までは74pxの箱でしたが、その場所はPhase 3の帯が使います。 */
+    static constexpr int futureAreaHeight = 26;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MantaDelayEditor)
 };

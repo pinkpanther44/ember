@@ -42,13 +42,10 @@ namespace EQFilterDesign
 
         Coeffs bell (double hz, double q, double gainDb, double sampleRate)
         {
-            const double w0 = 2.0 * pi * limitFrequency (hz, sampleRate) / sampleRate;
-            const double cosw = std::cos (w0);
-            const double alpha = std::sin (w0) / (2.0 * limitQ (q));
-            const double A = std::pow (10.0, gainDb / 40.0);
-
-            return normalise (1.0 + alpha * A, -2.0 * cosw, 1.0 - alpha * A,
-                               1.0 + alpha / A, -2.0 * cosw, 1.0 - alpha / A);
+            // 8.210：**式は共有のものを使う**（Phase 242。`../MantaBiquad.h`）。
+            // ディレイのフィードバック内フィルターが同じ形を要るようになったので、
+            // 写しを作らずにあちらへ移しました（`lowPass2()`と同じ形）
+            return MantaBiquad::designBell (hz, limitQ (q), gainDb, sampleRate);
         }
 
         Coeffs lowShelf (double hz, double q, double gainDb, double sampleRate)
@@ -85,23 +82,15 @@ namespace EQFilterDesign
 
         Coeffs notch (double hz, double q, double sampleRate)
         {
-            const double w0 = 2.0 * pi * limitFrequency (hz, sampleRate) / sampleRate;
-            const double cosw = std::cos (w0);
-            const double alpha = std::sin (w0) / (2.0 * limitQ (q));
-
-            return normalise (1.0, -2.0 * cosw, 1.0,
-                               1.0 + alpha, -2.0 * cosw, 1.0 - alpha);
+            // 8.210：**式は共有のものを使う**（Phase 242。`../MantaBiquad.h`）
+            return MantaBiquad::designNotch (hz, limitQ (q), sampleRate);
         }
 
         /** ピークが0dBのバンドパス（RBJの"constant 0 dB peak gain"）。 */
         Coeffs bandPass (double hz, double q, double sampleRate)
         {
-            const double w0 = 2.0 * pi * limitFrequency (hz, sampleRate) / sampleRate;
-            const double cosw = std::cos (w0);
-            const double alpha = std::sin (w0) / (2.0 * limitQ (q));
-
-            return normalise (alpha, 0.0, -alpha,
-                               1.0 + alpha, -2.0 * cosw, 1.0 - alpha);
+            // 8.210：**式は共有のものを使う**（Phase 242。`../MantaBiquad.h`）
+            return MantaBiquad::designBandPass (hz, limitQ (q), sampleRate);
         }
 
         Coeffs allPass (double hz, double q, double sampleRate)

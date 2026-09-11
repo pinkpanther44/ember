@@ -10,10 +10,21 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
-- **Hawkbill Delay**, a fourth built-in plugin: one echo line with tempo sync
-  (dotted and triplet divisions), feedback, mix, and a timeline showing where
-  the repeats fall. More is planned - characters, filters, modulation,
-  multi-tap and dual engines
+- **Hawkbill Delay**, a fourth built-in plugin:
+  - One echo line with tempo sync (dotted and triplet divisions), feedback,
+    mix, and a timeline showing where the repeats fall
+  - Four characters, applied to every repeat rather than once at the input, so
+    the sound ages as it decays: Digital Clean, Analog BBD (darker the longer
+    the delay, with a noise floor), Tape Echo (saturation, wow and flutter) and
+    Lo-Fi (bit and rate crushing). Knobs a character does not use are greyed
+    out rather than hidden, so you can see what it has
+  - A filter inside the feedback loop - low pass, high pass, band pass, bell or
+    notch - placed either before or after the character
+  - An LFO on the delay time, with sine, triangle and sample-and-hold shapes.
+    It works with every character, unlike wow and flutter
+  - Ducking: the repeats pull back while the dry signal plays and come forward
+    in the gaps, with a meter showing how far they are being pulled down
+  - Still to come: multi-tap, dual engines, reverse and freeze
 - Plugins now receive the song tempo and position from Ember, so **third-party
   plugins that sync to tempo work**. They could not before
 - Chord Pad can create a chord track when there is not one yet

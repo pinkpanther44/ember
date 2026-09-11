@@ -4,6 +4,8 @@
 #include "../../Branding.h"
 #include "../../Utf8.h"
 #include "MantaDelayCharacter.h"   // 8.208：キャラクターの名前と可否（Phase 240）
+#include "MantaDelayFilter.h"      // 8.210：フィルターの形と可否（Phase 242）
+#include "MantaDelayLfo.h"         // 8.211：波形の名前（Phase 242）
 
 //==============================================================================
 
@@ -24,6 +26,7 @@ MantaDelayEditor::MantaDelayEditor (MantaDelayProcessor& processorToUse)
     {
         refreshTimeControls();
         refreshCharacterControls();   // 8.208（Phase 240）
+        refreshFilterControls();      // 8.210（Phase 242）
     };
 
     //--------------------------------------------------------------------------
@@ -121,8 +124,92 @@ MantaDelayEditor::MantaDelayEditor (MantaDelayProcessor& processorToUse)
     driveSlider.setTooltip (utf8 ("Tapeでは飽和の強さ、Lo-Fiでは削り具合"));
     toneSlider.setTooltip (utf8 ("反復するたびに落ちる高域の量"));
 
+    //--------------------------------------------------------------------------
+    // 8.210：Phase 3のフィルター（Phase 242／仕様書5-2）
+
+    setupSectionLabel (filterTitle, "Filter");
+
+    filterTypeBox.addItemList (MantaDelayFilter::getTypeNames(), 1);
+    filterTypeBox.setTooltip (utf8 ("フィードバックの中に入るフィルター。反復するたびに掛かります"));
+    addAndMakeVisible (filterTypeBox);
+
+    filterTypeAttachment = std::make_unique<ComboAttachment> (
+        processor.getValueTreeState(), MantaDelayParams::filterType, filterTypeBox);
+
+    filterTypeBox.onChange = [this] { refreshFilterControls(); };
+
+    MantaPluginToolbar::styleButton (filterPositionButton, "Pre");
+    filterPositionButton.setClickingTogglesState (true);
+    filterPositionButton.setColour (juce::TextButton::buttonOnColourId, MantaDelayTheme::highlight());
+    filterPositionButton.setTooltip (utf8 ("フィルターとキャラクターの順番。Preは削ってから歪ませ、Postは歪ませてから削ります"));
+    addAndMakeVisible (filterPositionButton);
+
+    filterPositionAttachment = std::make_unique<ButtonAttachment> (
+        processor.getValueTreeState(), MantaDelayParams::filterPost, filterPositionButton);
+
+    // **`onClick`ではなく`onStateChange`**（オートメーションやプリセットでも呼ばれる）
+    filterPositionButton.onStateChange = [this]
+    {
+        // **表の文字がいまの状態そのもの**（ヘッダの説明）
+        filterPositionButton.setButtonText (filterPositionButton.getToggleState() ? "Post" : "Pre");
+    };
+
+    // **1回は自分で呼ぶこと。** `ButtonAttachment`は作った時点で
+    // 保存されていた値を入れますが、それは`onStateChange`を入れる**前**です——
+    // これが無いと、Postで保存したものを開いたときに「Pre」と書かれたままになります
+    filterPositionButton.onStateChange();
+
+    // **主の色**——フィルターは「反復そのものを作り変える」側（8.204の表）
+    setupKnob (filterFreqSlider, filterFreqCaption, "Freq",
+                MantaDelayParams::filterFreq, MantaDelayTheme::accent());
+    setupKnob (filterQSlider, filterQCaption, "Q",
+                MantaDelayParams::filterQ, MantaDelayTheme::accent());
+    setupKnob (filterGainSlider, filterGainCaption, "Gain",
+                MantaDelayParams::filterGain, MantaDelayTheme::accent());
+
+    filterGainSlider.setTooltip (utf8 ("Bellのときだけ効きます。上げた帯は他より遅く減衰します"));
+
+    //--------------------------------------------------------------------------
+    // 8.211：Phase 3のLFO（Phase 242／仕様書5-3）
+
+    setupSectionLabel (modulationTitle, "Modulation");
+
+    lfoShapeBox.addItemList (MantaDelayLfo::getShapeNames(), 1);
+    lfoShapeBox.setTooltip (utf8 ("揺れの形。Randomは1周ごとに値が飛びます"));
+    addAndMakeVisible (lfoShapeBox);
+
+    lfoShapeAttachment = std::make_unique<ComboAttachment> (
+        processor.getValueTreeState(), MantaDelayParams::lfoShape, lfoShapeBox);
+
+    // **副の色**——Wow／Flutterと同じ「揺らすところ」
+    setupKnob (lfoDepthSlider, lfoDepthCaption, "LFO",
+                MantaDelayParams::lfoDepth, MantaDelayTheme::highlight());
+    setupKnob (lfoRateSlider, lfoRateCaption, "LFO Rate",
+                MantaDelayParams::lfoRate, MantaDelayTheme::highlight());
+
+    lfoDepthSlider.setTooltip (utf8 ("ディレイタイムを揺らす深さ。どのキャラクターでも効きます"));
+
+    //--------------------------------------------------------------------------
+    // 8.212：Phase 3のダッキング（Phase 242／仕様書5-4）
+
+    setupSectionLabel (duckingTitle, "Ducking");
+
+    addAndMakeVisible (duckMeter);
+
+    setupKnob (duckAmountSlider, duckAmountCaption, "Duck",
+                MantaDelayParams::duckAmount, MantaDelayTheme::highlight());
+    setupKnob (duckAttackSlider, duckAttackCaption, "Attack",
+                MantaDelayParams::duckAttack, MantaDelayTheme::highlight());
+    setupKnob (duckReleaseSlider, duckReleaseCaption, "Release",
+                MantaDelayParams::duckRelease, MantaDelayTheme::highlight());
+
+    duckAmountSlider.setTooltip (utf8 ("原音が鳴っているあいだ、ディレイ音をどれだけ絞るか"));
+    duckAttackSlider.setTooltip (utf8 ("絞りはじめるまでの速さ"));
+    duckReleaseSlider.setTooltip (utf8 ("原音が切れてから戻るまでの速さ"));
+
     refreshTimeControls();
     refreshCharacterControls();
+    refreshFilterControls();
 
     setSize (fixedWidth, fixedHeight);
     setResizable (false, false);   // 8.172：内蔵プラグインの画面は固定
@@ -135,7 +222,13 @@ MantaDelayEditor::~MantaDelayEditor()
     // **つまみからLookAndFeelを外してから壊すこと**（8.168）
     for (auto* slider : { &timeSlider, &divisionSlider, &feedbackSlider, &mixSlider, &outputSlider,
                            &driveSlider, &toneSlider, &wowDepthSlider, &wowRateSlider,
-                           &flutterDepthSlider, &flutterRateSlider })
+                           &flutterDepthSlider, &flutterRateSlider,
+                           // 8.210〜8.212：Phase 3で足したぶん（Phase 242）。
+                           // **足したつまみをここへ入れ忘れないこと**——
+                           // LookAndFeelが先に壊れると、つまみがそれを見に行きます（8.168）
+                           &filterFreqSlider, &filterQSlider, &filterGainSlider,
+                           &lfoRateSlider, &lfoDepthSlider,
+                           &duckAmountSlider, &duckAttackSlider, &duckReleaseSlider })
         slider->setLookAndFeel (nullptr);
 }
 
@@ -199,25 +292,56 @@ void MantaDelayEditor::refreshCharacterControls()
     // 画面と音で別々に決めると、**触れるのに効かないつまみ**や、その逆ができます
     const auto capabilities = MantaDelayCharacter::getCapabilities (kind);
 
-    // **消さずにグレーアウトする**（本人の判断）。
-    //
-    // 隠すと画面は片付きますが、**何が隠れているか分かりません。**
-    // グレーアウトなら「そのキャラクターに何が無いか」が見えます——
-    // Digital Cleanを選ぶと4つとも灰色になり、「色付けなし」の意味がそのまま出ます
-    const auto setActive = [] (ValueEntrySlider& slider, juce::Label& caption, bool active)
-    {
-        slider.setEnabled (active);
-        slider.setAlpha (active ? 1.0f : 0.4f);
-        caption.setAlpha (active ? 1.0f : 0.4f);
-    };
-
-    setActive (driveSlider, driveCaption, capabilities.drive);
-    setActive (toneSlider, toneCaption, capabilities.tone);
-    setActive (wowDepthSlider, wowDepthCaption, capabilities.wow);
-    setActive (wowRateSlider, wowRateCaption, capabilities.wow);
-    setActive (flutterDepthSlider, flutterDepthCaption, capabilities.flutter);
-    setActive (flutterRateSlider, flutterRateCaption, capabilities.flutter);
+    setControlActive (driveSlider, driveCaption, capabilities.drive);
+    setControlActive (toneSlider, toneCaption, capabilities.tone);
+    setControlActive (wowDepthSlider, wowDepthCaption, capabilities.wow);
+    setControlActive (wowRateSlider, wowRateCaption, capabilities.wow);
+    setControlActive (flutterDepthSlider, flutterDepthCaption, capabilities.flutter);
+    setControlActive (flutterRateSlider, flutterRateCaption, capabilities.flutter);
 }
+
+/** **消さずにグレーアウトする**（本人の判断。8.208）。
+
+    隠すと画面は片付きますが、**何が隠れているか分かりません。**
+    グレーアウトなら「そこに何が無いか」が見えます——
+    Digital Cleanを選ぶとキャラクターの4つが灰色になり、
+    Filterを`Off`にすると`Freq`・`Q`・`Gain`が灰色になります。
+
+    8.210：**Phase 2とPhase 3で同じものを使います**（Phase 242。1.27）——
+    2つ目の写しを作ると、片方だけ`0.4f`のままになります。 */
+void MantaDelayEditor::setControlActive (juce::Component& control, juce::Label& caption, bool active)
+{
+    control.setEnabled (active);
+    control.setAlpha (active ? 1.0f : 0.4f);
+    caption.setAlpha (active ? 1.0f : 0.4f);
+}
+
+//==============================================================================
+// 8.210：Phase 3のフィルター（Phase 242）
+
+void MantaDelayEditor::refreshFilterControls()
+{
+    const auto type = (MantaDelayFilter::Type)
+                         juce::jlimit (0, MantaDelayFilter::getTypeCount() - 1,
+                                        filterTypeBox.getSelectedItemIndex());
+
+    // **効くかどうかの判断は`MantaDelayFilter`ただ1つ**（1.27）
+    const bool active = MantaDelayFilter::isActive (type);
+
+    setControlActive (filterFreqSlider, filterFreqCaption, active);
+    setControlActive (filterQSlider, filterQCaption, active);
+
+    // **`Gain`はBellだけ。** `Off`のときも当然効きません——
+    // 2つの条件を掛けるのを忘れると、`Off`なのにGainだけ生きて見えます
+    setControlActive (filterGainSlider, filterGainCaption,
+                       active && MantaDelayFilter::usesGain (type));
+
+    // Pre／Postは**フィルターが入っているときだけ**意味があります。
+    // ラベルが無いので、明るさだけ落とします
+    filterPositionButton.setEnabled (active);
+    filterPositionButton.setAlpha (active ? 1.0f : 0.4f);
+}
+
 //==============================================================================
 
 void MantaDelayEditor::timerCallback()
@@ -230,6 +354,9 @@ void MantaDelayEditor::timerCallback()
     state.mix = mixSlider.getValue();
 
     display.setState (state);
+
+    // 8.212：ダッキングの帯（Phase 242）。**つまみの値ではなく、エンジンの実測**
+    duckMeter.setReduction (processor.getDuckReduction(), duckAmountSlider.getValue() > 0.0);
 
     //--------------------------------------------------------------------------
     // テンポが来ていないときは、そう出す（8.161：黙って違う動きをしない）
@@ -257,24 +384,70 @@ void MantaDelayEditor::paint (juce::Graphics& g)
     auto area = getLocalBounds();
     area.removeFromTop (MantaPluginToolbar::preferredHeight);
 
-    // Phase 2以降の場所。**黙って空けない**（何も無い灰色の面は「壊れている」ようにも見える）
-    auto future = area.removeFromBottom (futureAreaHeight).reduced (12, 8);
+    // Phase 4以降の場所。**黙って空けない**（何も無い灰色の面は「壊れている」ようにも見える）
+    auto future = area.removeFromBottom (futureAreaHeight).reduced (12, 4);
 
-    g.setColour (MantaTheme::panelBackground());
-    g.fillRoundedRectangle (future.toFloat(), 4.0f);
-
-    g.setColour (MantaTheme::border());
-    g.drawRoundedRectangle (future.toFloat().reduced (0.5f), 4.0f, 1.0f);
-
-    g.setColour (MantaTheme::textDim().withAlpha (0.7f));
-    g.setFont (juce::Font (juce::FontOptions (12.0f)));
-    // 8.208：**Characterは入ったので消しました**（Phase 240）
-    g.drawText ("Filter  ·  LFO  ·  Ducking  ·  Multi-Tap  ·  Dual Engine  ·  Reverse",
-                 future.removeFromTop (future.getHeight() / 2),
-                 juce::Justification::centred);
-
+    g.setColour (MantaTheme::textDim().withAlpha (0.6f));
     g.setFont (juce::Font (juce::FontOptions (11.0f)));
-    g.drawText (utf8 ("（Phase 3以降）"), future, juce::Justification::centred);
+
+    // 8.208：Characterが入ったので消し、8.210〜8.212でFilter・LFO・Duckingも消しました。
+    //
+    // 8.213：**中黒も`utf8()`に通すこと**（Phase 242／本人のスクリーンショットで発覚）。
+    // Phase 240で書いたこの行は`"Filter  ·  LFO …"`を生の文字列リテラルで渡していて、
+    // **`Filter Â· LFO`と化けて出ていました。**
+    //
+    // ASCIIしか入っていない文字列は素で渡して構いませんが、
+    // **ASCIIでない文字が1つでも混ざったら`utf8()`**です（中黒・全角空白・矢印も同じ）。
+    // 「日本語かどうか」ではなく「ASCIIかどうか」で見ること
+    g.drawText (utf8 ("Multi-Tap  ·  Dual Engine  ·  Reverse  ·  Diffusion  ·  Freeze"
+                       "　（Phase 4以降）"),
+                 future, juce::Justification::centred);
+
+    //--------------------------------------------------------------------------
+    // 8.210：Phase 3の帯（Phase 242）。3つの箱に分けて描きます。
+    //
+    // **箱にしておくこと。** つまみを9つ並べただけだと、
+    // どこからどこまでが1つの機能なのかが読めません
+
+    auto band = area.removeFromBottom (phase3AreaHeight);
+
+    for (auto& column : getPhase3Columns (band))
+    {
+        g.setColour (MantaTheme::panelBackground());
+        g.fillRoundedRectangle (column.toFloat(), 4.0f);
+
+        g.setColour (MantaTheme::border());
+        g.drawRoundedRectangle (column.toFloat().reduced (0.5f), 4.0f, 1.0f);
+    }
+}
+
+//==============================================================================
+/** 8.210：Phase 3の3つの箱（Phase 242）。
+
+    **`paint()`と`resized()`が同じものを見ます**（1.27）——
+    別々に数えると、**枠と中身がずれます。** */
+juce::Array<juce::Rectangle<int>> MantaDelayEditor::getPhase3Columns (juce::Rectangle<int> band) const
+{
+    auto row = band.reduced (12, 6);
+
+    constexpr int gap = 12;
+
+    // つまみの数ぶんの幅（Filter 3つ、Modulation 2つ、Ducking 3つ）。
+    // **残りはDuckingへ**——3つでいちばん窮屈になるところです
+    const int filterWidth = 272;
+    const int modulationWidth = 190;
+
+    juce::Array<juce::Rectangle<int>> columns;
+
+    columns.add (row.removeFromLeft (filterWidth));
+    row.removeFromLeft (gap);
+
+    columns.add (row.removeFromLeft (modulationWidth));
+    row.removeFromLeft (gap);
+
+    columns.add (row);
+
+    return columns;
 }
 
 void MantaDelayEditor::resized()
@@ -289,7 +462,11 @@ void MantaDelayEditor::resized()
         statusLabel.setBounds (toolbarArea.removeFromRight (toolbarArea.getWidth() / 2));
     }
 
-    area.removeFromBottom (futureAreaHeight);   // Phase 2以降の場所（`paint()`が描く）
+    area.removeFromBottom (futureAreaHeight);   // Phase 4以降の1行（`paint()`が描く）
+
+    // 8.210：Phase 3の帯（Phase 242）。**先に取り分けます**——
+    // 残りを上のPhase 1・2が使う形なので、ここで取らないと下へはみ出します
+    auto phase3Band = area.removeFromBottom (phase3AreaHeight);
 
     auto content = area.reduced (12, 8);
 
@@ -379,5 +556,79 @@ void MantaDelayEditor::resized()
                          { &wowRateSlider, &wowRateCaption },
                          { &flutterDepthSlider, &flutterDepthCaption },
                          { &flutterRateSlider, &flutterRateCaption } });
+    }
+
+    //--------------------------------------------------------------------------
+    // 8.210〜8.212：Phase 3の帯（Phase 242）
+    //
+    // **箱の位置は`getPhase3Columns()`ただ1つ**が決めます（`paint()`も同じものを呼ぶ）
+
+    {
+        const auto columns = getPhase3Columns (phase3Band);
+
+        jassert (columns.size() == 3);
+
+        // 3つとも**同じ組み方**です：見出し → コンボの行 → つまみ1段。
+        // 段の高さを揃えておかないと、つまみの高さが箱ごとに違って見えます
+        const auto takeRows = [this] (juce::Rectangle<int> column,
+                                       juce::Rectangle<int>& titleRow,
+                                       juce::Rectangle<int>& comboRow,
+                                       juce::Rectangle<int>& knobRow)
+        {
+            // **縦は4しか空けません。** 見出し18＋コンボ24＋間6＋つまみ84＝132に対して、
+            // 箱の中は`phase3AreaHeight`(154) − 帯の余白(12) − ここ(8) = 134——
+            // 6にすると2px足りず、**つまみの文字の下が切れます**
+            auto inner = column.reduced (8, 4);
+
+            titleRow = inner.removeFromTop (sectionTitleHeight);
+            comboRow = inner.removeFromTop (phase3ComboRowHeight);
+
+            inner.removeFromTop (6);
+
+            knobRow = inner.removeFromTop (knobHeight);
+        };
+
+        juce::Rectangle<int> titleRow, comboRow, knobRow;
+
+        //----------------------------------------------------------------------
+        // 8.210：Filter
+
+        takeRows (columns[0], titleRow, comboRow, knobRow);
+
+        filterTitle.setBounds (titleRow);
+
+        filterTypeBox.setBounds (comboRow.removeFromLeft (140));
+        comboRow.removeFromLeft (8);
+        filterPositionButton.setBounds (comboRow.removeFromLeft (64));
+
+        placeKnobRow (knobRow, { { &filterFreqSlider, &filterFreqCaption },
+                                  { &filterQSlider, &filterQCaption },
+                                  { &filterGainSlider, &filterGainCaption } });
+
+        //----------------------------------------------------------------------
+        // 8.211：Modulation
+
+        takeRows (columns[1], titleRow, comboRow, knobRow);
+
+        modulationTitle.setBounds (titleRow);
+        lfoShapeBox.setBounds (comboRow.removeFromLeft (120));
+
+        placeKnobRow (knobRow, { { &lfoDepthSlider, &lfoDepthCaption },
+                                  { &lfoRateSlider, &lfoRateCaption } });
+
+        //----------------------------------------------------------------------
+        // 8.212：Ducking
+        //
+        // **コンボの行には帯を置きます。** 3つのうちここだけ選ぶものが無いので、
+        // 空けると箱の高さが揃っているのに中身が上へ寄って見えます
+
+        takeRows (columns[2], titleRow, comboRow, knobRow);
+
+        duckingTitle.setBounds (titleRow);
+        duckMeter.setBounds (comboRow.withSizeKeepingCentre (comboRow.getWidth() - 4, 10));
+
+        placeKnobRow (knobRow, { { &duckAmountSlider, &duckAmountCaption },
+                                  { &duckAttackSlider, &duckAttackCaption },
+                                  { &duckReleaseSlider, &duckReleaseCaption } });
     }
 }

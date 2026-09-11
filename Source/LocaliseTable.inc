@@ -586,8 +586,16 @@
     { "音色モデル。効かないつまみは灰色になります", "The colour model. Knobs it does not use are greyed out", true },
     { "Tapeでは飽和の強さ、Lo-Fiでは削り具合", "Saturation on Tape, how hard it is crushed on Lo-Fi", true },
     { "反復するたびに落ちる高域の量", "How much treble each repeat loses", true },
+    { "フィードバックの中に入るフィルター。反復するたびに掛かります", "A filter inside the feedback loop - it applies on every repeat", true },
+    { "フィルターとキャラクターの順番。Preは削ってから歪ませ、Postは歪ませてから削ります", "Filter before or after the character. Pre cuts then distorts, Post distorts then cuts", true },
+    { "Bellのときだけ効きます。上げた帯は他より遅く減衰します", "Bell only. The band you lift decays more slowly than the rest", true },
+    { "揺れの形。Randomは1周ごとに値が飛びます", "The shape of the wobble. Random jumps to a new value each cycle", true },
+    { "ディレイタイムを揺らす深さ。どのキャラクターでも効きます", "How far the delay time is wobbled. Works with every character", true },
+    { "原音が鳴っているあいだ、ディレイ音をどれだけ絞るか", "How far the delay is pulled down while the dry signal plays", true },
+    { "絞りはじめるまでの速さ", "How quickly it starts pulling down", true },
+    { "原音が切れてから戻るまでの速さ", "How quickly it comes back once the dry signal stops", true },
     { "テンポが取れていません（Timeの値で鳴っています）", "No tempo from the host - using the Time value", true },
-    { "（Phase 3以降）", "(Phase 3 onwards)", true },
+    { "Multi-Tap  ·  Dual Engine  ·  Reverse  ·  Diffusion  ·  Freeze　（Phase 4以降）", "Multi-Tap  ·  Dual Engine  ·  Reverse  ·  Diffusion  ·  Freeze  (Phase 4 onwards)", true },
 
     // MantaEQEditor.cpp
     { "Linear Phaseは位相をずらさない代わりに遅れます", "Linear Phase keeps the phase intact, at the cost of latency", true },

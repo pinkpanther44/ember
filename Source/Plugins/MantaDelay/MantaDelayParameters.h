@@ -12,15 +12,15 @@
     順番を変えると、保存済みのオートメーションが別のつまみに付きます。
     **足すときは、いちばん末尾へ。**
 
-    ### いま入っているのはPhase 1だけです
+    ### どこまで入っているか
 
-    設計書8章の段階表に従っています。**Phase 1はSingle Echo／Digital Cleanのみ。**
+    設計書8章の段階表に従っています。
 
     | | 中身 |
     |---|---|
     | Phase 1 | Time／Sync／Feedback／Mix／出力レベル |
-    | **Phase 2（いまここ）** | キャラクター（BBD・Tape・Lo-Fi）、Drive／Tone／Wow／Flutter |
-    | Phase 3 | フィードバック内フィルター、LFO、ダッキング |
+    | Phase 2 | キャラクター（BBD・Tape・Lo-Fi）、Drive／Tone／Wow／Flutter |
+    | **Phase 3（いまここ）** | フィードバック内フィルター、LFO、ダッキング |
     | Phase 4 | マルチタップ |
     | Phase 5 | デュアルエンジンとルーティング |
     | Phase 6 | リバース、ディフュージョン、UIの仕上げ |
@@ -59,6 +59,34 @@ namespace MantaDelayParams
     inline constexpr const char* wowDepth = "wowDepth";
     inline constexpr const char* flutterRate = "flutterRate";
     inline constexpr const char* flutterDepth = "flutterDepth";
+
+    //==========================================================================
+    // 8.210：Phase 3のフィルター（仕様書5-2）。**足すのは末尾**
+
+    inline constexpr const char* filterType = "filterType";
+    inline constexpr const char* filterFreq = "filterFreq";
+    inline constexpr const char* filterQ = "filterQ";
+    inline constexpr const char* filterGain = "filterGain";
+
+    /** 仕様書5-2の`Position`。OFF＝Pre、ON＝Post。
+
+        **`bool`で持ちます。** 2つしかないものを`Choice`にすると、
+        画面側でも「どちらが0番か」を覚えることになります。 */
+    inline constexpr const char* filterPost = "filterPost";
+
+    //==========================================================================
+    // 8.211：Phase 3のLFO（仕様書5-3）
+
+    inline constexpr const char* lfoShape = "lfoShape";
+    inline constexpr const char* lfoRate = "lfoRate";
+    inline constexpr const char* lfoDepth = "lfoDepth";
+
+    //==========================================================================
+    // 8.212：Phase 3のダッキング（仕様書5-4）
+
+    inline constexpr const char* duckAmount = "duckAmount";
+    inline constexpr const char* duckAttack = "duckAttack";
+    inline constexpr const char* duckRelease = "duckRelease";
 
     //==========================================================================
     /** 5-1：音価の一覧。**並びを変えないこと**（保存されるのは番号です）。
