@@ -54,6 +54,41 @@ namespace ToolbarLayout
     /** 段と段のあいだ。ツールバー内の他の余白（8px）に合わせてあります。 */
     inline constexpr int gap = 6;
 
+    /** 8.196：**表示モードの2つ**（`Chord Tones` / `Drum Editor`。改善案5の6・7）。
+
+        ピアノロールの1段目の右端に並びます。**下のツール4つは、この2つと
+        同じ幅に収まります**（すぐ下）。 */
+    inline constexpr int displayButtonWidth = 120;
+    inline constexpr int displayButtonGap = 6;
+    inline constexpr int displayGroupWidth = displayButtonWidth * 2 + displayButtonGap;
+
+    /** 8.197：**ツール4つを、上の2つと同じ幅に均等割り**（Phase 233／本人の指定）。
+
+            [Chord Tones][Drum Editor]
+            [  選択 ][  ペン ][カット][消しゴム]
+
+        Phase 232で幅は揃えましたが（52/52/62/68 → 56）、**合計が233pxで、
+        上の246pxと端が合っていませんでした。**
+
+        **上の合計から逆算します**：`(246 - 6×3) ÷ 4 = 57`。
+        余りが出ないので、**左端も右端も、あいだも、きっちり揃います。**
+
+        > **数字を直に書かないこと。** 上の2つの幅を変えたら、
+        > ここが自動で追随します——**揃え直しを忘れる余地がありません**（1.27）。
+
+        あいだの余白も上と同じ6pxです（3pxのままだと、
+        **同じ幅に収めても目の詰まり方が違って見えます**）。
+
+        **アレンジ画面も同じ大きさを使います**（画面を行き来しても同じものが同じ大きさ）。 */
+    inline constexpr int toolButtonGap = displayButtonGap;
+    inline constexpr int toolButtonWidth = (displayGroupWidth - toolButtonGap * 3) / 4;
+
+    /** ツール4つ＋あいだの余白の合計。**`displayGroupWidth`と一致します。** */
+    inline constexpr int toolGroupWidth = toolButtonWidth * 4 + toolButtonGap * 3;
+
+    static_assert (toolGroupWidth == displayGroupWidth,
+                    "ツールの合計幅が、上の2つと合っていません（割り切れる値にすること）");
+
     /** 折り返すかどうか。
 
         `leftWidth`は左詰めで置くものの合計、`rightWidth`は右詰めで置くものの合計

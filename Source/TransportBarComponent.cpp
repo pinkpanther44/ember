@@ -416,25 +416,29 @@ void TransportBarComponent::resized()
         constexpr int gap = 4;
 
         // 左端：Inspector（開く場所が画面の左なので、こちらだけ独立させる）
-        inspectorButton.setBounds (toggleRow.removeFromLeft (juce::jmin (82, toggleRow.getWidth())));
+        // 8.196：**この段のボタンは全部同じ幅**（Phase 232/改善案5の8）。
+        // 文字の長さに合わせて82/72/88/78/78とばらばらでしたが、**同じ役目のボタンが
+        // 幅違いで並ぶと、押す場所を目で探すことになります**。いちばん長い
+        // 「Chord Pad」が収まる幅に揃えました
+        constexpr int panelButtonWidth = 88;
+
+        inspectorButton.setBounds (toggleRow.removeFromLeft (juce::jmin (panelButtonWidth,
+                                                                          toggleRow.getWidth())));
 
         // 右端：Editor → Chord Pad → Console → Browser（改善案31の指定どおりの並び）。
         // **右端から積むのではなく、必要な幅を右から取ってから左詰めで置く**：
         // 逆順に積むと、幅が足りないときにどれが欠けるか読みにくくなる
-        const int buttonWidths[] = { 72, 88, 78, 78 };
         juce::TextButton* buttons[] = { &editorButton, &chordPadButton,
                                          &consoleButton, &browserButton };
 
-        int totalWidth = gap * (juce::numElementsInArray (buttonWidths) - 1);
-
-        for (auto width : buttonWidths)
-            totalWidth += width;
+        constexpr int count = (int) juce::numElementsInArray (buttons);
+        const int totalWidth = panelButtonWidth * count + gap * (count - 1);
 
         auto row = toggleRow.removeFromRight (juce::jmin (totalWidth, toggleRow.getWidth()));
 
-        for (int i = 0; i < juce::numElementsInArray (buttons); ++i)
+        for (auto* button : buttons)
         {
-            buttons[i]->setBounds (row.removeFromLeft (juce::jmin (buttonWidths[i], row.getWidth())));
+            button->setBounds (row.removeFromLeft (juce::jmin (panelButtonWidth, row.getWidth())));
             row.removeFromLeft (juce::jmin (gap, row.getWidth()));
         }
     }
@@ -544,10 +548,19 @@ void TransportBarComponent::resized()
         }
     };
 
-    placeGroup (0,  { { &metronomeButton, 44, 3 } });
-    placeGroup (6,  { { &loopButton, 62, 3 } });                       // 仕様書5.9（Phase 48）
-    placeGroup (10, { { &timeSignatureLabel, 52, 4 } });
-    placeGroup (6,  { { &tempoCaption, 32, 0 }, { &tempoLabel, 58, 4 } });
+    // 8.196：**BPMからメトロノームまで、同じ幅に揃えました**（Phase 232/改善案5の8）。
+    // 44/62/52/58とばらばらで、**同じ帯に4つ並ぶのに大きさが4通り**でした。
+    // いちばん広かったループ（62）に合わせます——**狭いほうへ揃えると、
+    // 7セグメントの「120」が入りません**（`SegmentLabel`。8.177）。
+    //
+    // **見出し（BPM/Key）は揃えません。** あれはボタンではなく、
+    // 隣の値が何かを言うためのものです
+    constexpr int footerValueWidth = 62;
+
+    placeGroup (0,  { { &metronomeButton, footerValueWidth, 3 } });
+    placeGroup (6,  { { &loopButton, footerValueWidth, 3 } });        // 仕様書5.9（Phase 48）
+    placeGroup (10, { { &timeSignatureLabel, footerValueWidth, 4 } });
+    placeGroup (6,  { { &tempoCaption, 32, 0 }, { &tempoLabel, footerValueWidth, 4 } });
 
     // 仕様書5.11.1：キーはBPMの左（Phase 63／8.1のC9）。
     // テンポ・拍子と並べているのは、3つとも「曲全体の前提」だから

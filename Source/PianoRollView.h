@@ -9,6 +9,7 @@
 #include "PianoRollTrackList.h"          // 8.1のG4：左のMIDIトラック一覧（Phase 73）
 #include "IconAssets.h"          // 8.133：ツールの絵（Phase 169）
 #include "ValueEntrySlider.h"     // 8.118：Swing・グルーヴの強さもConsoleと同じつまみへ（Phase 153）
+#include "StatusStrip.h"          // 8.195：出るときだけ出る帯（Phase 232）
 
 //==============================================================================
 /**
@@ -208,7 +209,6 @@ private:
     int getSelectedGridDivision() const;
     void refreshClipSelection();
     void updateInstrumentLabel();
-    void updateStatusLabel();
 
     /** MIDIトラックの一覧をコンボボックスへ入れ直す。
         選択は「並び順」ではなくtrackIdで覚え直すため、トラックが増減しても
@@ -339,7 +339,9 @@ private:
     ValueEntrySlider swingSlider { juce::Slider::LinearHorizontal, juce::Slider::TextBoxRight };
     juce::Label swingLabel;
     juce::ToggleButton selectedOnlyToggle { "Selected note only" };
-    juce::Label statusLabel;
+    /** 8.195：知らせは出るときだけ（Phase 232／改善案5の5）。
+        **常設だった説明文は廃止しました**——場所を取り続けるほどの内容ではありません */
+    StatusStrip statusStrip;
 
 
     /** 8.1のG4／D5：左のMIDIトラック一覧（Phase 73）。

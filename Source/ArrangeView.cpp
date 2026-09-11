@@ -3,6 +3,7 @@
 #include "AppSettings.h"   // 8.125：ヘッダーの幅を覚えておく（Phase 161）
 #include "Utf8.h"
 #include "AudioEngine.h"
+#include "ToolbarLayout.h"   // 8.196：ツールボタンの大きさは1つ（Phase 232）
 #include "DragAndDropIds.h"
 
 ArrangeView::ArrangeView (ProjectModel& projectToUse, AudioEngine& audioEngineToUse,
@@ -149,7 +150,6 @@ ArrangeView::ArrangeView (ProjectModel& projectToUse, AudioEngine& audioEngineTo
     refreshInputState();
 
     addAndMakeVisible (timeline);
-    timeline.onModelChanged = [this] { updateStatusLabel(); };
 
     // 仕様書5.9：ルーラーのクリックで再生位置を動かす（Phase 18）。
     //
@@ -323,12 +323,11 @@ ArrangeView::ArrangeView (ProjectModel& projectToUse, AudioEngine& audioEngineTo
             onInsertMarkerRequested (timeSeconds, askForName);
     };
 
-    statusLabel.setJustificationType (juce::Justification::topLeft);
-    statusLabel.setFont (juce::FontOptions (13.0f));
-    statusLabel.setColour (juce::Label::textColourId, AppColours::textSecondary);
-    addAndMakeVisible (statusLabel);
+    // 8.195：**出るときだけ出る帯**（Phase 232／改善案5の2）。
+    // **`addChildComponent`であること**——`addAndMakeVisible`にすると最初から居座ります
+    statusStrip.onVisibilityChanged = [this] { resized(); };
+    addChildComponent (statusStrip);
 
-    updateStatusLabel();
 }
 
 ArrangeView::~ArrangeView()
@@ -361,7 +360,7 @@ void ArrangeView::showRecordingResult (const juce::File& recordedFile, double st
 {
     if (! recordedFile.existsAsFile())
     {
-        statusLabel.setText (utf8 ("録音ファイルが見つかりませんでした。"), juce::dontSendNotification);
+        showStatusMessage (utf8 ("録音ファイルが見つかりませんでした。"));
         return;
     }
 
@@ -410,8 +409,7 @@ void ArrangeView::showRecordingResult (const juce::File& recordedFile, double st
 
     if (lengthSeconds <= 0.0)
     {
-        statusLabel.setText (utf8 ("録音ファイルを読み取れませんでした: ") + recordedFile.getFullPathName(),
-                              juce::dontSendNotification);
+        showStatusMessage (utf8 ("録音ファイルを読み取れませんでした: ") + recordedFile.getFullPathName());
         return;
     }
 
@@ -420,7 +418,6 @@ void ArrangeView::showRecordingResult (const juce::File& recordedFile, double st
     track.addAudioClip (recordedFile.getFullPathName(), startTimeSeconds, lengthSeconds, &project.getUndoManager());
 
     timeline.refresh();
-    updateStatusLabel();
 
     juce::String text;
     text << utf8 ("録音しました: ") << recordedFile.getFileName()
@@ -428,7 +425,7 @@ void ArrangeView::showRecordingResult (const juce::File& recordedFile, double st
          << " (" << juce::String (lengthSeconds, 2) << utf8 ("秒 / ")
          << juce::File::descriptionOfSizeInBytes (recordedFile.getSize()) << ")";
 
-    statusLabel.setText (statusLabel.getText() + juce::newLine + text, juce::dontSendNotification);
+    showStatusMessage (text);
 }
 
 juce::String ArrangeView::applyMidiRecordingResult (const std::vector<RecordedMidiTake>& takes,
@@ -471,7 +468,6 @@ juce::String ArrangeView::applyMidiRecordingResult (const std::vector<RecordedMi
     }
 
     timeline.refresh();
-    updateStatusLabel();
 
     if (total.numNotes == 0 && total.numCCs == 0)
     {
@@ -505,7 +501,6 @@ void ArrangeView::visibilityChanged()
     if (isVisible())
     {
         timeline.refresh();
-        updateStatusLabel();
     }
 }
 
@@ -523,7 +518,7 @@ bool ArrangeView::hasGroupedClipInSelection() const { return timeline.hasGrouped
 
 void ArrangeView::showStatusMessage (const juce::String& message)
 {
-    statusLabel.setText (message, juce::dontSendNotification);
+    statusStrip.show (message);
 }
 
 void ArrangeView::refreshAfterProjectChanged (bool keepSelectionAndPlayhead)
@@ -537,7 +532,6 @@ void ArrangeView::refreshAfterProjectChanged (bool keepSelectionAndPlayhead)
     }
 
     timeline.refresh();
-    updateStatusLabel();
 }
 
 
@@ -577,11 +571,13 @@ void ArrangeView::resized()
 {
     auto area = getLocalBounds().reduced (16);
 
-    auto buttonRow = area.removeFromTop (30);
-    addTrackButton.setBounds (buttonRow.removeFromLeft (100));
-    buttonRow.removeFromLeft (8);
-    importAudioButton.setBounds (buttonRow.removeFromLeft (165));
-    buttonRow.removeFromLeft (8);
+    // 8.199：**「+ Track」「+ Audio」はルーラー左端の角へ移しました**
+    //         （Phase 234／改善案5の3）。置くのはこの関数の終わりです。
+    //
+    // それまでは横1段（30px＋余白8px）を専有していました。**丸ごと空きます。**
+    //
+    //     [        Bars        ]
+    //     [+ Track] [+ Audio]
 
     // 仕様書5.4：入力まわりは2段目にまとめる。1段目に詰め込むと、
     // ウィンドウ幅が狭いときにボタンが重なって押せなくなるため。
@@ -599,19 +595,22 @@ void ArrangeView::resized()
     // 仕様書6.2：ツールはズームの左に、1〜4の順で並べる（Phase 51）。
     // **左から順に置く**ので、幅が足りないときは右のものから潰れる
     {
-        // 52 + 3 + 52 + 3 + 62 + 3 + 68 = 243（Phase 83で消しゴムを足した）
-        auto toolRow = inputRow.removeFromRight (juce::jmin (243, inputRow.getWidth()));
+        // 8.196：**4つとも同じ幅**（Phase 232/改善案5の6。`ToolbarLayout.h`）。
+        // 絵にした時点で中身の大きさは同じなので、幅だけ違うと**間隔がばらついて見えます**
+        auto toolRow = inputRow.removeFromRight (juce::jmin (ToolbarLayout::toolGroupWidth,
+                                                             inputRow.getWidth()));
 
-        auto place = [&toolRow] (juce::TextButton& button, int width)
+        auto place = [&toolRow] (juce::TextButton& button)
         {
-            button.setBounds (toolRow.removeFromLeft (juce::jmin (width, toolRow.getWidth())));
-            toolRow.removeFromLeft (juce::jmin (3, toolRow.getWidth()));
+            button.setBounds (toolRow.removeFromLeft (juce::jmin (ToolbarLayout::toolButtonWidth,
+                                                                   toolRow.getWidth())));
+            toolRow.removeFromLeft (juce::jmin (ToolbarLayout::toolButtonGap, toolRow.getWidth()));
         };
 
-        place (arrowToolButton, 52);
-        place (pencilToolButton, 52);
-        place (cutToolButton, 62);
-        place (eraserToolButton, 68);
+        place (arrowToolButton);
+        place (pencilToolButton);
+        place (cutToolButton);
+        place (eraserToolButton);
 
         inputRow.removeFromRight (12);
     }
@@ -630,9 +629,33 @@ void ArrangeView::resized()
 
     area.removeFromTop (10);
 
-    auto statusArea = area.removeFromBottom (44);
+    // 8.195：**見えているときだけ場所を取ります**（Phase 232）。
+    // 高さ0で置いておくと、親はその1行ぶんを引き算し続けます——広げたいのに広がりません
+    if (statusStrip.isVisible())
+        statusStrip.setBounds (area.removeFromBottom (StatusStrip::height));
+
     timeline.setBounds (area);
-    statusLabel.setBounds (statusArea);
+
+    // 8.199：**タイムラインの角へ、2つのボタンを置きます**（Phase 234／改善案5の3）。
+    //
+    // **`timeline.setBounds()`の後であること。** 角の場所はタイムラインの位置から
+    // 決まるので、先に置くと1回ぶん古い場所へ行きます。
+    //
+    // ボタンは`ArrangeView`の子のままです（押したときに動くのはこちら）。
+    // **`toFront()`が要ります**——`timeline`のほうが後から`addAndMakeVisible`
+    // されているので（コンストラクタの並び）、そのままだと下に隠れます
+    {
+        auto row = timeline.getCornerButtonRow() + timeline.getBounds().getPosition();
+
+        const int half = (row.getWidth() - 4) / 2;
+
+        addTrackButton.setBounds (row.removeFromLeft (half));
+        row.removeFromLeft (4);
+        importAudioButton.setBounds (row);
+
+        addTrackButton.toFront (false);
+        importAudioButton.toFront (false);
+    }
 }
 
 void ArrangeView::showAddTrackMenu (juce::Rectangle<int> anchorScreenBounds,
@@ -789,11 +812,11 @@ void ArrangeView::showTrackHeaderMenu (int trackIndex, juce::Rectangle<int> head
                 // 8.159：**選んでいるぶん全部**（Phase 197）
                 project.beginAction (utf8 ("フォルダから出す"));
 
+                // 8.203：ここも`false`（Phase 237）。理由は「フォルダへ入れる」と同じです
                 for (const auto& id : getTrackIdsForHeaderAction (trackIndex))
-                    project.moveTrackIntoFolder (project.findTrackById (id), {});
+                    project.moveTrackIntoFolder (project.findTrackById (id), {}, false);
 
                 timeline.refresh();
-                updateStatusLabel();
             }
             else if (result == 9)
             {
@@ -811,7 +834,6 @@ void ArrangeView::showTrackHeaderMenu (int trackIndex, juce::Rectangle<int> head
                                      &project.getUndoManager());
 
                 timeline.refresh();
-                updateStatusLabel();
             }
             else if (result >= folderMenuBaseId)
             {
@@ -835,12 +857,13 @@ void ArrangeView::showTrackHeaderMenu (int trackIndex, juce::Rectangle<int> head
 
                         project.beginAction (utf8 ("フォルダへ入れる"));
 
+                        // 8.203：**`false`を渡すこと**（Phase 237）。上で区切りを開いているのに
+                        // 中でも開いていたので、**まとめて入れてもCtrl+Zは1本ずつ**でした
                         for (const auto& id : ids)
                             if (id != folderId)
-                                project.moveTrackIntoFolder (project.findTrackById (id), folderId);
+                                project.moveTrackIntoFolder (project.findTrackById (id), folderId, false);
 
                         timeline.refresh();
-                        updateStatusLabel();
                         break;
                     }
 
@@ -950,7 +973,6 @@ void ArrangeView::duplicateTrack (int trackIndex)
     selection.selectTrack (copy.getId());
 
     timeline.refresh();
-    updateStatusLabel();
 }
 
 
@@ -1022,7 +1044,6 @@ void ArrangeView::deleteTrack (int trackIndex)
     }
 
     timeline.refresh();
-    updateStatusLabel();
 }
 
 void ArrangeView::addAudioTrackClicked()
@@ -1030,7 +1051,6 @@ void ArrangeView::addAudioTrackClicked()
     project.addTrack ("Audio " + juce::String (project.getNumTracks() + 1), TrackType::Audio,
                        getTrackAddAnchorId());
     timeline.refresh();
-    updateStatusLabel();
 }
 
 
@@ -1053,7 +1073,6 @@ juce::String ArrangeView::addTrackForDroppedInstrument (const juce::String& plug
     selection.selectTrack (track.getId());
 
     timeline.refresh();
-    updateStatusLabel();
 
     return track.getId();
 }
@@ -1066,7 +1085,6 @@ void ArrangeView::addMidiTrackClicked()
     project.addTrack ("MIDI " + juce::String (project.getNumTracks() + 1), TrackType::Midi,
                        getTrackAddAnchorId());
     timeline.refresh();
-    updateStatusLabel();
 }
 
 
@@ -1083,7 +1101,6 @@ void ArrangeView::addSendTrackClicked()
     project.addTrack ("Send " + juce::String (sendTrackCount + 1), TrackType::Send,
                        getTrackAddAnchorId());
     timeline.refresh();
-    updateStatusLabel();
 
     showStatusMessage (utf8 ("センドトラックを追加しました。送り元のトラックを選び、インスペクタ（またはConsole）の「+ Send」で送りを設定してください。"));
 }
@@ -1165,7 +1182,6 @@ void ArrangeView::createDrumOutTracks (int trackIndex)
     // **音源が「出力バスを有効にした状態」で読み直されます**（8.144）。
     // 配線はその最後の`rebuildDrumOutConnections()`が張ります
     timeline.refresh();
-    updateStatusLabel();
 
     if (created == 0)
         showStatusMessage (utf8 ("パラアウトの行は、もう全部あります。"));
@@ -1178,7 +1194,6 @@ void ArrangeView::addChordTrackClicked()
 {
     project.addTrack ("Chords", TrackType::Chord);
     timeline.refresh();
-    updateStatusLabel();
 }
 
 
@@ -1196,7 +1211,6 @@ void ArrangeView::addVcaTrackClicked()
     project.addTrack ("VCA " + juce::String (vcaTrackCount + 1), TrackType::VCA,
                        getTrackAddAnchorId());
     timeline.refresh();
-    updateStatusLabel();
 
     showStatusMessage (utf8 ("VCAトラックを追加しました。まとめたいトラックを選び、インスペクタ（またはConsole）の「VCA」ボタンから割り当ててください。"));
 }
@@ -1216,7 +1230,6 @@ void ArrangeView::addFolderTrackClicked()
     project.addTrack (utf8 ("フォルダ ") + juce::String (folderCount + 1), TrackType::Folder,
                        getTrackAddAnchorId());
     timeline.refresh();
-    updateStatusLabel();
 
     showStatusMessage (utf8 ("フォルダトラックを追加しました。まとめたいトラックのヘッダーを右クリックし、「フォルダへ入れる」を選んでください。"));
 }
@@ -1274,8 +1287,7 @@ void ArrangeView::importAudioFile (const juce::File& file, const juce::String& t
 
     if (lengthSeconds <= 0.0)
     {
-        statusLabel.setText (utf8 ("音声ファイルとして読み取れませんでした: ") + file.getFileName(),
-                              juce::dontSendNotification);
+        showStatusMessage (utf8 ("音声ファイルとして読み取れませんでした: ") + file.getFileName());
         return;
     }
 
@@ -1284,7 +1296,6 @@ void ArrangeView::importAudioFile (const juce::File& file, const juce::String& t
                          lengthSeconds, &project.getUndoManager());
 
     timeline.refresh();
-    updateStatusLabel();
 }
 
 double ArrangeView::getAudioFileLengthSeconds (const juce::File& file)
@@ -1323,8 +1334,7 @@ void ArrangeView::importAudioFiles (const juce::StringArray& paths, const juce::
     }
 
     if (paths.size() > 1)
-        statusLabel.setText (juce::String (paths.size()) + utf8 (" 個の音声ファイルを並べました。"),
-                              juce::dontSendNotification);
+        showStatusMessage (juce::String (paths.size()) + utf8 (" 個の音声ファイルを並べました。"));
 }
 
 
@@ -1438,7 +1448,6 @@ void ArrangeView::showAutomationMenu (int trackIndex, juce::Rectangle<int> butto
             }
 
             timeline.refresh();
-            updateStatusLabel();
         });
 }
 
@@ -1511,39 +1520,6 @@ void ArrangeView::showAutomationRowMenu (int trackIndex, int laneOrdinal,
             }
 
             timeline.refresh();
-            updateStatusLabel();
         });
 }
 
-void ArrangeView::updateStatusLabel()
-{
-    juce::String text;
-
-    // 8.56：レーンは専用の行になった（Phase 94／D3）。
-    // **クリップの編集は今までどおりトラック行でできる**ので、案内もそのように変える
-    if (timeline.isShowingAutomation())
-    {
-        text << utf8 ("オートメーションの行：線の上をクリックで点を追加 / ドラッグで移動 / ")
-             << utf8 ("ダブルクリックで削除。行はトラックの下に並びます。")
-             << utf8 ("ヘッダーは左クリックで選択、右クリックでメニュー（追加・隠す・削除）。")
-             << utf8 ("「B」でバイパス、「x」で閉じます。")
-             << juce::newLine;
-    }
-
-    text << "Tracks: " << project.getNumTracks() << juce::newLine;
-
-    for (int i = 0; i < project.getNumTracks(); ++i)
-    {
-        auto t = project.getTrack (i);
-        text << "  - " << t.getName() << "  [" << trackTypeToString (t.getType()) << "]";
-
-        if (t.getType() == TrackType::Audio && t.getNumClips() > 0)
-            text << "  (" << t.getNumClips() << " clip(s))";
-        else if (t.getType() == TrackType::Midi && t.getNumNotes() > 0)
-            text << "  (" << t.getNumNotes() << " notes)";   // 8.94：クリップは無くなった
-
-        text << juce::newLine;
-    }
-
-    statusLabel.setText (text, juce::dontSendNotification);
-}

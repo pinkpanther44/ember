@@ -71,10 +71,10 @@ PianoRollView::PianoRollView (ProjectModel& projectToUse, AudioEngine& engineToU
     instrumentButton.onClick = [this] { instrumentButtonClicked(); };
     addAndMakeVisible (instrumentButton);
 
-    statusLabel.setJustificationType (juce::Justification::topLeft);
-    statusLabel.setFont (juce::FontOptions (13.0f));
-    statusLabel.setColour (juce::Label::textColourId, AppColours::textSecondary);
-    addAndMakeVisible (statusLabel);
+    // 8.195：**出るときだけ出る帯**（Phase 232／改善案5の5）。
+    // 常設だった説明文（「ドラッグで移動 / …」）は廃止しました
+    statusStrip.onVisibilityChanged = [this] { resized(); };
+    addChildComponent (statusStrip);
 
     // 仕様書5.3.3：CCレーン（Phase 23）
 
@@ -147,7 +147,6 @@ PianoRollView::PianoRollView (ProjectModel& projectToUse, AudioEngine& engineToU
         AppSettings::setString (laneTargetAutomationKey, target.automationTargetId);
         AppSettings::setInt (laneTargetControllerKey, target.controllerNumber);
 
-        updateStatusLabel();   // 説明文にレーンの中身を出している
     };
 
     // 仕様書5.5・5.9：編集の刻み（Phase 55）。**アレンジ画面にも同じものがある**ので、
@@ -215,7 +214,6 @@ PianoRollView::PianoRollView (ProjectModel& projectToUse, AudioEngine& engineToU
     // ノートが増減するとスクロールできる長さも変わる（Phase 67）
     pianoRoll.onModelChanged = [this]
     {
-        updateStatusLabel();
         updateHorizontalScrollBar();
     };
 
@@ -404,14 +402,23 @@ void PianoRollView::resized()
     //
     // どちらも「**画面の見せ方**」を決めるものなので、
     // 「これから置くもの」を決める2段目（刻み・ツール）とは性格が違います。分けたほうが素直です。
-    drumEditorButton.setBounds (trackRow.removeFromRight (120));
-    trackRow.removeFromRight (6);
-    colouringButton.setBounds (trackRow.removeFromRight (juce::jmin (120, trackRow.getWidth())));
+    // 8.197：**寸法は`ToolbarLayout.h`から**（Phase 233）。下のツール4つが
+    // この2つの合計幅から逆算されるので、**ここを直せば下も追随します**
+    drumEditorButton.setBounds (trackRow.removeFromRight (ToolbarLayout::displayButtonWidth));
+    trackRow.removeFromRight (ToolbarLayout::displayButtonGap);
+    colouringButton.setBounds (trackRow.removeFromRight (juce::jmin (ToolbarLayout::displayButtonWidth,
+                                                                      trackRow.getWidth())));
     trackRow.removeFromRight (12);
 
     // 8.185：**左の余白を外しました**（Phase 224／本人の指定）。
     // 16px入っていたので、**真下のクオンタイズボタンと左端が揃っていませんでした**
-    instrumentButton.setBounds (trackRow.removeFromLeft (juce::jmin (240, trackRow.getWidth())));
+    // 8.196：**幅は「クオンタイズ＋刻み」と同じ218px**（Phase 232/改善案5の4）。
+    // 240pxだったので、**真下の刻み（1/16）の右端と揃っていませんでした**——
+    // 100（クオンタイズ）+ 8 + 110（刻み）= 218。**片方を変えたらここも直すこと**
+    constexpr int instrumentWidth = 100 + 8 + 110;
+
+    instrumentButton.setBounds (trackRow.removeFromLeft (juce::jmin (instrumentWidth,
+                                                                     trackRow.getWidth())));
 
     area.removeFromTop (8);
 
@@ -425,7 +432,7 @@ void PianoRollView::resized()
     // 下の`removeFromLeft`／`removeFromRight`の合計。**片方を変えたらここも直すこと**
     constexpr int leftGroupWidth  = 100 + 8 + 110 + 12 + 45 + 160 + 12 + 150 + 12 + 100;
     constexpr int rightGroupWidth = 12 + SnapGridSelector::preferredWidth
-                                     + 12 + (52 + 3 + 52 + 3 + 62 + 3 + 68);
+                                     + 12 + ToolbarLayout::toolGroupWidth;
 
     const bool wrapToolbar = ToolbarLayout::needsWrap (area.getWidth(),
                                                         leftGroupWidth, rightGroupWidth);
@@ -469,19 +476,21 @@ void PianoRollView::resized()
     // **Phase 68まで、ボタンはアレンジ画面にしかありませんでした**：
     // ノートを置くのがペンツールの仕事になったので、ここにも入口が要ります
     {
-        secondRow.removeFromRight (12);
-
-        auto place = [&secondRow] (juce::TextButton& button, int width)
+        // 8.196：**右端の余白を外しました**（Phase 232／改善案5の7）。
+        // 12px空けていたので、**1段目の「Drum Editor」の右端と揃っていませんでした**
+        auto place = [&secondRow] (juce::TextButton& button)
         {
-            button.setBounds (secondRow.removeFromRight (juce::jmin (width, secondRow.getWidth())));
-            secondRow.removeFromRight (3);
+            button.setBounds (secondRow.removeFromRight (juce::jmin (ToolbarLayout::toolButtonWidth,
+                                                                      secondRow.getWidth())));
+            secondRow.removeFromRight (ToolbarLayout::toolButtonGap);
         };
 
         // **右から置いていく**ので、並びは逆順に書く（左から 選択・ペン・カット・消しゴム）
-        place (eraserToolButton, 68);
-        place (cutToolButton, 62);
-        place (pencilToolButton, 52);
-        place (arrowToolButton, 52);
+        // 8.196：**4つとも同じ幅**（`ToolbarLayout::toolButtonWidth`／改善案5の6）
+        place (eraserToolButton);
+        place (cutToolButton);
+        place (pencilToolButton);
+        place (arrowToolButton);
     }
 
     // 仕様書5.5・5.9：編集の刻み（Phase 55）。**ツールの左隣**に置く。
@@ -490,8 +499,16 @@ void PianoRollView::resized()
     snapSelector.setBounds (secondRow.removeFromRight (juce::jmin (SnapGridSelector::preferredWidth,
                                                                     secondRow.getWidth())));
 
-    area.removeFromTop (8);
-    statusLabel.setBounds (area.removeFromTop (22));
+    // 8.195：**知らせは下端に、出るときだけ**（Phase 232／改善案5の5）。
+    //
+    // Phase 231まで、ここに**22pxの説明文が常設**されていました
+    // （「ドラッグで移動 / 左右の端をドラッグで長さ変更 / …」）。
+    // **廃止して、ノートグリッドへ回します。**
+    //
+    // 出す場所を**上から下へ移した**のは、ツールバーの真下だと
+    // 出入りのたびにグリッド全体が上下に跳ねるためです
+    if (statusStrip.isVisible())
+        statusStrip.setBounds (area.removeFromBottom (StatusStrip::height));
 
     // 仕様書5.3.4：グルーヴのパネル（Phase 32）。
     // **areaから場所を取らずに重ねて置く。** 段として取ると、閉じているときも
@@ -599,7 +616,6 @@ void PianoRollView::setEditTool (EditTool tool)
 {
     pianoRoll.setEditTool (tool);
     updateToolButtons();
-    updateStatusLabel();   // 説明文もツールで変わる
 }
 
 void PianoRollView::updateToolButtons()
@@ -773,7 +789,7 @@ void PianoRollView::drumEditorToggled()
     if (! track.state.getParent().isValid())
     {
         drumEditorButton.setToggleState (false, juce::dontSendNotification);
-        statusLabel.setText (utf8 ("MIDIトラックを選んでから切り替えてください。"), juce::dontSendNotification);
+        statusStrip.show (utf8 ("MIDIトラックを選んでから切り替えてください。"));
         return;
     }
 
@@ -790,10 +806,9 @@ void PianoRollView::drumEditorToggled()
 
     updateDrumEditorMode();
 
-    statusLabel.setText (shouldUseDrumEditor
+    statusStrip.show (shouldUseDrumEditor
                              ? utf8 ("ドラムエディターに切り替えました（行の見出しをクリックでミュート、右クリックでチョークグループ）")
-                             : utf8 ("ピアノロールに戻しました。"),
-                          juce::dontSendNotification);
+                             : utf8 ("ピアノロールに戻しました。"));
 }
 
 //==============================================================================
@@ -816,9 +831,8 @@ void PianoRollView::cycleNoteColouring()
     updateColouringButton();
 
     if (next == Colouring::chordTones && ! project.findChordTrack().state.getParent().isValid())
-        statusLabel.setText (utf8 ("コード構成音モードにしましたが、コードトラックがまだありません"
-                                    "（「+ Track」→「コードトラック」で作れます）。"),
-                              juce::dontSendNotification);
+        statusStrip.show (utf8 ("コード構成音モードにしましたが、コードトラックがまだありません"
+                                    "（「+ Track」→「コードトラック」で作れます）。"));
 }
 void PianoRollView::updateColouringButton()
 {
@@ -905,8 +919,7 @@ void PianoRollView::extractGrooveClicked()
 
     if (! track.state.getParent().isValid() || track.getNumNotes() == 0)
     {
-        statusLabel.setText (utf8 ("抽出元にするノートがありません。先に打ち込んでください。"),
-                              juce::dontSendNotification);
+        statusStrip.show (utf8 ("抽出元にするノートがありません。先に打ち込んでください。"));
         return;
     }
 
@@ -928,23 +941,22 @@ void PianoRollView::extractGrooveClicked()
 
     if (! extracted.state.isValid())
     {
-        statusLabel.setText (utf8 ("グルーヴを抽出できませんでした。"), juce::dontSendNotification);
+        statusStrip.show (utf8 ("グルーヴを抽出できませんでした。"));
         return;
     }
 
     selectedGrooveId = extracted.getId();
     refreshGrooveList();
 
-    statusLabel.setText (utf8 ("グルーヴを抽出しました: ") + extracted.getName()
-                              + utf8 ("（") + juce::String (extracted.getNumPoints()) + utf8 (" マス）"),
-                          juce::dontSendNotification);
+    statusStrip.show (utf8 ("グルーヴを抽出しました: ") + extracted.getName()
+                              + utf8 ("（") + juce::String (extracted.getNumPoints()) + utf8 (" マス）"));
 }
 
 void PianoRollView::applyGrooveClicked()
 {
     if (! pianoRoll.hasTrack())
     {
-        statusLabel.setText (utf8 ("MIDIトラックを選んでから実行してください。"), juce::dontSendNotification);
+        statusStrip.show (utf8 ("MIDIトラックを選んでから実行してください。"));
         return;
     }
 
@@ -952,8 +964,7 @@ void PianoRollView::applyGrooveClicked()
 
     if (! grooveTemplate.state.isValid())
     {
-        statusLabel.setText (utf8 ("先に「Extract Groove」でグルーヴを抽出してください。"),
-                              juce::dontSendNotification);
+        statusStrip.show (utf8 ("先に「Extract Groove」でグルーヴを抽出してください。"));
         return;
     }
 
@@ -961,7 +972,7 @@ void PianoRollView::applyGrooveClicked()
 
     if (selectedOnly && ! pianoRoll.hasSelectedNote())
     {
-        statusLabel.setText (utf8 ("ノートを選択してから実行してください。"), juce::dontSendNotification);
+        statusStrip.show (utf8 ("ノートを選択してから実行してください。"));
         return;
     }
 
@@ -969,9 +980,8 @@ void PianoRollView::applyGrooveClicked()
 
     pianoRoll.applyGroove (grooveTemplate, getSelectedGridDivision(), strength, selectedOnly);
 
-    statusLabel.setText (utf8 ("グルーヴを適用しました: ") + grooveTemplate.getName()
-                              + utf8 ("（強さ ") + juce::String (grooveStrengthSlider.getValue(), 0) + "%）",
-                          juce::dontSendNotification);
+    statusStrip.show (utf8 ("グルーヴを適用しました: ") + grooveTemplate.getName()
+                              + utf8 ("（強さ ") + juce::String (grooveStrengthSlider.getValue(), 0) + "%）");
 }
 
 void PianoRollView::quantiseClicked()
@@ -984,7 +994,7 @@ void PianoRollView::quantiseClicked()
 
     if (selectedOnly && ! pianoRoll.hasSelectedNote())
     {
-        statusLabel.setText (utf8 ("ノートを選択してから実行してください。"), juce::dontSendNotification);
+        statusStrip.show (utf8 ("ノートを選択してから実行してください。"));
         return;
     }
 
@@ -992,17 +1002,15 @@ void PianoRollView::quantiseClicked()
     // Grooveの「効き具合」と同じ形（見せ方だけを変え、中身の単位は変えない）
     pianoRoll.quantiseNotes (gridDivision, swingSlider.getValue() / 100.0, selectedOnly);
 
-    statusLabel.setText (utf8 ("クオンタイズを適用しました（テンポ ")
-                              + juce::String (project.getTempo(), 1) + utf8 (" BPM 基準）"),
-                          juce::dontSendNotification);
+    statusStrip.show (utf8 ("クオンタイズを適用しました（テンポ ")
+                              + juce::String (project.getTempo(), 1) + utf8 (" BPM 基準）"));
 }
 
 void PianoRollView::instrumentButtonClicked()
 {
     if (selectedTrackId.isEmpty())
     {
-        statusLabel.setText (utf8 ("先に「+ Track」でMIDIトラックを作ってください。"),
-                              juce::dontSendNotification);
+        statusStrip.show (utf8 ("先に「+ Track」でMIDIトラックを作ってください。"));
         return;
     }
 
@@ -1050,8 +1058,7 @@ void PianoRollView::chooseInstrument()
 
     if (plugins.isEmpty())
     {
-        statusLabel.setText (utf8 ("先に環境設定でプラグインをスキャンしてください。"),
-                              juce::dontSendNotification);
+        statusStrip.show (utf8 ("先に環境設定でプラグインをスキャンしてください。"));
         return;
     }
 
@@ -1066,8 +1073,7 @@ void PianoRollView::chooseInstrument()
 
     if (menu.getNumItems() == 0)
     {
-        statusLabel.setText (utf8 ("インストゥルメント（音源）プラグインが見つかりません。"),
-                              juce::dontSendNotification);
+        statusStrip.show (utf8 ("インストゥルメント（音源）プラグインが見つかりません。"));
         return;
     }
 
@@ -1082,14 +1088,13 @@ void PianoRollView::chooseInstrument()
 
             if (error.isNotEmpty())
             {
-                statusLabel.setText (utf8 ("読み込み失敗: ") + error, juce::dontSendNotification);
+                statusStrip.show (utf8 ("読み込み失敗: ") + error);
             }
             else
             {
                 engine.openTrackInstrumentEditor (trackId);
                 updateInstrumentLabel();
-                statusLabel.setText (utf8 ("音源を割り当てました。Playで打ち込んだノートが鳴ります。"),
-                                      juce::dontSendNotification);
+                statusStrip.show (utf8 ("音源を割り当てました。Playで打ち込んだノートが鳴ります。"));
             }
         });
 }
@@ -1105,53 +1110,8 @@ void PianoRollView::refreshClipSelection()
 
     pianoRoll.setTrack (track);
 
-    updateStatusLabel();
 }
 
-void PianoRollView::updateStatusLabel()
-{
-    if (! pianoRoll.hasTrack())
-    {
-        statusLabel.setText (utf8 ("MIDIトラックを選んでください（左の一覧）。"),
-                              juce::dontSendNotification);
-        return;
-    }
-
-    // 8.29の表（Phase 69）：**ツールによって書いてあることが変わる。**
-    // 「クリックでノート追加」と出したまま矢印ツールで押しても何も起きない、
-    // という状態を作らないため（1.9の「表示していない値」と同じ考え方）
-    juce::String text;
-
-    switch (pianoRoll.getEditTool())
-    {
-        case EditTool::pencil:
-            text << utf8 ("ペン：空きをドラッグしたぶんノートを追加 / ノートは選択・移動・伸縮 / ");
-            text << utf8 ("ベロシティレーンをなぞって強弱をまとめて変更");
-            break;
-
-        case EditTool::cut:
-            text << utf8 ("カット：ノートをクリックするとその位置で分割");
-            break;
-
-        case EditTool::eraser:
-            text << utf8 ("消しゴム：触れたノートを消す（なぞると続けて消える）/ ");
-            text << utf8 ("レーンの点も同じように消せる");
-            break;
-
-        case EditTool::arrow:
-        default:
-            text << utf8 ("ドラッグで移動 / 左右の端をドラッグで長さ変更 / 空きをドラッグで範囲選択 / ");
-            text << utf8 ("鍵盤をクリックでその音を全部選択 / 右クリックまたはDeleteで削除");
-            break;
-    }
-
-    // 8.1のG5：**下のレーンに何が出ているか**も書いておく（Phase 75）。
-    // 見出しは50pxしかなく、切り替えられること自体に気づきにくい
-    text << utf8 ("　｜　下のレーン：") << pianoRoll.getLaneTargetName()
-         << utf8 ("（見出しをクリックで切り替え）");
-
-    statusLabel.setText (text, juce::dontSendNotification);
-}
 
 void PianoRollView::updateInstrumentLabel()
 {

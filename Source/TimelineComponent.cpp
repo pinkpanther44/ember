@@ -517,8 +517,15 @@ void TimelineComponent::resized()
     // （ルーラーと、固定表示のコードトラックのぶんは空ける。Phase 60）
     verticalScrollBar.setBounds (area.removeFromRight (scrollBarThickness).withTrimmedTop (getScrollableTop()));
 
-    // 仕様書5.9：表示形式の切り替えは、ルーラー左端の角（トラックヘッダーの上）に置く
-    timeFormatButton.setBounds (juce::Rectangle<int> (4, 2, 54, rulerHeight - 4));
+    // 仕様書5.9：表示形式の切り替えは、ルーラー左端の角（トラックヘッダーの上）に置く。
+    //
+    // 8.199：**角の上半分だけを使います**（Phase 234／改善案5の3）。
+    // 下半分は「+ Track」「+ Audio」の席で、置くのは`ArrangeView`の仕事です。
+    // **幅もヘッダーいっぱいに広げました**——下に2つ並ぶので、
+    // 54pxのままだと上だけ短くて、角が揃って見えません
+    timeFormatButton.setBounds (getCornerArea().reduced (4, 0)
+                                                .withTop (2)
+                                                .withBottom (timeFormatBottom));
 
     // 横スクロールバーはタイムライン部分の幅だけに置く（ヘッダーの下には敷かない）
     bottomRow.removeFromLeft (trackHeaderWidth);
@@ -3841,6 +3848,114 @@ void TimelineComponent::drawHeaderChip (juce::Graphics& g, juce::Rectangle<int> 
     g.drawText (text, bounds, juce::Justification::centred);
 }
 
+void TimelineComponent::drawFolderSummaryBlock (juce::Graphics& g, int trackIndex)
+{
+    // 8.201：**フォルダの中身を1本の帯で示す**（Phase 235／改善案5の10）。
+    //
+    // **見た目だけです**（本人の指定：「機能面はいらない」）。
+    // 掴めず、動かせず、選べません——**動かせるように見せない**のが肝で、
+    // 押して初めて「これは飾りだった」と分かるのがいちばん困ります（8.161）。
+    //
+    // 描くのは「中身の音が鳴っている範囲」で、**畳んでいてもいなくても同じ**です。
+    // 畳んだときにこそ要るものですが、開いているときに消すと
+    // **畳んだ瞬間に無かったものが現れる**ことになります。
+
+    auto folder = project.getTrack (trackIndex);
+
+    const auto ids = project.getFolderDescendantIds (folder.getId());
+
+    if (ids.isEmpty())
+        return;   // 空のフォルダには何も描かない（**入っていないことが分かる**のが正しい）
+
+    //--------------------------------------------------------------------------
+    // 中身の範囲を数える。**塊ごとに描きます**——
+    // いちばん端から端まで1本にすると、間が空いていても詰まって見えます
+
+    struct Span { double start = 0.0; double end = 0.0; };
+
+    std::vector<Span> spans;
+
+    for (const auto& id : ids)
+    {
+        auto track = project.findTrackById (id);
+
+        if (! track.state.getParent().isValid())
+            continue;
+
+        // オーディオはクリップ、MIDIはノートの塊（アレンジ画面が描いているものと同じ）
+        for (int c = 0; c < track.getNumClips(); ++c)
+        {
+            auto clip = track.getClip (c);
+            spans.push_back ({ clip.getStartTime(), clip.getStartTime() + clip.getLength() });
+        }
+
+        // **`getNoteBlocks()`を使うこと**（1.27）。ここで自前に数え直すと、
+        // トラック行の四角とフォルダの帯で切れ目が違う、という形で食い違います
+        for (const auto& block : track.getNoteBlocks (project.getNoteBlockGapSeconds()))
+            spans.push_back ({ block.startTime, block.endTime });
+    }
+
+    if (spans.empty())
+        return;
+
+    // 重なっているもの・くっついているものは1つにまとめる
+    std::sort (spans.begin(), spans.end(),
+                [] (const Span& a, const Span& b) { return a.start < b.start; });
+
+    std::vector<Span> merged;
+
+    for (const auto& span : spans)
+    {
+        if (! merged.empty() && span.start <= merged.back().end)
+        {
+            merged.back().end = juce::jmax (merged.back().end, span.end);
+            continue;
+        }
+
+        merged.push_back (span);
+    }
+
+    //--------------------------------------------------------------------------
+    // 描く
+
+    const int rowY = getTrackRowY (trackIndex);
+    const int rowHeight = getTrackAreaHeight (trackIndex);
+
+    if (rowHeight <= 0)
+        return;
+
+    // **上下に余白を取って、行より細く**。トラック行のクリップと同じ高さで描くと、
+    // 掴めるものに見えます
+    const int inset = juce::jmax (3, rowHeight / 5);
+    const auto colour = getTrackColour (trackIndex);
+
+    for (const auto& span : merged)
+    {
+        const int x1 = timeToX (span.start);
+        const int x2 = timeToX (span.end);
+
+        auto bounds = juce::Rectangle<int> (x1, rowY + inset,
+                                             juce::jmax (2, x2 - x1), rowHeight - inset * 2);
+
+        // ヘッダーの下と、画面の外へは描かない
+        if (bounds.getRight() < trackHeaderWidth || bounds.getX() > getWidth())
+            continue;
+
+        bounds = bounds.getIntersection ({ trackHeaderWidth, rowY,
+                                            getWidth() - trackHeaderWidth, rowHeight });
+
+        if (bounds.isEmpty())
+            continue;
+
+        // **薄く塗って、枠は少し濃く。** クリップより控えめにして、
+        // 「これは中身の写しであって、クリップそのものではない」ことを見た目で分ける
+        g.setColour (colour.withAlpha (0.22f));
+        g.fillRoundedRectangle (bounds.toFloat(), AppColours::corner (3.0f));
+
+        g.setColour (colour.withAlpha (0.55f));
+        g.drawRoundedRectangle (bounds.toFloat().reduced (0.5f), AppColours::corner (3.0f), 1.0f);
+    }
+}
 void TimelineComponent::drawChordRegionsForTrack (juce::Graphics& g, int trackIndex)
 {
     auto track = project.getTrack (trackIndex);
@@ -4629,7 +4744,35 @@ void TimelineComponent::mouseDown (const juce::MouseEvent& e)
                     return;
                 }
 
-                setSingleTrackSelection (headerTrack.getId());
+                // 8.202：**すでに選ばれている行を押したときは、選択を保ちます**
+                //         （Phase 236／本人の報告）。
+                //
+                // Phase 235で「選んだぶん全部をフォルダへ落とす」を入れたのに、
+                // **入るのは1本のまま**でした。原因はここ——
+                // **掴んだ瞬間に`setSingleTrackSelection()`が他を消していた**ので、
+                // 離すころには選択が1本しか残っていません。
+                //
+                // ファイル一覧やDAWで普通にできている動きに合わせます：
+                //
+                // | 押した行 | すること |
+                // |---|---|
+                // | 選ばれていない | いつもどおり、その1本だけにする |
+                // | **すでに選ばれている** | **そのまま保つ**（掴んで全部動かせる） |
+                //
+                // **ただのクリックだったときは、離すときに1本へ畳みます**——
+                // 保ったままだと「選び直したのに減らない」ことになります。
+                // 畳むのは`mouseUp`（動かしたかどうかは、そこで初めて分かる）
+                const bool keepSelection = isTrackInSelection (headerTrack.getId())
+                                            && selectedTrackIds.size() > 1;
+
+                if (keepSelection)
+                    collapseSelectionOnMouseUpId = headerTrack.getId();
+                else
+                {
+                    collapseSelectionOnMouseUpId.clear();
+                    setSingleTrackSelection (headerTrack.getId());
+                }
+
                 trackSelectionAnchorId = headerTrack.getId();   // 8.154：起点を置き直す
 
                 selectedTrackIndex = headerTrackIndex;
@@ -6426,6 +6569,23 @@ void TimelineComponent::mouseUp (const juce::MouseEvent& e)
         const int to = reorderSlotToTrackIndex (reorderTargetSlot);
         const auto targetFolderId = reorderTargetFolderId;
 
+        // 8.202：**動かさなかったなら、ここで1本へ畳みます**（Phase 236）。
+        //
+        // 掴むときは選択を保ちました（複数まとめて動かせるように）。
+        // **ただのクリックだった場合**は「選び直したのに減らない」ことになるので、
+        // ここで畳みます——**動かしたかどうかは、離すときに初めて分かります。**
+        if (collapseSelectionOnMouseUpId.isNotEmpty())
+        {
+            const auto id = collapseSelectionOnMouseUpId;
+            collapseSelectionOnMouseUpId.clear();
+
+            if (to < 0)   // -1のまま＝ドラッグしていない
+            {
+                setSingleTrackSelection (id);
+                publishSelection();
+            }
+        }
+
         dragMode = DragMode::None;
         reorderSourceIndex = -1;
         reorderTargetSlot = -1;
@@ -6438,9 +6598,37 @@ void TimelineComponent::mouseUp (const juce::MouseEvent& e)
         // reorderTargetSlotが-1のまま＝ドラッグしていない（ただのクリック）
         if (to >= 0 && juce::isPositiveAndBelow (from, project.getNumTracks()))
         {
+            // 8.200：**選んでいるぶん全部を動かします**（Phase 235／改善案5の9）。
+            //
+            // Phase 234まで、動くのは**掴んだ1本だけ**でした。
+            // 5本選んでフォルダへ落としても、入るのは1本。
+            // メニューの「フォルダへ入れる」は**Phase 197から全部入れていた**ので、
+            // **同じ操作なのに入口で結果が違う**状態でした（8.159）。
+            //
+            // 数え方はメニュー側と揃えます（`ArrangeView::getTrackIdsForHeaderAction()`）：
+            // **掴んだ行が選択に入っていなければ、その1本だけ。**
+            const auto ids = getTrackIdsForReorder (from);
+
             // 8.51：**動かすのと入れ先を変えるのは1回の操作**（Phase 90／D2）。
             // 別々に呼ぶと、Ctrl+Zが2回要ることになる（3.1）
-            project.moveTrackToSlot (project.getTrack (from), to, targetFolderId);
+            project.beginAction (utf8 ("トラックを移動"));
+
+            // **上から順に、置き先を1つずつ進めること。** 同じ`to`へ全部入れると
+            // 並びが逆さまになります（後から入れたものが上へ来る）
+            int slot = to;
+
+            for (const auto& id : ids)
+            {
+                auto track = project.findTrackById (id);
+
+                if (! track.state.getParent().isValid() || id == targetFolderId)
+                    continue;   // フォルダ自身は自分の中へ入れない
+
+                // 8.203：**区切りは上で1回開いています**（Phase 237）。
+                // ここで`true`のままだと、**1本ごとにCtrl+Zが要ります**
+                project.moveTrackToSlot (track, slot, targetFolderId, false);
+                ++slot;
+            }
 
             if (onModelChanged != nullptr)
                 onModelChanged();
@@ -9219,6 +9407,39 @@ void TimelineComponent::updateReorderTarget (juce::Point<int> position)
 
     reorderTargetFolderId = parentId;
 }
+juce::StringArray TimelineComponent::getTrackIdsForReorder (int draggedIndex) const
+{
+    // 8.200：**掴んだ行が選択に入っていなければ、その1本だけ**（Phase 235/改善案5の9）。
+    // ヘッダーのメニューと同じ数え方です（`ArrangeView::getTrackIdsForHeaderAction()`）——
+    // **同じ操作の結果が入口で違うのが、いちばん困ります**（1.27）
+    juce::StringArray ids;
+
+    if (! juce::isPositiveAndBelow (draggedIndex, project.getNumTracks()))
+        return ids;
+
+    const auto draggedId = project.getTrack (draggedIndex).getId();
+
+    if (std::find (selectedTrackIds.begin(), selectedTrackIds.end(), draggedId)
+         == selectedTrackIds.end())
+    {
+        ids.add (draggedId);
+        return ids;
+    }
+
+    // **並び順で返す**（画面の上から）。置き先を1つずつ進めるので、
+    // ここが崩れると**上下が入れ替わって着地します**
+    for (int t = 0; t < project.getNumTracks(); ++t)
+    {
+        const auto id = project.getTrack (t).getId();
+
+        if (std::find (selectedTrackIds.begin(), selectedTrackIds.end(), id)
+             != selectedTrackIds.end())
+            ids.add (id);
+    }
+
+    return ids;
+}
+
 int TimelineComponent::getReorderSlotForY (int y) const
 {
     // 行の**中央**を境目にする。行の上半分にいれば「その行の上」、下半分なら「下」。
@@ -10396,6 +10617,19 @@ void TimelineComponent::paint (juce::Graphics& g)
         if (track.getType() == TrackType::Chord)
         {
             drawChordRegionsForTrack (g, t);
+            continue;
+        }
+
+        // 8.201：**フォルダの行に、中身のまとまりを描く**（Phase 235／改善案5の10）。
+        //
+        // **見た目だけです**（本人の指定：「機能面はいらない」）。掴めませんし、
+        // 動かせません——動かせるように見せると、押して初めて分かることになります。
+        //
+        // これが要るのは、**畳んだフォルダの行が空っぽに見える**ためです。
+        // 中に何本入っていても、行はただの帯でした。
+        if (track.getType() == TrackType::Folder)
+        {
+            drawFolderSummaryBlock (g, t);
             continue;
         }
 

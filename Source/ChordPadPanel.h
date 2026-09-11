@@ -360,6 +360,10 @@ private:
     juce::ComboBox customRootBox;
     juce::ComboBox customTypeBox;
     juce::ComboBox customBassBox;
+    /** 8.198：コードトラックが無いときだけ出る（Phase 234／改善案5の1）。
+        それまでは「+ Track で作ってください」と**道順が書いてあるだけ**でした */
+    juce::TextButton addChordTrackButton;
+
     juce::OwnedArray<juce::TextButton> tensionButtons;
     LeftClickOnlyButton customAddButton { "Add" };
 

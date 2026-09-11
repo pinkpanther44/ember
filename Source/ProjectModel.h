@@ -1448,7 +1448,14 @@ public:
         アレンジ画面のヘッダーのドラッグはこちらを通る。
         **フォルダを動かすときは中身も連れていく**（置いていくと、
         入っているのに離れた場所にいる状態になる）。 */
-    void moveTrackToSlot (const Track& track, int toIndex, const juce::String& newParentFolderId);
+    /** 8.203：`startNewAction`を`false`にすると、**Undoの区切りを自分では開きません**
+        （Phase 237／本人の報告）。
+
+        **まとめて動かすときに渡してください。** 既定のままループで呼ぶと、
+        1本ごとに区切りが開き、**5本入れたらCtrl+Zが5回**要ることになります。
+        呼ぶ側が先に`beginAction()`しておけば、全部がその1回に入ります。 */
+    void moveTrackToSlot (const Track& track, int toIndex, const juce::String& newParentFolderId,
+                           bool startNewAction = true);
 
     /** そのフォルダの中にいるトラックのID（孫まで。**並び順のまま**）。 */
     juce::StringArray getFolderDescendantIds (const juce::String& folderId) const;
@@ -1472,7 +1479,8 @@ public:
 
     /** フォルダへ入れる（`folderId`が空なら出す）。
         **入れるときは、そのフォルダの中身の最後尾へ並べ直す。** */
-    void moveTrackIntoFolder (const Track& track, const juce::String& folderId);
+    void moveTrackIntoFolder (const Track& track, const juce::String& folderId,
+                               bool startNewAction = true);   // 8.203（Phase 237）
 
     /** フォルダの入れ子の深さの上限。**たどる回数を区切るためのもの**で、
         ここまで深くできるという意味ではない。 */

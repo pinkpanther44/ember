@@ -320,6 +320,22 @@ ChordPadPanel::ChordPadPanel (ProjectModel& projectToUse, SelectionState& select
     // 8.1のA3：前回の発音パラメータに戻す。**コントロールを作り終えた後で呼ぶこと**
     setUpPerformanceSettingsPersistence();
 
+    // 8.198：コードトラックが無いときだけ出るボタン（Phase 234／改善案5の1）
+    addChordTrackButton.setButtonText (utf8 ("+ コードトラックを作る"));
+    addChordTrackButton.onClick = [this]
+    {
+        // **アレンジ画面と同じ作り方をすること**（1.27）。名前も種別も揃えます
+        project.addTrack ("Chords", TrackType::Chord);
+
+        // 作ったら**そのまま使える状態に**。`rebuildGrid()`はモデルの購読からも
+        // 走りますが、ここで呼んでおけば「押したのに何も起きない」瞬間が生まれません
+        refreshTargetTrackList();
+        rebuildGrid();
+        resized();
+        repaint();
+    };
+    addChildComponent (addChordTrackButton);   // **出るのはトラックが無いときだけ**
+
     selection.addChangeListener (this);
     updateProjectSubscription();
 
@@ -820,6 +836,19 @@ void ChordPadPanel::resized()
     secondRow.removeFromLeft (juce::jmin (4, secondRow.getWidth()));
     place (secondRow, deviationSlider, 76);
 
+    // 8.198：コードトラックが無いときだけ、真ん中にボタンを出す（Phase 234/改善案5の1）。
+    // **`getChordTrack()`で判断すること**——`paint()`が同じものを見ているので、
+    // 文とボタンが食い違いません（1.27）
+    {
+        const bool needsChordTrack = ! getChordTrack().state.getParent().isValid();
+
+        addChordTrackButton.setVisible (needsChordTrack);
+
+        if (needsChordTrack)
+            addChordTrackButton.setBounds (getGridArea().withSizeKeepingCentre (220, 30)
+                                                         .translated (0, 20));
+    }
+
     layoutPads();
 }
 
@@ -1260,10 +1289,17 @@ void ChordPadPanel::paint (juce::Graphics& g)
 
     if (! track.state.getParent().isValid())
     {
+        // 8.198：**その場で作れるようにしました**（Phase 234／改善案5の1）。
+        //
+        // それまでは「『+ Track』→『コードトラック』で作ってください」と
+        // **道順を書いてあるだけ**でした。**開いた画面から離れて、別の場所で
+        // 操作して、戻ってくる**必要があります——ここで作れない理由はありません。
+        //
+        // 文はボタンの上に残します（**何が足りないのか**はボタンだけでは分からない）
         g.setColour (AppColours::textSecondary);
         g.setFont (juce::FontOptions (13.0f));
-        g.drawText (utf8 ("「+ Track」→「コードトラック」でコードトラックを作ってください"),
-                     getGridArea(), juce::Justification::centred);
+        g.drawText (utf8 ("コードトラックがまだありません"),
+                     getGridArea().withTrimmedBottom (48), juce::Justification::centred);
         return;
     }
 

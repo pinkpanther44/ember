@@ -119,6 +119,25 @@ public:
 
     int getTrackHeaderWidth() const { return trackHeaderWidth; }
 
+    /** 8.199：**ルーラー左端の角**（トラックヘッダーの上）。Phase 234／改善案5の3。
+
+        ここには時間表示の切り替え（`Bars` / `Time`）しか置いていませんでしたが、
+        本人の指定で**「+ Track」「+ Audio」もここへ収めます**：
+
+            [        Bars        ]
+            [+ Track] [+ Audio]
+
+        置くのは`ArrangeView`の仕事なので（**押したときに動くのはあちら**）、
+        **場所だけ教えます。** 幅はヘッダーと同じで、ドラッグで変わります（8.125）。 */
+    juce::Rectangle<int> getCornerArea() const { return { 0, 0, trackHeaderWidth, rulerHeight }; }
+
+    /** 角のうち、`Bars`の下に空けてある段（外から置くもの用）。 */
+    juce::Rectangle<int> getCornerButtonRow() const
+    {
+        return getCornerArea().reduced (4, 0).withTop (timeFormatBottom + 2)
+                              .withTrimmedBottom (2);
+    }
+
     /** 幅を決める。**上下限で丸めます**（値はそのまま入りません）。 */
     void setTrackHeaderWidth (int newWidth);
 
@@ -528,6 +547,10 @@ private:
 
     /** 1本のコードトラックのコード区間を描く（固定行と通常の描画で共有）。 */
     void drawChordRegionsForTrack (juce::Graphics& g, int trackIndex);
+
+    /** 8.201：フォルダの行に、中身のまとまりを描く（Phase 235／改善案5の10）。
+        **見た目だけ**——掴めず、動かせません（本人の指定：「機能面はいらない」） */
+    void drawFolderSummaryBlock (juce::Graphics& g, int trackIndex);
 
     /** クリップを描画する領域（トラックヘッダー・ルーラー・横スクロールバーを除いた部分）。 */
     juce::Rectangle<int> getTimelineArea() const;
@@ -1656,6 +1679,10 @@ private:
         **1本ずつしか伸ばせません**（Shift＋クリックのたびに範囲が作り直される）。
 
         **IDで持つこと**（番号は増減でずれる。1.32）。 */
+    /** 8.202：掴むときに保った選択を、離すときに畳むための印（Phase 236）。
+        **空でなければ「動かさなかったらこのIDだけにする」** */
+    juce::String collapseSelectionOnMouseUpId;
+
     juce::String trackSelectionAnchorId;
 
     /** 8.154：起点から`trackIndex`までを、まとめて選ぶ（Phase 192）。 */
@@ -1830,6 +1857,12 @@ private:
     /** ルーラー全体の高さ。上2段＋目盛り＋レーン2本。 */
     static constexpr int rulerHeight = rulerNumbersBottom + signatureLaneHeight * numSignatureLanes;
 
+    /** 8.199：角のうち、`Bars`（時間表示の切り替え）が使う下端（Phase 234）。
+
+        **この下を「+ Track」「+ Audio」に空けます**（`getCornerButtonRow()`）。
+        角の高さは62pxあり、それまで`Bars`が全部使っていました。 */
+    static constexpr int timeFormatBottom = 28;
+
     // 表示倍率（1秒あたりのピクセル数）。Phase 10で固定値から可変になった。
     static constexpr double defaultPixelsPerSecond = 100.0;
     static constexpr double minPixelsPerSecond = 2.0;    // 1画面に数十分入る、俯瞰用
@@ -1929,6 +1962,10 @@ private:
     int reorderTargetSlot = -1;
 
     /** マウスのY座標から挿入位置を求める。行の中央が境目になる。 */
+    /** 8.200：並べ替えで動かすトラック（Phase 235／改善案5の9）。
+        **掴んだ行が選択に入っていれば選択ぶん全部、入っていなければその1本。** */
+    juce::StringArray getTrackIdsForReorder (int draggedIndex) const;
+
     int getReorderSlotForY (int y) const;
 
     /** 8.51：掴んだヘッダーの落とし先（行とフォルダ）を決める（Phase 90／D2）。

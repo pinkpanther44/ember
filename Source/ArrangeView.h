@@ -9,6 +9,7 @@
 #include "SnapGridSelector.h"   // 仕様書5.5・5.9：編集の刻み（Phase 55）
 #include "IconAssets.h"          // 8.133：ツールの絵（Phase 169）
 #include "MidiRecording.h"       // 8.146：録れたMIDIの入れ物（Phase 184）
+#include "StatusStrip.h"         // 8.195：出るときだけ出る帯（Phase 232）
 
 class AudioEngine;
 
@@ -271,7 +272,6 @@ private:
         **他の項目と重ならない大きい番号**にしてある（8.37のカーブ種別と同じ形）。 */
     static constexpr int folderMenuBaseId = 100;
     void importAudioClicked();
-    void updateStatusLabel();
 
     /** 仕様書5.6：トラックヘッダーの「A」ボタンから、レーンの対象を選ぶメニューを出す
         （Phase 26）。音量・パンに加え、そのトラックのプラグインパラメータも並べる。
@@ -342,7 +342,9 @@ private:
     // Phase 27（8.1 ①）：トラック追加は「+ Track」1つに畳んだ。
     // 種類ごとに5つ並べていたころは、ツールバー1段目の幅の大半をここが占めていた。
     juce::TextButton addTrackButton    { "+ Track" };
-    juce::TextButton importAudioButton { "Import Audio File..." };
+    /** 8.199：**「+ Audio」へ短くしました**（Phase 234／改善案5の3）。
+        トラックヘッダーの角へ移したので、長い文字列は入りません */
+    juce::TextButton importAudioButton { "+ Audio" };
 
     // タイムラインのズーム操作（設計書2.3.1）
     juce::TextButton zoomInButton  { "+" };
@@ -374,7 +376,9 @@ private:
     juce::Label inputStateLabel;
 
     TimelineComponent timeline { project, waveformCache, selection };
-    juce::Label statusLabel;
+    /** 8.195：知らせは出るときだけ（Phase 232／改善案5の2）。
+        **常設だった一覧と説明文は廃止しました**——トラックヘッダーと重複していたためです */
+    StatusStrip statusStrip;
 
     std::unique_ptr<juce::FileChooser> fileChooser;
 

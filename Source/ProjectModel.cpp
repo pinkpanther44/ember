@@ -5601,7 +5601,8 @@ int ProjectModel::getLastRowOfFolder (const juce::String& folderId) const
     return last;
 }
 
-void ProjectModel::moveTrackIntoFolder (const Track& track, const juce::String& folderId)
+void ProjectModel::moveTrackIntoFolder (const Track& track, const juce::String& folderId,
+                                         bool startNewAction)
 {
     if (! track.state.getParent().isValid())
         return;
@@ -5609,7 +5610,8 @@ void ProjectModel::moveTrackIntoFolder (const Track& track, const juce::String& 
     // フォルダから出すだけなら、並びは触らない（その場に残す）
     if (folderId.isEmpty())
     {
-        beginAction (utf8 ("フォルダから出す"));
+        if (startNewAction)
+            beginAction (utf8 ("フォルダから出す"));   // 8.203（Phase 237）
         Track (track.state).setParentFolderId ({}, &undoManager);
         return;
     }
@@ -5617,7 +5619,9 @@ void ProjectModel::moveTrackIntoFolder (const Track& track, const juce::String& 
     if (! canMoveTrackIntoFolder (track, folderId))
         return;
 
-    beginAction (utf8 ("フォルダへ入れる"));
+    if (startNewAction)
+        beginAction (utf8 ("フォルダへ入れる"));   // 8.203（Phase 237）
+
     Track (track.state).setParentFolderId (folderId, &undoManager);
 
     // **中身はフォルダの真下へ並べる。** 離れた場所に居ると、
@@ -5675,7 +5679,9 @@ juce::StringArray ProjectModel::getFolderDescendantIds (const juce::String& fold
     return ids;
 }
 
-void ProjectModel::moveTrackToSlot (const Track& track, int toIndex, const juce::String& newParentFolderId)
+void ProjectModel::moveTrackToSlot (const Track& track, int toIndex,
+                                     const juce::String& newParentFolderId,
+                                     bool startNewAction)
 {
     if (! track.state.getParent().isValid())
         return;
@@ -5710,7 +5716,11 @@ void ProjectModel::moveTrackToSlot (const Track& track, int toIndex, const juce:
         return;   // 何も変わらない（`moveChild`は同じ位置でも履歴を作る）
 
     // 8.51：**動かすのと入れ先を変えるのは1回の操作**（Phase 90／D2。3.1）
-    beginAction (utf8 ("トラックの並べ替え"));
+    // 8.203：**まとめて動かすときは、区切りを開かない**（Phase 237/本人の報告）。
+    // ここで毎回`beginAction()`を呼ぶので、**5本まとめて入れるとCtrl+Zが5回**要りました。
+    // 呼ぶ側が先に区切りを開いているときは、そちらへ相乗りします
+    if (startNewAction)
+        beginAction (utf8 ("トラックの並べ替え"));
 
     if (parentChanged)
     {
