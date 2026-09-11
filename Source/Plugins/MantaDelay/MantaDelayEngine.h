@@ -6,6 +6,7 @@
 #include "MantaDelayDucker.h"      // 8.212：ダッキング（Phase 242）
 #include "MantaDelayFilter.h"      // 8.210：ループ内フィルター（Phase 242）
 #include "MantaDelayLfo.h"         // 8.211：LFO（Phase 242）
+#include "MantaDelayTaps.h"        // 8.214：マルチタップ（Phase 243）
 
 #include <array>
 #include <atomic>
@@ -16,13 +17,29 @@
 
     ### いまの範囲（設計書8章）
 
-    **Single Echo**です。マルチタップ・デュアルエンジン・リバースは入っていません。
+    **エンジンは1つ**です。デュアルエンジン・リバースは入っていません。
 
     | Phase | 入っているもの |
     |---|---|
     | 1 | ディレイライン、テンポシンク、Feedback／Mix |
     | 2 | キャラクター（`MantaDelayCharacter`） |
-    | **3（いまここ）** | ループ内フィルター、LFO、ダッキング |
+    | 3 | ループ内フィルター、LFO、ダッキング |
+    | **4（いまここ）** | マルチタップ（`MantaDelayTaps`） |
+
+    ### 8.214：色を付ける道が2本あります（Phase 243）
+
+    **Phase 3までは1本でした。** マルチタップが入って分かれます——
+    **鳴らすほう**（タップを足し合わせたもの）と**戻すほう**（パターンの終わり）は、
+    もう同じ信号ではないからです（タップのLevelやPanは戻すほうに掛けません）。
+
+    ```
+                    ┌── タップを足す ──→ 色を付ける（鳴らす道）──→ 出口
+        ディレイライン ┤
+                    └── パターンの終わり → 色を付ける（戻す道）──→ × feedback → push()
+    ```
+
+    **タップ1本・step 1・Level 100%・真ん中**なら、2本の道は**同じ信号を同じ係数で**
+    通るので、**Phase 3と同じ音**が出ます（Analog BBDのノイズだけは別々に湧きます）。
 
     ### フィードバックループの順番
 
@@ -40,6 +57,16 @@
           ↓
         × feedback → push()
     ```
+
+    ### 1サンプルのあいだに何回読んでもよい
+
+    `juce::dsp::DelayLine`の`popSample (ch, delay, updateReadPointer)`は、
+    **`updateReadPointer`を`false`にすれば読むだけ**です。
+    タップの本数ぶん読んで、**最後の1回だけ`true`**にします。
+
+    > **`Lagrange3rd`だからできます。** JUCEの補間のうち**`Thiran`は内部状態を持つ**ので、
+    > 1サンプルに何度も呼ぶと状態が混ざります。`Lagrange3rd`は
+    > バッファと位置だけから決まる純粋な計算です（Phase 238で選んだ理由がここでも効きました）。
 
     ### 補間はLagrange3rd
 
@@ -92,6 +119,9 @@ public:
         float duckAmount    = 0.0f;
         float duckAttackMs  = 10.0f;
         float duckReleaseMs = 200.0f;
+
+        // 8.214：Phase 4（Phase 243）
+        MantaDelayTaps::Pattern taps;
     };
 
     void prepare (double sampleRateToUse, int maximumBlockSize, int numChannels,
@@ -112,11 +142,17 @@ public:
 
         // 8.208：**チャンネルごとに状態を持ちます**（Phase 240）。
         // 1つを共有すると、フィルターの内部状態が混ざって左右が潰れます
-        for (auto& processor : characters)
+        for (auto& processor : feedbackCharacters)
+            processor.prepare (sampleRate);
+
+        for (auto& processor : wetCharacters)   // 8.214：鳴らす道（Phase 243）
             processor.prepare (sampleRate);
 
         // 8.210〜8.212：Phase 3（Phase 242）。**係数はチャンネルで共有、状態はチャンネルごと**
         for (auto& filter : feedbackFilters)
+            filter.reset();
+
+        for (auto& filter : wetFilters)
             filter.reset();
 
         filterDesign = {};
@@ -142,10 +178,16 @@ public:
         delayLine.reset();
         currentDelaySamples = -1.0;
 
-        for (auto& processor : characters)
+        for (auto& processor : feedbackCharacters)
+            processor.reset();
+
+        for (auto& processor : wetCharacters)
             processor.reset();
 
         for (auto& filter : feedbackFilters)
+            filter.reset();
+
+        for (auto& filter : wetFilters)
             filter.reset();
 
         lfo.reset();
@@ -158,7 +200,10 @@ public:
 
         // **係数を出すのはここ（ブロックの頭）だけ。** 毎サンプル`std::exp()`を
         // 呼ぶと、それだけで無視できない時間になります
-        for (auto& processor : characters)
+        for (auto& processor : feedbackCharacters)
+            processor.setSettings (settings.character);
+
+        for (auto& processor : wetCharacters)
             processor.setSettings (settings.character);
 
         // 8.210〜8.212：Phase 3（Phase 242）。**どれもブロックの頭で1回**
@@ -166,6 +211,31 @@ public:
 
         lfo.setSettings (settings.lfoShape, settings.lfoRateHz, settings.lfoDepth);
         ducker.setSettings (settings.duckAmount, settings.duckAttackMs, settings.duckReleaseMs);
+
+        //----------------------------------------------------------------------
+        // 8.214：タップの係数もここで出します（Phase 243）。
+        // **`getPanGains()`を毎サンプル呼ばないこと**——1ブロックに1回で足ります
+
+        activeTaps = juce::jlimit (1, MantaDelayTaps::maxTaps, settings.taps.count);
+        patternSteps = settings.taps.getPatternSteps();
+
+        for (int tap = 0; tap < MantaDelayTaps::maxTaps; ++tap)
+        {
+            const auto& source = settings.taps.taps[(size_t) tap];
+
+            tapSteps[(size_t) tap] = juce::jlimit (1, MantaDelayTaps::maxStep, source.step);
+
+            const float level = juce::jlimit (0.0f, 1.0f, source.level);
+
+            float left = 1.0f, right = 1.0f;
+            MantaDelayTaps::getPanGains (source.pan, left, right);
+
+            tapGains[(size_t) tap][0] = level * left;
+            tapGains[(size_t) tap][1] = level * right;
+
+            // **モノラルではパンを使いません**（行き先が無いので、Levelだけ）
+            tapMonoGains[(size_t) tap] = level;
+        }
     }
 
     /** その場で処理する（in-place）。**音のスレッドから呼ばれます**——
@@ -175,7 +245,7 @@ public:
         // **`juce::dsp::DelayLine`は`getNumChannels()`を持っていません**（Phase 238で踏んだ）。
         // `prepare()`へ渡した数を自分で覚えておきます
         const int numChannels = juce::jmin (juce::jmin (buffer.getNumChannels(), preparedChannels),
-                                             (int) characters.size());
+                                             (int) feedbackCharacters.size());
         const int numSamples = buffer.getNumSamples();
 
         if (numChannels <= 0 || numSamples <= 0 || sampleRate <= 0.0)
@@ -208,14 +278,12 @@ public:
             // Wow/Flutterはキャラクターのもの、LFOは効果として掛けるものです。
             //
             // **チャンネルごとに進めないこと**——左右で違う揺れになると定位が動きます。
-            // ここで1回進めて、同じ値を両チャンネルへ使います
-            const double modulated = currentDelaySamples
-                                        + characters[0].advanceModulation()
-                                        + lfo.advance();
-
-            delayLine.setDelay ((float) juce::jlimit (1.0,
-                                                      (double) delayLine.getMaximumDelayInSamples() - 2.0,
-                                                      modulated));
+            // ここで1回進めて、同じ値を両チャンネルへ使います。
+            //
+            // 8.214：**足す先はタップごとに増えました**（Phase 243）。
+            // 進めるのは**やはりここで1回だけ**です
+            const double modulationOffset = feedbackCharacters[0].advanceModulation()
+                                              + lfo.advance();
 
             // 8.212：ダッキング（Phase 242）。**原音を見ます**——ディレイ音ではありません。
             //
@@ -229,32 +297,58 @@ public:
 
             const float duckGain = ducker.advance (monoInput * invChannels);
 
+            // 8.214：**パターンの終わり**（Phase 243）。フィードバックはここから戻します
+            const double patternDelay = clampDelay ((double) patternSteps * currentDelaySamples
+                                                      + modulationOffset);
+
             for (int channel = 0; channel < numChannels; ++channel)
             {
                 auto* data = buffer.getWritePointer (channel);
 
                 const float input = data[i];
 
-                // **読んでから書く**（上の説明）
-                const float delayed = delayLine.popSample (channel);
+                // 8.214：**タップを足し合わせる**（Phase 243）。
+                // `updateReadPointer`を`false`にして読むだけなので、**何本でも読めます**
+                float tapSum = 0.0f;
 
-                float wetSample = delayed;
+                for (int tap = 0; tap < activeTaps; ++tap)
+                {
+                    const float tapGain = (numChannels > 1) ? tapGains[(size_t) tap][(size_t) channel]
+                                                             : tapMonoGains[(size_t) tap];
 
+                    if (tapGain == 0.0f)
+                        continue;   // 鳴らないタップは読まない（読んでも状態は動きません）
+
+                    // **揺れはパターン全体に同じだけ足します**（`step`倍しない）——
+                    // 倍にすると、後ろのタップほど大きく揺れて**パターンが伸び縮み**します
+                    const double tapDelay = clampDelay ((double) tapSteps[(size_t) tap] * currentDelaySamples
+                                                          + modulationOffset);
+
+                    tapSum += tapGain * delayLine.popSample (channel, (float) tapDelay, false);
+                }
+
+                // **読み出し位置を進めるのはここ1回だけ**（最後の1回を`true`にする）。
+                // **読んでから書く**のはPhase 1から変わりません
+                const float feedbackSource = delayLine.popSample (channel, (float) patternDelay, true);
+
+                // 8.214：**色を付ける道は2本**（Phase 243。ヘッダの図）。
+                //
                 // 8.210：**フィルターもフィードバックの中**（Phase 242）。
                 // Pre／Postはキャラクターとの前後です（仕様書5-2の`Position`）——
                 // **Preは削ってから歪ませ、Postは歪ませてから削ります**
-                if (filterActive && ! filterPost)
-                    wetSample = feedbackFilters[(size_t) channel].process (wetSample, filterDesign.coeffs);
-
+                //
                 // 8.208：**キャラクターはフィードバックの中**（Phase 240）。
                 // 反復するたびに掛かるので、1回目より2回目が暗く、汚れていきます。
                 // **入口に1度だけ掛けると、何回反復しても同じ音**になります
-                wetSample = characters[(size_t) channel].processSample (wetSample);
+                const float wetSample = colour (tapSum, wetFilters[(size_t) channel],
+                                                 wetCharacters[(size_t) channel],
+                                                 filterActive, filterPost);
 
-                if (filterActive && filterPost)
-                    wetSample = feedbackFilters[(size_t) channel].process (wetSample, filterDesign.coeffs);
+                const float feedbackSample = colour (feedbackSource, feedbackFilters[(size_t) channel],
+                                                      feedbackCharacters[(size_t) channel],
+                                                      filterActive, filterPost);
 
-                delayLine.pushSample (channel, input + wetSample * feedback);
+                delayLine.pushSample (channel, input + feedbackSample * feedback);
 
                 // 8.212：**ダッキングは出口のウェットにだけ。** 戻すほう（`pushSample`）には
                 // 掛けません——掛けると減衰の速さが入力の大きさで変わります（`MantaDelayDucker`）
@@ -277,6 +371,42 @@ public:
     float getDisplayDuckReduction() const { return displayDuckReduction.load(); }
 
 private:
+    /** 8.214：ディレイラインからはみ出さない位置へ収める（Phase 243）。
+
+        **上も下も要ります。** 下は1サンプル（0だとディレイでなくなる）、
+        上は`Lagrange3rd`が読む先（`delayInt + 3`）が入るぶんを残しておくこと。
+
+        `step`を掛けると**簡単に上限を超えます**——Timeが4000msなら
+        step 2で8000ms。そのときは**全部のタップが4000msへ寄ります**
+        （目盛りが尽きた、ということ。黙って壊れるよりはよい）。 */
+    double clampDelay (double samples) const
+    {
+        return juce::jlimit (1.0, (double) delayLine.getMaximumDelayInSamples() - 4.0, samples);
+    }
+
+    /** 8.214：フィルターとキャラクターを通す1本ぶん（Phase 243）。
+
+        **鳴らす道と戻す道で同じ手順を使います**（1.27）——
+        写しを作ると、片方だけPre／Postを直す日が来ます。 */
+    float colour (float input, MantaBiquad::Biquad& filter,
+                   MantaDelayCharacter::Processor& character,
+                   bool filterActive, bool filterPost) const
+    {
+        float x = input;
+
+        // **係数は1つを両方の道で使い回します**（`MantaBiquad`の決まり）。
+        // 状態（`filter`）だけが道ごと・チャンネルごとです
+        if (filterActive && ! filterPost)
+            x = filter.process (x, filterDesign.coeffs);
+
+        x = character.processSample (x);
+
+        if (filterActive && filterPost)
+            x = filter.process (x, filterDesign.coeffs);
+
+        return x;
+    }
+
     juce::dsp::DelayLine<float, juce::dsp::DelayLineInterpolationTypes::Lagrange3rd> delayLine;
 
     Settings settings;
@@ -292,15 +422,34 @@ private:
         それ以降は増減しません——音のスレッドで確保しないため（9.4）。
         ステレオまでなので2つで足ります（`isBusesLayoutSupported()`が
         モノラルかステレオしか通しません）。 */
-    std::array<MantaDelayCharacter::Processor, 2> characters;
+    /** 8.214：**戻す道**（Phase 243）。Wow／Flutterを進めるのもこちらです。 */
+    std::array<MantaDelayCharacter::Processor, 2> feedbackCharacters;
+
+    /** 8.214：**鳴らす道**（Phase 243。ヘッダの図）。
+
+        タップを足し合わせたものに掛かります。**戻す道とは別の状態が要ります**——
+        入る信号が違うので（タップのLevelとPanは戻すほうに掛けません）、
+        1つを共有すると**両方の信号が同じフィルターを通って混ざります。** */
+    std::array<MantaDelayCharacter::Processor, 2> wetCharacters;
 
     /** 8.210：フィードバック内フィルター（Phase 242）。
 
         **係数は1つ、状態はチャンネルごと**（`MantaBiquad`の決まり）——
         同じ形を左右に掛けるのに、係数を2組作る理由はありません。
-        一方、内部状態を共有すると**左右が混ざって定位が潰れます。** */
+        一方、内部状態を共有すると**左右が混ざって定位が潰れます。**
+
+        8.214：道が2本になったので、**状態は「道×チャンネル」で4つ**になりました
+        （Phase 243）。係数はやはり1つです。 */
     MantaDelayFilter::Design filterDesign;
     std::array<MantaBiquad::Biquad, 2> feedbackFilters;
+    std::array<MantaBiquad::Biquad, 2> wetFilters;
+
+    /** 8.214：タップの係数（Phase 243）。**`setSettings()`で出して、毎サンプル読むだけ。** */
+    int activeTaps = 1;
+    int patternSteps = 1;
+    std::array<int, (size_t) MantaDelayTaps::maxTaps> tapSteps { { 1 } };
+    std::array<std::array<float, 2>, (size_t) MantaDelayTaps::maxTaps> tapGains {};
+    std::array<float, (size_t) MantaDelayTaps::maxTaps> tapMonoGains {};
 
     /** 8.211：LFO（Phase 242）。**1つだけ**——左右で同じ揺れを使います。 */
     MantaDelayLfo::Oscillator lfo;

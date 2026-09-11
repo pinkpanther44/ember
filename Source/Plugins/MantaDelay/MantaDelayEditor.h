@@ -5,6 +5,7 @@
 #include "MantaDelayDisplay.h"
 #include "MantaDelayDuckMeter.h"   // 8.212（Phase 242）
 #include "MantaDelayProcessor.h"
+#include "MantaDelayTapStrip.h"    // 8.215（Phase 243）
 #include "MantaDelayTheme.h"
 #include "../MantaKnobLookAndFeel.h"
 #include "../MantaPluginToolbar.h"
@@ -27,32 +28,40 @@
     │  └──────────────┘  └──────────────────────────┘   │
     │                                                    │
     │  Character [combo]  Drive Tone Wow … （Phase 2）   │
+    │  ┌ Taps ────────────────────────────────────────┐  │
+    │  │ Taps Step Level Pan │ ▇ ▅ ▂ ▁ … （一覧）     │  │
+    │  └──────────────────────────────────────────────┘  │
     │  ┌ Filter ──────┐┌ Modulation ─┐┌ Ducking ─────┐  │
     │  │ [Type][Pre/Po]││ [Shape]     ││  ▭▬▬▬▬       │  │
     │  │ Freq  Q  Gain ││ Rate  Depth ││ Duck Atk Rel │  │
     │  └───────────────┘└─────────────┘└──────────────┘  │
-    │  ▁▁▁▁▁▁▁ Phase 4以降の場所 ▁▁▁▁▁▁▁               │
+    │  ▁▁▁▁▁▁▁ Phase 5以降の場所 ▁▁▁▁▁▁▁               │
     └────────────────────────────────────────────────────┘
     ```
 
-    ### 大きさは最初から最終形
+    ### 8.216：大きさは **900×680**（Phase 243／本人の判断）
 
-    **820×560**（Manta EQと同じ）。本人の指定です——
-    「最初から最終形の大きさで作り、ケースバイケースで微調整」。
+    Phase 1〜3は**820×560**（Manta EQと同じ）でした。
+    本人の最初の指定は「最初から最終形の大きさで作り、**ケースバイケースで微調整**」で、
+    **ここがその「ケース」**です。
 
-    段階ごとに寸法を変えると**開くたびに大きさが違う**ことになります
-    （8.172：画面は固定）。Phase 3で**中身がほぼ埋まりました**——
-    Phase 1のときに空いていた下半分が、Phase 2（キャラクター）と
-    Phase 3（フィルター・LFO・ダッキング）で埋まった形です。
+    Phase 4のタップの帯（本数＋Step／Level／Pan＋一覧）を820×560へ入れると、
+    **ディスプレイが164→85pxまで潰れました。** この先Phase 5の
+    ルーティング図とPhase 6も来るので、**1回だけ広げて、あとは動かしません。**
+
+    > **8.172（画面は固定）は変えていません。** 変えたのは寸法そのもので、
+    > 「開くたびに大きさが違う」ことにはなりません。
+    > EQ 820×560／Comp 780×500 とは違う大きさになります——
+    > **中身の量が違うので、揃える理由のほうが薄い。**
 
     ### 前の段階のものは動かさない
 
     **左のつまみの列（Time・Sync・Mix・Output）はPhase 1のまま**、
-    キャラクターの並びもPhase 2のままです。
+    キャラクターの並びもPhase 2のまま、Phase 3の3つもそのままです。
     **段階を進めるたびに前の段階のものが動くと、覚え直しになります。**
 
-    Phase 3のぶんは**下に帯を1本足して**、そこに3つ並べてあります。
-    ディスプレイの高さだけは縮みました（そこ以外に取れる場所がない）。
+    段階ごとに**下へ帯を1本ずつ足す**形にしてあります。
+    広げたぶん（8.216）はディスプレイへ回ったので、**Phase 3のときより広くなりました。**
 
     ### 空きは黙って空けない
 
@@ -109,6 +118,14 @@ private:
         **`paint()`と`resized()`が同じものを見ます**（1.27）——
         別々に数えると、**枠と中身がずれます。** */
     juce::Array<juce::Rectangle<int>> getPhase3Columns (juce::Rectangle<int> band) const;
+
+    /** 8.214：選んでいるタップへつまみを繋ぎ直す（Phase 243）。
+
+        **Manta EQの`rebuildBandAttachments()`と同じ形**です。 */
+    void rebuildTapAttachments();
+
+    /** 8.214：本数の外のタップを選んでいたら中へ戻す＋グレーアウトの更新。 */
+    void refreshTapControls();
 
     //==========================================================================
     /** **いちばん最初に宣言すること**（つまみより後に壊れるように。8.168）。 */
@@ -197,6 +214,24 @@ private:
     juce::Label duckAmountCaption, duckAttackCaption, duckReleaseCaption;
 
     //==========================================================================
+    // 8.214〜8.215：Phase 4（Phase 243）
+
+    juce::Label tapsTitle;
+
+    /** 全体が見える窓。**つまみは1本ぶんしか映さない**ので、これが要ります。 */
+    MantaDelayTapStrip tapStrip;
+
+    ValueEntrySlider tapCountSlider { juce::Slider::RotaryHorizontalVerticalDrag, juce::Slider::TextBoxBelow };
+    ValueEntrySlider tapStepSlider  { juce::Slider::RotaryHorizontalVerticalDrag, juce::Slider::TextBoxBelow };
+    ValueEntrySlider tapLevelSlider { juce::Slider::RotaryHorizontalVerticalDrag, juce::Slider::TextBoxBelow };
+    ValueEntrySlider tapPanSlider   { juce::Slider::RotaryHorizontalVerticalDrag, juce::Slider::TextBoxBelow };
+
+    juce::Label tapCountCaption, tapStepCaption, tapLevelCaption, tapPanCaption;
+
+    /** つまみが指しているタップ（0起点）。**`getUiState()`に残ります**（8.214）。 */
+    int selectedTap = 0;
+
+    //==========================================================================
     using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
     using ButtonAttachment = juce::AudioProcessorValueTreeState::ButtonAttachment;
     using ComboAttachment  = juce::AudioProcessorValueTreeState::ComboBoxAttachment;
@@ -211,9 +246,29 @@ private:
     std::unique_ptr<ButtonAttachment> filterPositionAttachment;
     std::unique_ptr<ComboAttachment> lfoShapeAttachment;
 
-    /** 画面の大きさ。**固定です**（8.172）。 */
-    static constexpr int fixedWidth = 820;
-    static constexpr int fixedHeight = 560;
+    /** 8.214：タップのつなぎ先（Phase 243）。
+
+        **本数は繋ぎっぱなし**、**3つは選んだタップへ繋ぎ直します**。
+
+        > 8.207では「`SliderAttachment`は付け替えない」と書きました。
+        > **ここはその例外**です——Manta EQが12バンド×12個で同じことをしています
+        > （`rebuildBandAttachments()`）。違いは**繋ぎ替える理由**：
+        > 8.207はSyncの入り切り＝**オートメーションやプリセットでも動く**ので、
+        > 繋ぎ替えが音の最中に起きます。**タップを選ぶのは人が押したときだけ**で、
+        > 音にもオートメーションにも関係しません。
+        >
+        > **繋ぎ替えるときは、いったん全部外してから**（同じつまみに2本ぶら下がると、
+        > 片方が前のタップへ書き戻します）。 */
+    std::unique_ptr<SliderAttachment> tapStepAttachment;
+    std::unique_ptr<SliderAttachment> tapLevelAttachment;
+    std::unique_ptr<SliderAttachment> tapPanAttachment;
+
+    /** いま繋いであるタップ。**-1なら繋いでいない。** */
+    int attachedTap = -1;
+
+    /** 画面の大きさ。**固定です**（8.172）。8.216でPhase 4のぶん広げました。 */
+    static constexpr int fixedWidth = 900;
+    static constexpr int fixedHeight = 680;
 
     // 並びの寸法。**`paint()`と`resized()`の両方が見る**ので、数字を直に書かない（1.27）
     static constexpr int knobPanelWidth = 200;
@@ -226,6 +281,12 @@ private:
         `sectionTitleHeight`＋コンボの行＋つまみ1段ぶん。**寸法を直に書かない**（1.27）。 */
     static constexpr int phase3AreaHeight = 154;
     static constexpr int phase3ComboRowHeight = 24;
+
+    /** 8.214：Phase 4のタップの帯（Phase 243）。見出し＋つまみ1段。
+
+        Phase 3の帯と違ってコンボの行がありません——選ぶものが無いためです
+        （どのタップを直すかは、右の一覧を押して決めます）。 */
+    static constexpr int tapsAreaHeight = 128;
 
     /** 8.210：**細い1行だけ**に縮めました（Phase 242）。
         Phase 2までは74pxの箱でしたが、その場所はPhase 3の帯が使います。 */

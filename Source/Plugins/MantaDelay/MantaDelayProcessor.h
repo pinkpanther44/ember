@@ -4,8 +4,24 @@
 
 #include "MantaDelayEngine.h"
 #include "MantaDelayParameters.h"
+#include "MantaDelayTaps.h"
 
+#include <array>
 #include <atomic>
+
+//==============================================================================
+/** 8.214：画面だけが覚えていること（Phase 243）。
+
+    **音には関係しません**ので、パラメータにはしません——
+    オートメーションや A/B の対象になるべきものではないからです。
+    `apvts.state`の`UI`の子として、**プロジェクトと一緒に残ります。**
+
+    Manta EQの`MantaEQUiState`と同じ作りです（あちらは選んでいるバンド）。 */
+namespace MantaDelayUiState
+{
+    /** つまみが指しているタップ（0起点）。 */
+    extern const juce::Identifier selectedTap;
+}
 
 //==============================================================================
 /**
@@ -21,10 +37,11 @@
     |---|---|
     | Phase 1 | Single Echo、Time／Feedback／Mix／テンポシンク |
     | Phase 2 | キャラクター（Digital Clean・Analog BBD・Tape Echo・Lo-Fi） |
-    | **Phase 3（いまここ）** | フィードバック内フィルター、LFOモジュレーション、ダッキング |
+    | Phase 3 | フィードバック内フィルター、LFOモジュレーション、ダッキング |
+    | **Phase 4（いまここ）** | マルチタップ（最大8本。`MantaDelayTaps.h`） |
 
-    **先の段階のものは入っていません。** マルチタップ、デュアルエンジン、
-    リバース、ディフュージョン——ここからです。
+    **先の段階のものは入っていません。** デュアルエンジン、
+    リバース、ディフュージョン、Freeze——ここからです。
 
     ### テンポシンク
 
@@ -100,6 +117,11 @@ public:
         AttackとReleaseを回しても、見えないと何が起きているか読めません。 */
     float getDuckReduction() const { return engine.getDisplayDuckReduction(); }
 
+    /** 8.214：いまのタップの並び（Phase 243）。ディスプレイとタップ帯が描きます。
+
+        **`processBlock()`が使うのと同じ`buildTapPattern()`**を通します（1.27）。 */
+    MantaDelayTaps::Pattern getTapPattern() const { return buildTapPattern(); }
+
     juce::ValueTree getUiState();
 
 private:
@@ -146,9 +168,27 @@ private:
         std::atomic<float>* duckAmount = nullptr;
         std::atomic<float>* duckAttack = nullptr;
         std::atomic<float>* duckRelease = nullptr;
+
+        // 8.214：Phase 4（Phase 243）
+        std::atomic<float>* tapCount = nullptr;
+
+        struct Tap
+        {
+            std::atomic<float>* step = nullptr;
+            std::atomic<float>* level = nullptr;
+            std::atomic<float>* pan = nullptr;
+        };
+
+        std::array<Tap, (size_t) MantaDelayTaps::maxTaps> taps;
     };
 
     Pointers parameters;
+
+    /** 8.214：つまみの値からタップの並びを組み立てる（Phase 243）。
+
+        **音の側と画面の側で同じものを使います**（1.27）——
+        別々に組み立てると、**描いている並びと鳴っている並びがずれます。** */
+    MantaDelayTaps::Pattern buildTapPattern() const;
 
     std::atomic<double> syncBpm { 0.0 };
 

@@ -20,8 +20,8 @@
     |---|---|
     | Phase 1 | Time／Sync／Feedback／Mix／出力レベル |
     | Phase 2 | キャラクター（BBD・Tape・Lo-Fi）、Drive／Tone／Wow／Flutter |
-    | **Phase 3（いまここ）** | フィードバック内フィルター、LFO、ダッキング |
-    | Phase 4 | マルチタップ |
+    | Phase 3 | フィードバック内フィルター、LFO、ダッキング |
+    | **Phase 4（いまここ）** | マルチタップ（`MantaDelayTaps.h`） |
     | Phase 5 | デュアルエンジンとルーティング |
     | Phase 6 | リバース、ディフュージョン、UIの仕上げ |
 
@@ -87,6 +87,23 @@ namespace MantaDelayParams
     inline constexpr const char* duckAmount = "duckAmount";
     inline constexpr const char* duckAttack = "duckAttack";
     inline constexpr const char* duckRelease = "duckRelease";
+
+    //==========================================================================
+    // 8.214：Phase 4のマルチタップ（仕様書5-6）
+
+    /** 生きているタップの本数（1〜`MantaDelayTaps::maxTaps`）。 */
+    inline constexpr const char* tapCount = "tapCount";
+
+    /** タップごとのID。**Manta EQのバンドと同じ作り**（`tap{n}_xxx`、**nは1始まり**）。
+
+        1本ぶんずつ別のパラメータとして持ちます——**まとめて1つのIDに詰めない**こと。
+        詰めるとオートメーションが掛けられず、A/Bもプリセットも
+        「タップ3のLevelだけ違う」を表せません。 */
+    juce::String tapParamId (int tapIndex, const char* suffix);
+
+    inline constexpr const char* tapStep  = "step";
+    inline constexpr const char* tapLevel = "level";
+    inline constexpr const char* tapPan   = "pan";
 
     //==========================================================================
     /** 5-1：音価の一覧。**並びを変えないこと**（保存されるのは番号です）。

@@ -2,6 +2,7 @@
 #include "MantaDelayCharacter.h"   // 8.208：キャラクターの名前（Phase 240）
 #include "MantaDelayFilter.h"      // 8.210：フィルターの形の名前（Phase 242）
 #include "MantaDelayLfo.h"         // 8.211：波形の名前（Phase 242）
+#include "MantaDelayTaps.h"        // 8.214：タップの本数と目盛りの上限（Phase 243）
 
 #include <cmath>
 
@@ -64,6 +65,30 @@ namespace MantaDelayParams
         }
 
         juce::String formatQ (float value, int) { return juce::String (value, 2); }
+
+        //----------------------------------------------------------------------
+        // 8.214：Phase 4で足したもの（Phase 243）
+
+        /** タップのパン。**数字ではなく「L50 / C / R50」で見せます**——
+            本体のパンと同じ考え方です（`ValueEntrySlider::DisplayUnit::panPercent`、
+            Manta EQの`formatPan`）。**小数で出しても手では合わせられません。** */
+        juce::String formatPan (float value, int)
+        {
+            const int percent = juce::roundToInt (std::abs (value) * 100.0f);
+
+            if (percent == 0)
+                return "C";
+
+            return (value < 0.0f ? "L" : "R") + juce::String (percent);
+        }
+    }
+
+    //==========================================================================
+
+    juce::String tapParamId (int tapIndex, const char* suffix)
+    {
+        // **nは1始まり**（画面の表示と揃える。Manta EQの`bandParamId()`と同じ）
+        return "tap" + juce::String (tapIndex + 1) + "_" + suffix;
     }
 
     juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
@@ -75,7 +100,10 @@ namespace MantaDelayParams
             return juce::AudioParameterFloatAttributes().withStringFromValueFunction (function);
         };
 
-        auto addFloat = [&layout, &floatAttributes] (const char* id, const juce::String& name,
+        // 8.214：**IDは`juce::String`で受けます**（Phase 243）。タップのIDは
+        // `tapParamId()`が組み立てて返すので、`const char*`だと`toRawUTF8()`を
+        // 通すことになり、**寿命の切れたものを渡しかねません**
+        auto addFloat = [&layout, &floatAttributes] (const juce::String& id, const juce::String& name,
                                                       juce::NormalisableRange<float> range,
                                                       float defaultValue, auto function)
         {
@@ -180,6 +208,35 @@ namespace MantaDelayParams
         // 180msと200msの差はほとんど分かりません）
         addFloat (duckAttack, "Attack", makeLogRange (0.5f, 200.0f), 8.0f, formatMs);
         addFloat (duckRelease, "Release", makeLogRange (20.0f, 2000.0f), 250.0f, formatMs);
+
+        //----------------------------------------------------------------------
+        // 8.214：Phase 4のマルチタップ（仕様書5-6）。**末尾へ足すこと**（9.5）
+        //
+        // **既定は1本・step 1・Level 100%・真ん中**——つまりPhase 3と同じ鳴り方です
+        // （`MantaDelayTaps`のパンが真ん中でちょうど1倍なのはこのため）。
+        // **挿しただけでは何も変わらない**（8.209で決めた線）
+
+        layout.add (std::make_unique<juce::AudioParameterInt> (
+            juce::ParameterID { tapCount, 1 }, "Taps", 1, MantaDelayTaps::maxTaps, 1));
+
+        for (int tap = 0; tap < MantaDelayTaps::maxTaps; ++tap)
+        {
+            const auto number = juce::String (tap + 1);
+
+            // **`step`は整数**。floatで持つと、オートメーションで中間の値が入ったときに
+            // どの目盛りか決まりません（`syncDivision`を`Choice`にしたのと同じ理由。8.207）
+            layout.add (std::make_unique<juce::AudioParameterInt> (
+                juce::ParameterID { tapParamId (tap, tapStep), 1 },
+                "Tap " + number + " Step", 1, MantaDelayTaps::maxStep, tap + 1));
+
+            // **1本目だけ100%、2本目から0%。** 本数を増やした瞬間に
+            // 知らないタップが鳴り出すより、**自分で上げたものだけが鳴る**ほうがよい
+            addFloat (tapParamId (tap, tapLevel), "Tap " + number + " Level",
+                       { 0.0f, 1.0f, 0.001f }, tap == 0 ? 1.0f : 0.0f, formatPercent);
+
+            addFloat (tapParamId (tap, tapPan), "Tap " + number + " Pan",
+                       { -1.0f, 1.0f, 0.001f }, 0.0f, formatPan);
+        }
 
         return layout;
     }

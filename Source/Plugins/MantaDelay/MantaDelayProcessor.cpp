@@ -10,6 +10,12 @@ namespace
     const char* const mantaDelayIdentifier = "manta:delay";
 }
 
+namespace MantaDelayUiState
+{
+    // 8.214：Phase 243。**音には関係しません**（`MantaDelayProcessor.h`の頭）
+    const juce::Identifier selectedTap { "selectedTap" };
+}
+
 //==============================================================================
 
 MantaDelayProcessor::MantaDelayProcessor()
@@ -49,6 +55,41 @@ MantaDelayProcessor::MantaDelayProcessor()
     parameters.duckAmount  = get (MantaDelayParams::duckAmount);
     parameters.duckAttack  = get (MantaDelayParams::duckAttack);
     parameters.duckRelease = get (MantaDelayParams::duckRelease);
+
+    // 8.214：Phase 4（Phase 243）。**文字列で引くのはここだけ**
+    parameters.tapCount = get (MantaDelayParams::tapCount);
+
+    for (int tap = 0; tap < MantaDelayTaps::maxTaps; ++tap)
+    {
+        auto& pointers = parameters.taps[(size_t) tap];
+
+        pointers.step  = apvts.getRawParameterValue (MantaDelayParams::tapParamId (tap, MantaDelayParams::tapStep));
+        pointers.level = apvts.getRawParameterValue (MantaDelayParams::tapParamId (tap, MantaDelayParams::tapLevel));
+        pointers.pan   = apvts.getRawParameterValue (MantaDelayParams::tapParamId (tap, MantaDelayParams::tapPan));
+    }
+}
+
+//==============================================================================
+
+MantaDelayTaps::Pattern MantaDelayProcessor::buildTapPattern() const
+{
+    MantaDelayTaps::Pattern pattern;
+
+    pattern.count = juce::jlimit (1, MantaDelayTaps::maxTaps,
+                                   juce::roundToInt (parameters.tapCount->load()));
+
+    for (int tap = 0; tap < MantaDelayTaps::maxTaps; ++tap)
+    {
+        const auto& pointers = parameters.taps[(size_t) tap];
+        auto& destination = pattern.taps[(size_t) tap];
+
+        destination.step  = juce::jlimit (1, MantaDelayTaps::maxStep,
+                                           juce::roundToInt (pointers.step->load()));
+        destination.level = pointers.level->load();
+        destination.pan   = pointers.pan->load();
+    }
+
+    return pattern;
 }
 
 MantaDelayProcessor::~MantaDelayProcessor() = default;
@@ -186,6 +227,9 @@ void MantaDelayProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
     settings.duckAmount    = parameters.duckAmount->load();
     settings.duckAttackMs  = parameters.duckAttack->load();
     settings.duckReleaseMs = parameters.duckRelease->load();
+
+    // 8.214：Phase 4（Phase 243）。**画面と同じ`buildTapPattern()`**を通します（1.27）
+    settings.taps = buildTapPattern();
 
     engine.setSettings (settings);
     engine.process (buffer);

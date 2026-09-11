@@ -27,6 +27,7 @@ MantaDelayEditor::MantaDelayEditor (MantaDelayProcessor& processorToUse)
         refreshTimeControls();
         refreshCharacterControls();   // 8.208（Phase 240）
         refreshFilterControls();      // 8.210（Phase 242）
+        refreshTapControls();         // 8.214（Phase 243）
     };
 
     //--------------------------------------------------------------------------
@@ -207,9 +208,76 @@ MantaDelayEditor::MantaDelayEditor (MantaDelayProcessor& processorToUse)
     duckAttackSlider.setTooltip (utf8 ("絞りはじめるまでの速さ"));
     duckReleaseSlider.setTooltip (utf8 ("原音が切れてから戻るまでの速さ"));
 
+    //--------------------------------------------------------------------------
+    // 8.214：Phase 4のマルチタップ（Phase 243／仕様書5-6）
+
+    setupSectionLabel (tapsTitle, "Taps");
+
+    addAndMakeVisible (tapStrip);
+
+    tapStrip.onTapSelected = [this] (int tap)
+    {
+        if (tap == selectedTap)
+            return;
+
+        selectedTap = tap;
+
+        // **選んだタップは覚えておきます**（音には関係しないので`UI`の子へ。8.214）
+        processor.getUiState().setProperty (MantaDelayUiState::selectedTap, tap, nullptr);
+
+        rebuildTapAttachments();
+        refreshTapControls();
+    };
+
+    // **主の色**——タップは「反復そのものの置き場所」。
+    //
+    // **本数は繋ぎっぱなし**なので`setupKnob()`でそのまま繋ぎます
+    // （`sliderAttachments`が持ってくれます。ここで`SliderAttachment`をもう1本
+    // 作ってはいけません——**同じつまみに2本ぶら下がる**ことになります）
+    setupKnob (tapCountSlider, tapCountCaption, "Taps",
+                MantaDelayParams::tapCount, MantaDelayTheme::accent());
+
+    // **`setupKnob()`は使えません**（あちらはIDを1つ受けて繋いでしまう）。
+    // 3つは**選んだタップへ繋ぎ直す**ので、繋ぎだけ別に持ちます
+    const auto setupTapKnob = [this] (ValueEntrySlider& slider, juce::Label& caption,
+                                       const juce::String& text, juce::Colour colour)
+    {
+        slider.setLookAndFeel (&knobLookAndFeel.get());
+        slider.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 68, 15);
+        slider.setColour (juce::Slider::rotarySliderFillColourId, colour);
+        slider.setColour (juce::Slider::textBoxTextColourId, MantaTheme::text());
+        slider.setColour (juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
+        addAndMakeVisible (slider);
+
+        caption.setText (text, juce::dontSendNotification);
+        caption.setColour (juce::Label::textColourId, MantaTheme::textDim());
+        caption.setFont (juce::Font (juce::FontOptions (10.0f)));
+        caption.setJustificationType (juce::Justification::centred);
+        addAndMakeVisible (caption);
+    };
+
+    setupTapKnob (tapStepSlider, tapStepCaption, "Step", MantaDelayTheme::accent());
+    setupTapKnob (tapLevelSlider, tapLevelCaption, "Level", MantaDelayTheme::highlight());
+    setupTapKnob (tapPanSlider, tapPanCaption, "Pan", MantaDelayTheme::highlight());
+
+    tapCountSlider.setTooltip (utf8 ("鳴らすタップの本数"));
+    tapStepSlider.setTooltip (utf8 ("そのタップをTimeの何個ぶん後ろに置くか"));
+    tapLevelSlider.setTooltip (utf8 ("そのタップの音量"));
+    tapPanSlider.setTooltip (utf8 ("そのタップの左右の位置"));
+
+    // **本数を変えたら、選んでいるタップが外に出ていないか見ます**
+    tapCountSlider.onValueChange = [this] { refreshTapControls(); };
+
+    selectedTap = juce::jlimit (0, MantaDelayTaps::maxTaps - 1,
+                                 (int) processor.getUiState()
+                                           .getProperty (MantaDelayUiState::selectedTap, 0));
+
+    rebuildTapAttachments();
+
     refreshTimeControls();
     refreshCharacterControls();
     refreshFilterControls();
+    refreshTapControls();
 
     setSize (fixedWidth, fixedHeight);
     setResizable (false, false);   // 8.172：内蔵プラグインの画面は固定
@@ -228,7 +296,9 @@ MantaDelayEditor::~MantaDelayEditor()
                            // LookAndFeelが先に壊れると、つまみがそれを見に行きます（8.168）
                            &filterFreqSlider, &filterQSlider, &filterGainSlider,
                            &lfoRateSlider, &lfoDepthSlider,
-                           &duckAmountSlider, &duckAttackSlider, &duckReleaseSlider })
+                           &duckAmountSlider, &duckAttackSlider, &duckReleaseSlider,
+                           // 8.214：Phase 4で足したぶん（Phase 243）
+                           &tapCountSlider, &tapStepSlider, &tapLevelSlider, &tapPanSlider })
         slider->setLookAndFeel (nullptr);
 }
 
@@ -343,6 +413,61 @@ void MantaDelayEditor::refreshFilterControls()
 }
 
 //==============================================================================
+// 8.214：Phase 4のマルチタップ（Phase 243）
+
+void MantaDelayEditor::rebuildTapAttachments()
+{
+    const int tap = juce::jlimit (0, MantaDelayTaps::maxTaps - 1, selectedTap);
+
+    if (tap == attachedTap)
+        return;
+
+    attachedTap = tap;
+
+    // **繋ぎ替えは、いったん外してから**（同じつまみに2本ぶら下がると、
+    // 片方が前のタップへ書き戻します。Manta EQの`rebuildBandAttachments()`と同じ）
+    tapStepAttachment.reset();
+    tapLevelAttachment.reset();
+    tapPanAttachment.reset();
+
+    auto& state = processor.getValueTreeState();
+
+    const auto id = [tap] (const char* suffix) { return MantaDelayParams::tapParamId (tap, suffix); };
+
+    tapStepAttachment  = std::make_unique<SliderAttachment> (state, id (MantaDelayParams::tapStep), tapStepSlider);
+    tapLevelAttachment = std::make_unique<SliderAttachment> (state, id (MantaDelayParams::tapLevel), tapLevelSlider);
+    tapPanAttachment   = std::make_unique<SliderAttachment> (state, id (MantaDelayParams::tapPan), tapPanSlider);
+}
+
+void MantaDelayEditor::refreshTapControls()
+{
+    const int count = juce::jlimit (1, MantaDelayTaps::maxTaps,
+                                     juce::roundToInt (tapCountSlider.getValue()));
+
+    // **本数を減らしたときに、外へ出たタップを選んだままにしないこと。**
+    // つまみが「もう鳴らないタップ」を指していると、回しても何も起きません
+    if (selectedTap >= count)
+    {
+        selectedTap = count - 1;
+        processor.getUiState().setProperty (MantaDelayUiState::selectedTap, selectedTap, nullptr);
+
+        rebuildTapAttachments();
+    }
+
+    // タップが1本のときは、Step／Level／Panを触る意味がありません——
+    // **1本目はstep 1・Level 100%・真ん中がPhase 3までの音**なので、
+    // 消さずにグレーアウトして「いまは効かない」と出します（8.208と同じ）
+    const bool multiTap = count > 1;
+
+    setControlActive (tapStepSlider, tapStepCaption, multiTap);
+    setControlActive (tapLevelSlider, tapLevelCaption, multiTap);
+    setControlActive (tapPanSlider, tapPanCaption, multiTap);
+
+    tapStrip.setEnabled (multiTap);
+    tapStrip.setAlpha (multiTap ? 1.0f : 0.4f);
+}
+
+//==============================================================================
 
 void MantaDelayEditor::timerCallback()
 {
@@ -353,7 +478,14 @@ void MantaDelayEditor::timerCallback()
     state.feedback = feedbackSlider.getValue();
     state.mix = mixSlider.getValue();
 
+    // 8.214：**タップの並びはプロセッサから**（Phase 243）。
+    // つまみを1本ずつ読み直すと、**画面が数え直すことになります**（1.27）
+    state.taps = processor.getTapPattern();
+    state.selectedTap = selectedTap;
+
     display.setState (state);
+
+    tapStrip.setPattern (state.taps, selectedTap);
 
     // 8.212：ダッキングの帯（Phase 242）。**つまみの値ではなく、エンジンの実測**
     duckMeter.setReduction (processor.getDuckReduction(), duckAmountSlider.getValue() > 0.0);
@@ -384,7 +516,7 @@ void MantaDelayEditor::paint (juce::Graphics& g)
     auto area = getLocalBounds();
     area.removeFromTop (MantaPluginToolbar::preferredHeight);
 
-    // Phase 4以降の場所。**黙って空けない**（何も無い灰色の面は「壊れている」ようにも見える）
+    // Phase 5以降の場所。**黙って空けない**（何も無い灰色の面は「壊れている」ようにも見える）
     auto future = area.removeFromBottom (futureAreaHeight).reduced (12, 4);
 
     g.setColour (MantaTheme::textDim().withAlpha (0.6f));
@@ -399,8 +531,8 @@ void MantaDelayEditor::paint (juce::Graphics& g)
     // ASCIIしか入っていない文字列は素で渡して構いませんが、
     // **ASCIIでない文字が1つでも混ざったら`utf8()`**です（中黒・全角空白・矢印も同じ）。
     // 「日本語かどうか」ではなく「ASCIIかどうか」で見ること
-    g.drawText (utf8 ("Multi-Tap  ·  Dual Engine  ·  Reverse  ·  Diffusion  ·  Freeze"
-                       "　（Phase 4以降）"),
+    g.drawText (utf8 ("Dual Engine  ·  Reverse  ·  Diffusion  ·  Freeze"
+                       "　（Phase 5以降）"),
                  future, juce::Justification::centred);
 
     //--------------------------------------------------------------------------
@@ -409,16 +541,20 @@ void MantaDelayEditor::paint (juce::Graphics& g)
     // **箱にしておくこと。** つまみを9つ並べただけだと、
     // どこからどこまでが1つの機能なのかが読めません
 
-    auto band = area.removeFromBottom (phase3AreaHeight);
-
-    for (auto& column : getPhase3Columns (band))
+    const auto drawPanel = [&g] (juce::Rectangle<int> box)
     {
         g.setColour (MantaTheme::panelBackground());
-        g.fillRoundedRectangle (column.toFloat(), 4.0f);
+        g.fillRoundedRectangle (box.toFloat(), 4.0f);
 
         g.setColour (MantaTheme::border());
-        g.drawRoundedRectangle (column.toFloat().reduced (0.5f), 4.0f, 1.0f);
-    }
+        g.drawRoundedRectangle (box.toFloat().reduced (0.5f), 4.0f, 1.0f);
+    };
+
+    for (auto& column : getPhase3Columns (area.removeFromBottom (phase3AreaHeight)))
+        drawPanel (column);
+
+    // 8.214：Phase 4の帯（Phase 243）。**こちらは1つの箱**
+    drawPanel (area.removeFromBottom (tapsAreaHeight).reduced (12, 6));
 }
 
 //==============================================================================
@@ -432,10 +568,13 @@ juce::Array<juce::Rectangle<int>> MantaDelayEditor::getPhase3Columns (juce::Rect
 
     constexpr int gap = 12;
 
-    // つまみの数ぶんの幅（Filter 3つ、Modulation 2つ、Ducking 3つ）。
-    // **残りはDuckingへ**——3つでいちばん窮屈になるところです
-    const int filterWidth = 272;
-    const int modulationWidth = 190;
+    // つまみの数に合わせて配ります（Filter 3つ、Modulation 2つ、Ducking 3つ）。
+    // 8.216：画面が広がったので**3:2:3で分けました**（Phase 243）——
+    // 固定幅のままだと、増えたぶんが全部Duckingへ行って**箱の大きさが揃いません**
+    const int spare = row.getWidth() - gap * 2;
+
+    const int filterWidth = spare * 3 / 8;
+    const int modulationWidth = spare * 2 / 8;
 
     juce::Array<juce::Rectangle<int>> columns;
 
@@ -462,11 +601,14 @@ void MantaDelayEditor::resized()
         statusLabel.setBounds (toolbarArea.removeFromRight (toolbarArea.getWidth() / 2));
     }
 
-    area.removeFromBottom (futureAreaHeight);   // Phase 4以降の1行（`paint()`が描く）
+    area.removeFromBottom (futureAreaHeight);   // Phase 5以降の1行（`paint()`が描く）
 
     // 8.210：Phase 3の帯（Phase 242）。**先に取り分けます**——
     // 残りを上のPhase 1・2が使う形なので、ここで取らないと下へはみ出します
     auto phase3Band = area.removeFromBottom (phase3AreaHeight);
+
+    // 8.214：Phase 4の帯（Phase 243）。**下から順に積む**ので、Phase 3の次
+    auto tapsBand = area.removeFromBottom (tapsAreaHeight);
 
     auto content = area.reduced (12, 8);
 
@@ -536,7 +678,9 @@ void MantaDelayEditor::resized()
     // つまみの列（左）はPhase 1のまま触っていません——
     // **段階を進めるたびに前の段階のものが動くと、覚え直しになります**
     {
-        auto characterArea = content.removeFromBottom (knobHeight + sectionTitleHeight + 34);
+        // 8.216：**34→16**（Phase 243）。中身は112pxしか使っていないので、
+        // 余っていた22pxはディスプレイへ回します
+        auto characterArea = content.removeFromBottom (knobHeight + sectionTitleHeight + 16);
 
         content.removeFromBottom (10);
         display.setBounds (content);
@@ -556,6 +700,34 @@ void MantaDelayEditor::resized()
                          { &wowRateSlider, &wowRateCaption },
                          { &flutterDepthSlider, &flutterDepthCaption },
                          { &flutterRateSlider, &flutterRateCaption } });
+    }
+
+    //--------------------------------------------------------------------------
+    // 8.214〜8.215：Phase 4の帯（Phase 243）
+    //
+    // 左につまみ4つ、**残り全部が一覧**。一覧は広いほど読めます
+
+    {
+        auto inner = tapsBand.reduced (12, 6).reduced (8, 4);
+
+        tapsTitle.setBounds (inner.removeFromTop (sectionTitleHeight));
+        inner.removeFromTop (6);
+
+        auto knobRow = inner.removeFromTop (knobHeight);
+
+        // つまみ4つぶんをきっちり取って、**余りは一覧へ**
+        const int knobsWidth = knobWidth * 4 + 24;
+
+        placeKnobRow (knobRow.removeFromLeft (knobsWidth),
+                       { { &tapCountSlider, &tapCountCaption },
+                         { &tapStepSlider, &tapStepCaption },
+                         { &tapLevelSlider, &tapLevelCaption },
+                         { &tapPanSlider, &tapPanCaption } });
+
+        knobRow.removeFromLeft (12);
+
+        // **文字の行と高さを揃えます**（つまみの下の数字と一覧の数字が同じ高さに並ぶ）
+        tapStrip.setBounds (knobRow.withTrimmedTop (12));
     }
 
     //--------------------------------------------------------------------------

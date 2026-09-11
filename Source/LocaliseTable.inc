@@ -594,8 +594,12 @@
     { "原音が鳴っているあいだ、ディレイ音をどれだけ絞るか", "How far the delay is pulled down while the dry signal plays", true },
     { "絞りはじめるまでの速さ", "How quickly it starts pulling down", true },
     { "原音が切れてから戻るまでの速さ", "How quickly it comes back once the dry signal stops", true },
+    { "鳴らすタップの本数", "How many taps are played", true },
+    { "そのタップをTimeの何個ぶん後ろに置くか", "How many Time steps back this tap sits", true },
+    { "そのタップの音量", "The level of this tap", true },
+    { "そのタップの左右の位置", "Where this tap sits left to right", true },
     { "テンポが取れていません（Timeの値で鳴っています）", "No tempo from the host - using the Time value", true },
-    { "Multi-Tap  ·  Dual Engine  ·  Reverse  ·  Diffusion  ·  Freeze　（Phase 4以降）", "Multi-Tap  ·  Dual Engine  ·  Reverse  ·  Diffusion  ·  Freeze  (Phase 4 onwards)", true },
+    { "Dual Engine  ·  Reverse  ·  Diffusion  ·  Freeze　（Phase 5以降）", "Dual Engine  ·  Reverse  ·  Diffusion  ·  Freeze  (Phase 5 onwards)", true },
 
     // MantaEQEditor.cpp
     { "Linear Phaseは位相をずらさない代わりに遅れます", "Linear Phase keeps the phase intact, at the cost of latency", true },

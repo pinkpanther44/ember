@@ -24,7 +24,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
     It works with every character, unlike wow and flutter
   - Ducking: the repeats pull back while the dry signal plays and come forward
     in the gaps, with a meter showing how far they are being pulled down
-  - Still to come: multi-tap, dual engines, reverse and freeze
+  - Up to eight taps, each with its own level and pan. A tap sits a whole
+    number of Time steps back, so the same pattern plays the same rhythm
+    whether Time is free or synced to the tempo. The feedback repeats the
+    pattern as a unit
+  - Still to come: dual engines, reverse, diffusion and freeze
 - Plugins now receive the song tempo and position from Ember, so **third-party
   plugins that sync to tempo work**. They could not before
 - Chord Pad can create a chord track when there is not one yet
