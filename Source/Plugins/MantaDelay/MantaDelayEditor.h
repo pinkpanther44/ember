@@ -74,6 +74,8 @@ private:
     void setupSectionLabel (juce::Label& label, const juce::String& text);
 
     /** Syncの入り切りで、TimeのつまみとDivisionの出し分けを変える。 */
+    void refreshCharacterControls();   // 8.208：効かないつまみをグレーアウト（Phase 240）
+
     void refreshTimeControls();
 
     //==========================================================================
@@ -114,12 +116,30 @@ private:
     juce::TextButton syncButton;
 
     //==========================================================================
+    // 8.208：Phase 2（キャラクター。Phase 240）
+
+    juce::Label characterTitle;
+    juce::ComboBox characterBox;
+
+    ValueEntrySlider driveSlider        { juce::Slider::RotaryHorizontalVerticalDrag, juce::Slider::TextBoxBelow };
+    ValueEntrySlider toneSlider         { juce::Slider::RotaryHorizontalVerticalDrag, juce::Slider::TextBoxBelow };
+    ValueEntrySlider wowDepthSlider     { juce::Slider::RotaryHorizontalVerticalDrag, juce::Slider::TextBoxBelow };
+    ValueEntrySlider wowRateSlider      { juce::Slider::RotaryHorizontalVerticalDrag, juce::Slider::TextBoxBelow };
+    ValueEntrySlider flutterDepthSlider { juce::Slider::RotaryHorizontalVerticalDrag, juce::Slider::TextBoxBelow };
+    ValueEntrySlider flutterRateSlider  { juce::Slider::RotaryHorizontalVerticalDrag, juce::Slider::TextBoxBelow };
+
+    juce::Label driveCaption, toneCaption, wowDepthCaption, wowRateCaption,
+                flutterDepthCaption, flutterRateCaption;
+
+    //==========================================================================
     using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
     using ButtonAttachment = juce::AudioProcessorValueTreeState::ButtonAttachment;
+    using ComboAttachment  = juce::AudioProcessorValueTreeState::ComboBoxAttachment;
 
     juce::OwnedArray<SliderAttachment> sliderAttachments;
     std::unique_ptr<ButtonAttachment> syncAttachment;
     std::unique_ptr<SliderAttachment> divisionAttachment;   // 8.207（Phase 239）
+    std::unique_ptr<ComboAttachment> characterAttachment;   // 8.208（Phase 240）
 
     /** 画面の大きさ。**固定です**（8.172）。 */
     static constexpr int fixedWidth = 820;
@@ -130,7 +150,7 @@ private:
     static constexpr int knobWidth = 76;
     static constexpr int knobHeight = 84;
     static constexpr int sectionTitleHeight = 18;
-    static constexpr int futureAreaHeight = 190;
+    static constexpr int futureAreaHeight = 74;   // 8.208：Phase 2が下半分を使うので縮めた
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MantaDelayEditor)
 };

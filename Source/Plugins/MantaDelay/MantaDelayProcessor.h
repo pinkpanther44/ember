@@ -115,6 +115,15 @@ private:
         std::atomic<float>* feedback = nullptr;
         std::atomic<float>* mix = nullptr;
         std::atomic<float>* outputGain = nullptr;
+
+        // 8.208：Phase 2（Phase 240）
+        std::atomic<float>* character = nullptr;
+        std::atomic<float>* drive = nullptr;
+        std::atomic<float>* tone = nullptr;
+        std::atomic<float>* wowRate = nullptr;
+        std::atomic<float>* wowDepth = nullptr;
+        std::atomic<float>* flutterRate = nullptr;
+        std::atomic<float>* flutterDepth = nullptr;
     };
 
     Pointers parameters;

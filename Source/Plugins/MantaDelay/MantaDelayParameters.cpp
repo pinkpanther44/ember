@@ -1,4 +1,5 @@
 #include "MantaDelayParameters.h"
+#include "MantaDelayCharacter.h"   // 8.208：キャラクターの名前（Phase 240）
 
 #include <cmath>
 
@@ -29,6 +30,8 @@ namespace MantaDelayParams
         }
 
         juce::String formatDb (float value, int) { return juce::String (value, 1) + " dB"; }
+
+        juce::String formatHz (float value, int) { return juce::String (value, 2) + " Hz"; }
 
         juce::String formatPercent (float value, int)
         {
@@ -83,6 +86,31 @@ namespace MantaDelayParams
         addFloat (mix, "Mix", { 0.0f, 1.0f, 0.001f }, 0.30f, formatPercent);
 
         addFloat (outputGain, "Output", { -24.0f, 12.0f, 0.1f }, 0.0f, formatDb);
+
+        //----------------------------------------------------------------------
+        // 8.208：Phase 2（キャラクター。設計書4章のライト版）
+        //
+        // **末尾へ足すこと**（オートメーションは番号で覚えています。9.5）
+
+        layout.add (std::make_unique<juce::AudioParameterChoice> (
+            juce::ParameterID { character, 1 }, "Character",
+            MantaDelayCharacter::getKindNames(), 0));   // 既定はDigital Clean
+
+        // **DriveとToneは掛け持ちです。** Tapeでは飽和、Lo-Fiでは削り具合——
+        // 「どのキャラクターでも、同じつまみが同じ役割の位置にある」ほうが覚えやすく、
+        // 効かないキャラクターでは画面側がグレーアウトします
+        // （効くかどうかの判断は`MantaDelayCharacter::getCapabilities()`ただ1つ。1.27）
+        // 8.209：**既定は0%**（Phase 241/本人の指定）。
+        // 色を付けるのは**頼まれてから**——キャラクターを選んだだけで
+        // 音が歪むと、そのキャラクター本来の音が分かりません
+        addFloat (drive, "Drive", { 0.0f, 1.0f, 0.001f }, 0.0f, formatPercent);
+        addFloat (tone, "Tone", { 0.0f, 1.0f, 0.001f }, 0.5f, formatPercent);
+
+        addFloat (wowRate, "Wow Rate", { 0.1f, 5.0f, 0.01f }, 0.7f, formatHz);
+        addFloat (wowDepth, "Wow", { 0.0f, 1.0f, 0.001f }, 0.25f, formatPercent);
+
+        addFloat (flutterRate, "Flutter Rate", { 3.0f, 20.0f, 0.1f }, 8.0f, formatHz);
+        addFloat (flutterDepth, "Flutter", { 0.0f, 1.0f, 0.001f }, 0.20f, formatPercent);
 
         return layout;
     }

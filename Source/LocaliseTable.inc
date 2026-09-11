@@ -583,8 +583,11 @@
     { "返ってきた音をどれだけ戻すか。上げるほど長く反復します", "How much of the echo is fed back. Higher means the repeats last longer", true },
     { "原音とディレイ音の混ぜ具合", "The balance between the dry signal and the delay", true },
     { "音価。付点は「.」、3連は「T」です", "Note length. A dot means dotted, T means a triplet", true },
+    { "音色モデル。効かないつまみは灰色になります", "The colour model. Knobs it does not use are greyed out", true },
+    { "Tapeでは飽和の強さ、Lo-Fiでは削り具合", "Saturation on Tape, how hard it is crushed on Lo-Fi", true },
+    { "反復するたびに落ちる高域の量", "How much treble each repeat loses", true },
     { "テンポが取れていません（Timeの値で鳴っています）", "No tempo from the host - using the Time value", true },
-    { "（Phase 2以降）", "(Phase 2 onwards)", true },
+    { "（Phase 3以降）", "(Phase 3 onwards)", true },
 
     // MantaEQEditor.cpp
     { "Linear Phaseは位相をずらさない代わりに遅れます", "Linear Phase keeps the phase intact, at the cost of latency", true },

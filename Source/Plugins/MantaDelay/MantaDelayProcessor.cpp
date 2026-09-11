@@ -26,6 +26,14 @@ MantaDelayProcessor::MantaDelayProcessor()
     parameters.feedback     = get (MantaDelayParams::feedback);
     parameters.mix          = get (MantaDelayParams::mix);
     parameters.outputGain   = get (MantaDelayParams::outputGain);
+
+    parameters.character    = get (MantaDelayParams::character);
+    parameters.drive        = get (MantaDelayParams::drive);
+    parameters.tone         = get (MantaDelayParams::tone);
+    parameters.wowRate      = get (MantaDelayParams::wowRate);
+    parameters.wowDepth     = get (MantaDelayParams::wowDepth);
+    parameters.flutterRate  = get (MantaDelayParams::flutterRate);
+    parameters.flutterDepth = get (MantaDelayParams::flutterDepth);
 }
 
 MantaDelayProcessor::~MantaDelayProcessor() = default;
@@ -125,6 +133,21 @@ void MantaDelayProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
                                            parameters.feedback->load());
     settings.mix          = juce::jlimit (0.0f, 1.0f, parameters.mix->load());
     settings.outputGain   = juce::Decibels::decibelsToGain (parameters.outputGain->load());
+
+    // 8.208：キャラクター（Phase 240）
+    settings.character.kind = (MantaDelayCharacter::Kind)
+                                 juce::jlimit (0, MantaDelayCharacter::getKindCount() - 1,
+                                                (int) parameters.character->load());
+
+    settings.character.drive        = parameters.drive->load();
+    settings.character.tone         = parameters.tone->load();
+    settings.character.wowRate      = parameters.wowRate->load();
+    settings.character.wowDepth     = parameters.wowDepth->load();
+    settings.character.flutterRate  = parameters.flutterRate->load();
+    settings.character.flutterDepth = parameters.flutterDepth->load();
+
+    // **BBDのカットオフはディレイタイムで決まります**（設計書4-1）
+    settings.character.delaySeconds = settings.delaySeconds;
 
     engine.setSettings (settings);
     engine.process (buffer);

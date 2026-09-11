@@ -2,6 +2,9 @@
 
 #include <juce_dsp/juce_dsp.h>
 
+#include "MantaDelayCharacter.h"   // 8.208：音色モデル（Phase 240）
+
+#include <array>
 #include <atomic>
 
 //==============================================================================
@@ -47,6 +50,9 @@ public:
         float  feedback     = 0.35f;
         float  mix          = 0.30f;
         float  outputGain   = 1.0f;
+
+        // 8.208：Phase 2（キャラクター）
+        MantaDelayCharacter::Settings character;
     };
 
     void prepare (double sampleRateToUse, int maximumBlockSize, int numChannels,
@@ -65,6 +71,11 @@ public:
 
         preparedChannels = (int) spec.numChannels;
 
+        // 8.208：**チャンネルごとに状態を持ちます**（Phase 240）。
+        // 1つを共有すると、フィルターの内部状態が混ざって左右が潰れます
+        for (auto& processor : characters)
+            processor.prepare (sampleRate);
+
         delayLine.prepare (spec);
         delayLine.reset();
 
@@ -82,9 +93,20 @@ public:
     {
         delayLine.reset();
         currentDelaySamples = -1.0;
+
+        for (auto& processor : characters)
+            processor.reset();
     }
 
-    void setSettings (const Settings& newSettings) { settings = newSettings; }
+    void setSettings (const Settings& newSettings)
+    {
+        settings = newSettings;
+
+        // **係数を出すのはここ（ブロックの頭）だけ。** 毎サンプル`std::exp()`を
+        // 呼ぶと、それだけで無視できない時間になります
+        for (auto& processor : characters)
+            processor.setSettings (settings.character);
+    }
 
     /** その場で処理する（in-place）。**音のスレッドから呼ばれます**——
         確保も、ロックも、`juce::String`もここには書かないこと（9.4）。 */
@@ -92,7 +114,8 @@ public:
     {
         // **`juce::dsp::DelayLine`は`getNumChannels()`を持っていません**（Phase 238で踏んだ）。
         // `prepare()`へ渡した数を自分で覚えておきます
-        const int numChannels = juce::jmin (buffer.getNumChannels(), preparedChannels);
+        const int numChannels = juce::jmin (juce::jmin (buffer.getNumChannels(), preparedChannels),
+                                             (int) characters.size());
         const int numSamples = buffer.getNumSamples();
 
         if (numChannels <= 0 || numSamples <= 0 || sampleRate <= 0.0)
@@ -116,7 +139,14 @@ public:
             // ブロックの境目が段差になって「プチッ」と鳴ります
             currentDelaySamples += (targetSamples - currentDelaySamples) * smoothingCoefficient;
 
-            delayLine.setDelay ((float) currentDelaySamples);
+            // 8.208：Wow/Flutterの揺れ（Phase 240）。
+            // **チャンネルごとに進めないこと**——左右で違う揺れになると定位が動きます。
+            // ここで1回進めて、同じ値を両チャンネルへ使います
+            const double modulated = currentDelaySamples + characters[0].advanceModulation();
+
+            delayLine.setDelay ((float) juce::jlimit (1.0,
+                                                      (double) delayLine.getMaximumDelayInSamples() - 2.0,
+                                                      modulated));
 
             for (int channel = 0; channel < numChannels; ++channel)
             {
@@ -127,9 +157,14 @@ public:
                 // **読んでから書く**（上の説明）
                 const float delayed = delayLine.popSample (channel);
 
-                delayLine.pushSample (channel, input + delayed * feedback);
+                // 8.208：**キャラクターはフィードバックの中**（Phase 240）。
+                // 反復するたびに掛かるので、1回目より2回目が暗く、汚れていきます。
+                // **入口に1度だけ掛けると、何回反復しても同じ音**になります
+                const float coloured = characters[(size_t) channel].processSample (delayed);
 
-                data[i] = (input * dry + delayed * wet) * gain;
+                delayLine.pushSample (channel, input + coloured * feedback);
+
+                data[i] = (input * dry + coloured * wet) * gain;
             }
         }
 
@@ -149,6 +184,14 @@ private:
     double currentDelaySamples = -1.0;
     double smoothingCoefficient = 0.001;
     int preparedChannels = 0;
+
+    /** 8.208：チャンネルごとの音色モデル（Phase 240）。
+
+        **`std::array`で持ちます。** `prepare()`で数が決まり、
+        それ以降は増減しません——音のスレッドで確保しないため（9.4）。
+        ステレオまでなので2つで足ります（`isBusesLayoutSupported()`が
+        モノラルかステレオしか通しません）。 */
+    std::array<MantaDelayCharacter::Processor, 2> characters;
 
     std::atomic<double> displayDelaySeconds { 0.375 };
 };

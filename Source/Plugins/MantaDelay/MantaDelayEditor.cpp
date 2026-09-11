@@ -3,6 +3,7 @@
 #include "../MantaTheme.h"
 #include "../../Branding.h"
 #include "../../Utf8.h"
+#include "MantaDelayCharacter.h"   // 8.208：キャラクターの名前と可否（Phase 240）
 
 //==============================================================================
 
@@ -19,7 +20,11 @@ MantaDelayEditor::MantaDelayEditor (MantaDelayProcessor& processorToUse)
     statusLabel.setJustificationType (juce::Justification::centredRight);
     toolbar.addAndMakeVisible (statusLabel);
 
-    toolbar.onStateRestored = [this] { refreshTimeControls(); };
+    toolbar.onStateRestored = [this]
+    {
+        refreshTimeControls();
+        refreshCharacterControls();   // 8.208（Phase 240）
+    };
 
     //--------------------------------------------------------------------------
     setupSectionLabel (echoTitle, "Echo");
@@ -83,7 +88,41 @@ MantaDelayEditor::MantaDelayEditor (MantaDelayProcessor& processorToUse)
 
     divisionSlider.setTooltip (utf8 ("音価。付点は「.」、3連は「T」です"));
 
+    //--------------------------------------------------------------------------
+    // 8.208：Phase 2（キャラクター。Phase 240）
+
+    setupSectionLabel (characterTitle, "Character");
+
+    characterBox.addItemList (MantaDelayCharacter::getKindNames(), 1);
+    characterBox.setTooltip (utf8 ("音色モデル。効かないつまみは灰色になります"));
+    addAndMakeVisible (characterBox);
+
+    characterAttachment = std::make_unique<ComboAttachment> (
+        processor.getValueTreeState(), MantaDelayParams::character, characterBox);
+
+    // **`onChange`はオートメーションやプリセットの読み込みでも呼ばれます**
+    characterBox.onChange = [this] { refreshCharacterControls(); };
+
+    // **色の分け方は上と同じ**（主＝音を作るところ、副＝揺らすところ）
+    setupKnob (driveSlider, driveCaption, "Drive",
+                MantaDelayParams::drive, MantaDelayTheme::accent());
+    setupKnob (toneSlider, toneCaption, "Tone",
+                MantaDelayParams::tone, MantaDelayTheme::accent());
+
+    setupKnob (wowDepthSlider, wowDepthCaption, "Wow",
+                MantaDelayParams::wowDepth, MantaDelayTheme::highlight());
+    setupKnob (wowRateSlider, wowRateCaption, "Wow Rate",
+                MantaDelayParams::wowRate, MantaDelayTheme::highlight());
+    setupKnob (flutterDepthSlider, flutterDepthCaption, "Flutter",
+                MantaDelayParams::flutterDepth, MantaDelayTheme::highlight());
+    setupKnob (flutterRateSlider, flutterRateCaption, "Flutter Rate",
+                MantaDelayParams::flutterRate, MantaDelayTheme::highlight());
+
+    driveSlider.setTooltip (utf8 ("Tapeでは飽和の強さ、Lo-Fiでは削り具合"));
+    toneSlider.setTooltip (utf8 ("反復するたびに落ちる高域の量"));
+
     refreshTimeControls();
+    refreshCharacterControls();
 
     setSize (fixedWidth, fixedHeight);
     setResizable (false, false);   // 8.172：内蔵プラグインの画面は固定
@@ -94,7 +133,9 @@ MantaDelayEditor::MantaDelayEditor (MantaDelayProcessor& processorToUse)
 MantaDelayEditor::~MantaDelayEditor()
 {
     // **つまみからLookAndFeelを外してから壊すこと**（8.168）
-    for (auto* slider : { &timeSlider, &divisionSlider, &feedbackSlider, &mixSlider, &outputSlider })
+    for (auto* slider : { &timeSlider, &divisionSlider, &feedbackSlider, &mixSlider, &outputSlider,
+                           &driveSlider, &toneSlider, &wowDepthSlider, &wowRateSlider,
+                           &flutterDepthSlider, &flutterRateSlider })
         slider->setLookAndFeel (nullptr);
 }
 
@@ -144,6 +185,39 @@ void MantaDelayEditor::refreshTimeControls()
     timeCaption.setText (synced ? "Division" : "Time", juce::dontSendNotification);
 }
 
+
+//==============================================================================
+// 8.208：Phase 2（キャラクター。Phase 240）
+
+void MantaDelayEditor::refreshCharacterControls()
+{
+    const auto kind = (MantaDelayCharacter::Kind)
+                         juce::jlimit (0, MantaDelayCharacter::getKindCount() - 1,
+                                        characterBox.getSelectedItemIndex());
+
+    // **効くかどうかの判断は`getCapabilities()`ただ1つ**（1.27）。
+    // 画面と音で別々に決めると、**触れるのに効かないつまみ**や、その逆ができます
+    const auto capabilities = MantaDelayCharacter::getCapabilities (kind);
+
+    // **消さずにグレーアウトする**（本人の判断）。
+    //
+    // 隠すと画面は片付きますが、**何が隠れているか分かりません。**
+    // グレーアウトなら「そのキャラクターに何が無いか」が見えます——
+    // Digital Cleanを選ぶと4つとも灰色になり、「色付けなし」の意味がそのまま出ます
+    const auto setActive = [] (ValueEntrySlider& slider, juce::Label& caption, bool active)
+    {
+        slider.setEnabled (active);
+        slider.setAlpha (active ? 1.0f : 0.4f);
+        caption.setAlpha (active ? 1.0f : 0.4f);
+    };
+
+    setActive (driveSlider, driveCaption, capabilities.drive);
+    setActive (toneSlider, toneCaption, capabilities.tone);
+    setActive (wowDepthSlider, wowDepthCaption, capabilities.wow);
+    setActive (wowRateSlider, wowRateCaption, capabilities.wow);
+    setActive (flutterDepthSlider, flutterDepthCaption, capabilities.flutter);
+    setActive (flutterRateSlider, flutterRateCaption, capabilities.flutter);
+}
 //==============================================================================
 
 void MantaDelayEditor::timerCallback()
@@ -194,12 +268,13 @@ void MantaDelayEditor::paint (juce::Graphics& g)
 
     g.setColour (MantaTheme::textDim().withAlpha (0.7f));
     g.setFont (juce::Font (juce::FontOptions (12.0f)));
-    g.drawText ("Character  ·  Filter  ·  Modulation  ·  Ducking  ·  Multi-Tap  ·  Dual Engine",
+    // 8.208：**Characterは入ったので消しました**（Phase 240）
+    g.drawText ("Filter  ·  LFO  ·  Ducking  ·  Multi-Tap  ·  Dual Engine  ·  Reverse",
                  future.removeFromTop (future.getHeight() / 2),
                  juce::Justification::centred);
 
     g.setFont (juce::Font (juce::FontOptions (11.0f)));
-    g.drawText (utf8 ("（Phase 2以降）"), future, juce::Justification::centred);
+    g.drawText (utf8 ("（Phase 3以降）"), future, juce::Justification::centred);
 }
 
 void MantaDelayEditor::resized()
@@ -279,5 +354,30 @@ void MantaDelayEditor::resized()
     // 右：タイムライン表示
 
     content.removeFromLeft (12);
-    display.setBounds (content);
+
+    // 8.208：**右側は上がディスプレイ、下がキャラクター**（Phase 240）。
+    // つまみの列（左）はPhase 1のまま触っていません——
+    // **段階を進めるたびに前の段階のものが動くと、覚え直しになります**
+    {
+        auto characterArea = content.removeFromBottom (knobHeight + sectionTitleHeight + 34);
+
+        content.removeFromBottom (10);
+        display.setBounds (content);
+
+        auto titleRow = characterArea.removeFromTop (sectionTitleHeight);
+
+        characterTitle.setBounds (titleRow.removeFromLeft (80));
+        titleRow.removeFromLeft (8);
+        characterBox.setBounds (titleRow.removeFromLeft (150).withTrimmedTop (-2).withTrimmedBottom (-4));
+
+        characterArea.removeFromTop (10);
+
+        placeKnobRow (characterArea.removeFromTop (knobHeight),
+                       { { &driveSlider, &driveCaption },
+                         { &toneSlider, &toneCaption },
+                         { &wowDepthSlider, &wowDepthCaption },
+                         { &wowRateSlider, &wowRateCaption },
+                         { &flutterDepthSlider, &flutterDepthCaption },
+                         { &flutterRateSlider, &flutterRateCaption } });
+    }
 }

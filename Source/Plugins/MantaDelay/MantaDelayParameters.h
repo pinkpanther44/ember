@@ -18,8 +18,8 @@
 
     | | 中身 |
     |---|---|
-    | **Phase 1（いまここ）** | Time／Sync／Feedback／Mix／出力レベル |
-    | Phase 2 | キャラクター（BBD・Tape・Lo-Fi）、Wow／Flutter |
+    | Phase 1 | Time／Sync／Feedback／Mix／出力レベル |
+    | **Phase 2（いまここ）** | キャラクター（BBD・Tape・Lo-Fi）、Drive／Tone／Wow／Flutter |
     | Phase 3 | フィードバック内フィルター、LFO、ダッキング |
     | Phase 4 | マルチタップ |
     | Phase 5 | デュアルエンジンとルーティング |
@@ -48,6 +48,17 @@ namespace MantaDelayParams
     /** 出口のレベル（dB）。**Mixとは別に持ちます**——
         Mixは原音との混ぜ具合、こちらは全体の音量です。 */
     inline constexpr const char* outputGain = "outputGain";
+
+    //==========================================================================
+    // 8.208：Phase 2（キャラクター）。**足すのは末尾**（上の注意書き）
+
+    inline constexpr const char* character = "character";
+    inline constexpr const char* drive = "drive";
+    inline constexpr const char* tone = "tone";
+    inline constexpr const char* wowRate = "wowRate";
+    inline constexpr const char* wowDepth = "wowDepth";
+    inline constexpr const char* flutterRate = "flutterRate";
+    inline constexpr const char* flutterDepth = "flutterDepth";
 
     //==========================================================================
     /** 5-1：音価の一覧。**並びを変えないこと**（保存されるのは番号です）。
