@@ -94,10 +94,21 @@ if ($exeText -notmatch 'Ember') {
 # ここで止めておけば、間違った作者名のまま配ることはありません。
 $info = (Get-Item $exe).VersionInfo
 
-if ($info.CompanyName -ne 'pinkpanther44' -or $info.ProductName -ne 'Ember') {
+$exeVersion = ($info.FileVersion -replace '[^0-9.]', '').Trim()
+
+# 8.226：**版も見ること**（Phase 248）。
+#
+# Phase 246まで、ここは作者名と製品名しか見ていませんでした。
+# `$version`は`CMakeLists.txt`から読むので、**`.rc`が古いままでも
+# `Ember-0.2.0-Windows-x64.zip`という名前が付き、中身は0.1.0**になります——
+# **名前と中身が食い違ったものを配る**ことになり、いちばん困る形です。
+#
+# 0.2.0を出す支度で実際にこの手当てが要り（`.rc`を手で消した）、
+# **点検が拾ってくれなかったので足しました。**
+if ($info.CompanyName -ne 'pinkpanther44' -or $info.ProductName -ne 'Ember' -or $exeVersion -ne $version) {
     Write-Host ""
-    Write-Host ("  exe says   : Company='{0}' Product='{1}'" -f $info.CompanyName, $info.ProductName) -ForegroundColor Yellow
-    Write-Host  "  expected   : Company='pinkpanther44' Product='Ember'" -ForegroundColor Yellow
+    Write-Host ("  exe says   : Company='{0}' Product='{1}' Version='{2}'" -f $info.CompanyName, $info.ProductName, $exeVersion) -ForegroundColor Yellow
+    Write-Host ("  expected   : Company='pinkpanther44' Product='Ember' Version='{0}'" -f $version) -ForegroundColor Yellow
     Write-Host  "  Delete this file and build again (juceaide only writes it once):" -ForegroundColor Yellow
     Write-Host ("    $buildDir\PersonalDAW_artefacts\JuceLibraryCode\PersonalDAW_resources.rc")
     throw "The executable's version info is stale."
