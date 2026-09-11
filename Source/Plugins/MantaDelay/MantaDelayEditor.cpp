@@ -52,11 +52,19 @@ MantaDelayEditor::MantaDelayEditor (MantaDelayProcessor& processorToUse)
     setupKnob (outputSlider, outputCaption, "Output",
                 MantaDelayTheme::highlight());
 
-    // 8.217：**この2つだけエンジン共通**（Phase 244）。作ったところで繋ぎます
+    // 8.218：戻りの入れ替え（Phase 245）。**副の色**——AとBの関わりを決めるところ
+    setupKnob (crossSlider, crossCaption, "Cross",
+                MantaDelayTheme::highlight());
+
+    // 8.217〜8.218：**この3つだけエンジン共通**（Phase 244・245）。作ったところで繋ぎます
     globalAttachments.add (new SliderAttachment (processor.getValueTreeState(),
                                                   MantaDelayParams::mix, mixSlider));
     globalAttachments.add (new SliderAttachment (processor.getValueTreeState(),
                                                   MantaDelayParams::outputGain, outputSlider));
+    globalAttachments.add (new SliderAttachment (processor.getValueTreeState(),
+                                                  MantaDelayParams::crossFeedback, crossSlider));
+
+    crossSlider.setTooltip (utf8 ("AとBで戻りをどれだけ入れ替えるか。Dualのときだけ効きます"));
 
     timeSlider.setTooltip (utf8 ("反復の間隔。Syncを入れると曲のテンポに合わせます"));
     feedbackSlider.setTooltip (utf8 ("返ってきた音をどれだけ戻すか。上げるほど長く反復します"));
@@ -327,8 +335,8 @@ MantaDelayEditor::~MantaDelayEditor()
                            &duckAmountSlider, &duckAttackSlider, &duckReleaseSlider,
                            // 8.214：Phase 4で足したぶん（Phase 243）
                            &tapCountSlider, &tapStepSlider, &tapLevelSlider, &tapPanSlider,
-                           // 8.217：Phase 5で足したぶん（Phase 244）
-                           &levelSlider, &panSlider })
+                           // 8.217〜8.218：Phase 5で足したぶん（Phase 244・245）
+                           &levelSlider, &panSlider, &crossSlider })
         slider->setLookAndFeel (nullptr);
 }
 
@@ -589,9 +597,14 @@ void MantaDelayEditor::refreshRoutingControls()
         setSelectedEngine (0);
     }
 
-    // Singleでは`Level`と`Pan`も意味がありません（混ぜる相手がいない）
+    // Singleでは`Level`と`Pan`も意味がありません（混ぜる相手がいない）。
+    // 8.218：**Ping-PongではPanが効きません**（左右を決めるのはモードそのもの。Phase 245）
     setControlActive (levelSlider, levelCaption, usesB);
-    setControlActive (panSlider, panCaption, usesB);
+    setControlActive (panSlider, panCaption, usesB && MantaDelayRouting::usesEnginePan (mode));
+
+    // 8.218：`Cross`が効くのはDualだけ（`MantaDelayRouting::usesCrossFeedback()`）。
+    // **Ping-Pongは全交換そのもの**なので、つまみで減らせると**ただのDualになります**
+    setControlActive (crossSlider, crossCaption, MantaDelayRouting::usesCrossFeedback (mode));
 }
 
 void MantaDelayEditor::refreshTapControls()
@@ -688,8 +701,7 @@ void MantaDelayEditor::paint (juce::Graphics& g)
     // ASCIIしか入っていない文字列は素で渡して構いませんが、
     // **ASCIIでない文字が1つでも混ざったら`utf8()`**です（中黒・全角空白・矢印も同じ）。
     // 「日本語かどうか」ではなく「ASCIIかどうか」で見ること
-    g.drawText (utf8 ("Ping-Pong  ·  Cross-Feedback  ·  Reverse  ·  Diffusion  ·  Freeze"
-                       "　（Phase 5b以降）"),
+    g.drawText (utf8 ("Reverse  ·  Diffusion  ·  Freeze　（Phase 6）"),
                  future, juce::Justification::centred);
 
     //--------------------------------------------------------------------------
@@ -852,6 +864,12 @@ void MantaDelayEditor::resized()
     placeKnobRow (knobs.removeFromTop (knobHeight), { { &mixSlider, &mixCaption },
                                                        { &outputSlider, &outputCaption },
                                                        { &panSlider, &panCaption } });
+
+    // 8.218：`Cross`（Phase 245）。**残っている88pxにちょうど入ります**
+    // （左の列は296pxのうち208pxを使っていました）
+    knobs.removeFromTop (4);
+
+    placeKnobRow (knobs.removeFromTop (knobHeight), { { &crossSlider, &crossCaption } });
 
     //--------------------------------------------------------------------------
     // 右：タイムライン表示

@@ -294,6 +294,13 @@ namespace MantaDelayParams
 
         addEngineParameters (1);
 
+        //----------------------------------------------------------------------
+        // 8.218：Phase 5bのクロスフィードバック（仕様書3-1／Phase 245）。**末尾へ**
+        //
+        // **既定は0%**（＝Phase 5aのDualのまま。8.209で引いた線）
+
+        addFloat (crossFeedback, "Cross", { 0.0f, 1.0f, 0.001f }, 0.0f, formatPercent);
+
         return layout;
     }
 }

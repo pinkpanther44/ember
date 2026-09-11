@@ -146,6 +146,12 @@ namespace MantaDelayParams
     inline constexpr const char* engineLevel = "engineLevel";
     inline constexpr const char* enginePan   = "enginePan";
 
+    /** 8.218：**戻りをどれだけ入れ替えるか**（仕様書3-1のCross-Feedback。Phase 245）。
+
+        **エンジン共通**です（AとBのあいだの話なので、片方だけ持っても意味がない）。
+        効くのはDualのときだけ（`MantaDelayRouting::usesCrossFeedback()`）。 */
+    inline constexpr const char* crossFeedback = "crossFeedback";
+
     //==========================================================================
     /** 5-1：音価の一覧。**並びを変えないこと**（保存されるのは番号です）。
 

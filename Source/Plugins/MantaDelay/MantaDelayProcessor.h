@@ -44,12 +44,17 @@ namespace MantaDelayUiState
     | Phase 2 | キャラクター（Digital Clean・Analog BBD・Tape Echo・Lo-Fi） |
     | Phase 3 | フィードバック内フィルター、LFOモジュレーション、ダッキング |
     | Phase 4 | マルチタップ（最大8本。`MantaDelayTaps.h`） |
-    | **Phase 5a（いまここ）** | **デュアルエンジンとルーティング**（`MantaDelayRouting.h`） |
+    | Phase 5a | デュアルエンジンとルーティング（`MantaDelayRouting.h`） |
+    | **Phase 5b（いまここ）** | **Ping-Pongとクロスフィードバック** |
 
-    **Ping-Pongとクロスフィードバックは、まだ入っていません**（Phase 5b）——
-    あの2つだけ**エンジンの中を開ける**必要があるためです（`MantaDelayRouting.h`）。
+    **残っているのはPhase 6だけ**です（リバース、ディフュージョン、Freeze、UIの仕上げ）。
 
-    そのあとはリバース、ディフュージョン、Freeze。
+    ### 8.218：1サンプルずつ回します（Phase 245）
+
+    クロスフィードバックは**Aの戻りがBの線へ入る**ので、
+    **ブロックごとにエンジンを回す形では間に合いません。**
+    `processBlock()`が`beginSample()`／`readChannel()`／`writeChannel()`を
+    交互に呼びます（`MantaDelayEngine`）。
 
     ### テンポシンク
 
@@ -220,6 +225,7 @@ private:
         std::atomic<float>* mix = nullptr;
         std::atomic<float>* outputGain = nullptr;
         std::atomic<float>* routingMode = nullptr;
+        std::atomic<float>* crossFeedback = nullptr;   // 8.218（Phase 245）
     };
 
     GlobalPointers parameters;
@@ -236,7 +242,9 @@ private:
 
         **`prepareToPlay()`で確保します**——`processBlock()`で`setSize()`を呼ぶと、
         そこで確保が起きます（9.4）。`dryMono`はダッキングが見る原音です。 */
-    juce::AudioBuffer<float> engineBufferA, engineBufferB;
+    /** 8.218：**入口の写し**（Phase 245）。`buffer`は出口として書き換えるので、
+        入口の音を別に取っておきます。`dryMono`はダッキングが見る原音。 */
+    juce::AudioBuffer<float> inputCopy;
     std::vector<float> dryMono;
 
     std::atomic<double> syncBpm { 0.0 };

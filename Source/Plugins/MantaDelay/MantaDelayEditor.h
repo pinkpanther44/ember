@@ -24,6 +24,7 @@
     │  │ Time  Fb   Level │  │                      │   │
     │  │      (Sync)      │  │  反復のタイムライン    │   │
     │  │ Mix   Out  Pan   │  │ （`MantaDelayDisplay`）│   │
+    │  │      Cross       │  │                      │   │
     │  └──────────────────┘  └──────────────────────┘   │
     │                                                    │
     │  Character [combo]  Drive Tone Wow … （Phase 2）   │
@@ -34,7 +35,7 @@
     │  │ [Type][Pre/Po]││ [Shape]     ││  ▭▬▬▬▬       │  │
     │  │ Freq  Q  Gain ││ Rate  Depth ││ Duck Atk Rel │  │
     │  └───────────────┘└─────────────┘└──────────────┘  │
-    │  ▁▁▁▁▁▁▁ Phase 5b以降の場所 ▁▁▁▁▁▁▁              │
+    │  ▁▁▁▁▁▁▁ Phase 6の場所 ▁▁▁▁▁▁▁                   │
     └────────────────────────────────────────────────────┘
     ```
 
@@ -184,7 +185,11 @@ private:
     ValueEntrySlider levelSlider { juce::Slider::RotaryHorizontalVerticalDrag, juce::Slider::TextBoxBelow };
     ValueEntrySlider panSlider   { juce::Slider::RotaryHorizontalVerticalDrag, juce::Slider::TextBoxBelow };
 
-    juce::Label timeCaption, feedbackCaption, mixCaption, outputCaption, levelCaption, panCaption;
+    /** 8.218：戻りをどれだけ入れ替えるか（Phase 245）。**エンジン共通**。 */
+    ValueEntrySlider crossSlider { juce::Slider::RotaryHorizontalVerticalDrag, juce::Slider::TextBoxBelow };
+
+    juce::Label timeCaption, feedbackCaption, mixCaption, outputCaption,
+                levelCaption, panCaption, crossCaption;
 
     juce::TextButton syncButton;
 

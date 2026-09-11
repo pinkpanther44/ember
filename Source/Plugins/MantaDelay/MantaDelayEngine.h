@@ -24,7 +24,8 @@
     | 1 | ディレイライン、テンポシンク、Feedback／Mix |
     | 2 | キャラクター（`MantaDelayCharacter`） |
     | 3 | ループ内フィルター、LFO、ダッキング |
-    | **4（いまここ）** | マルチタップ（`MantaDelayTaps`） |
+    | 4 | マルチタップ（`MantaDelayTaps`） |
+    | **5（いまここ）** | **1サンプルずつ外から回せる口**（`beginSample()`ほか。8.218） |
 
     ### 8.214：色を付ける道が2本あります（Phase 243）
 
@@ -252,114 +253,181 @@ public:
         ここには書かないこと（9.4）。 */
     void processWet (juce::AudioBuffer<float>& buffer, const float* dryMono)
     {
-        // **`juce::dsp::DelayLine`は`getNumChannels()`を持っていません**（Phase 238で踏んだ）。
-        // `prepare()`へ渡した数を自分で覚えておきます
-        const int numChannels = juce::jmin (juce::jmin (buffer.getNumChannels(), preparedChannels),
-                                             (int) feedbackCharacters.size());
+        const int numChannels = beginBlock (buffer.getNumChannels());
         const int numSamples = buffer.getNumSamples();
 
-        if (numChannels <= 0 || numSamples <= 0 || sampleRate <= 0.0)
+        if (numChannels <= 0 || numSamples <= 0)
             return;
-
-        const double targetSamples = juce::jlimit (1.0,
-                                                    (double) delayLine.getMaximumDelayInSamples() - 2.0,
-                                                    settings.delaySeconds * sampleRate);
-
-        if (currentDelaySamples < 0.0)
-            currentDelaySamples = targetSamples;   // 最初の1回だけ、いきなり合わせる
-
-        const float feedback = juce::jlimit (0.0f, 0.99f, settings.feedback);
-
-        const bool filterActive = filterDesign.active;
-        const bool filterPost = settings.filter.post;
 
         for (int i = 0; i < numSamples; ++i)
         {
-            // **毎サンプル寄せる。** ブロックの頭で1回だけ動かすと、
-            // ブロックの境目が段差になって「プチッ」と鳴ります
-            currentDelaySamples += (targetSamples - currentDelaySamples) * smoothingCoefficient;
-
-            // 8.208：Wow/Flutterの揺れ（Phase 240）。
-            // 8.211：LFOの揺れ（Phase 242）。**足す先は同じ**ですが、
-            // Wow/Flutterはキャラクターのもの、LFOは効果として掛けるものです。
-            //
-            // **チャンネルごとに進めないこと**——左右で違う揺れになると定位が動きます。
-            // ここで1回進めて、同じ値を両チャンネルへ使います。
-            //
-            // 8.214：**足す先はタップごとに増えました**（Phase 243）。
-            // 進めるのは**やはりここで1回だけ**です
-            const double modulationOffset = feedbackCharacters[0].advanceModulation()
-                                              + lfo.advance();
-
-            // 8.212：ダッキング（Phase 242）。**原音を見ます**——ディレイ音ではありません。
-            //
-            // 8.217：**その原音はプロセッサからもらいます**（Phase 244）。
-            // Phase 4までは`buffer`から作っていましたが、Seriesではそこに
-            // **Aの反復が入っている**ので、自分の出した音で自分を絞ることになります
-            const float duckGain = ducker.advance (dryMono != nullptr ? dryMono[i] : 0.0f);
-
-            // 8.214：**パターンの終わり**（Phase 243）。フィードバックはここから戻します
-            const double patternDelay = clampDelay ((double) patternSteps * currentDelaySamples
-                                                      + modulationOffset);
+            beginSample (dryMono != nullptr ? dryMono[i] : 0.0f);
 
             for (int channel = 0; channel < numChannels; ++channel)
             {
                 auto* data = buffer.getWritePointer (channel);
 
-                const float input = data[i];
+                float wet = 0.0f, feedbackOut = 0.0f;
 
-                // 8.214：**タップを足し合わせる**（Phase 243）。
-                // `updateReadPointer`を`false`にして読むだけなので、**何本でも読めます**
-                float tapSum = 0.0f;
+                readChannel (channel, wet, feedbackOut);
 
-                for (int tap = 0; tap < activeTaps; ++tap)
-                {
-                    const float tapGain = (numChannels > 1) ? tapGains[(size_t) tap][(size_t) channel]
-                                                             : tapMonoGains[(size_t) tap];
+                // **1エンジンで完結するので、戻りは自分のもの**（交換しません）
+                writeChannel (channel, data[i], feedbackOut);
 
-                    if (tapGain == 0.0f)
-                        continue;   // 鳴らないタップは読まない（読んでも状態は動きません）
-
-                    // **揺れはパターン全体に同じだけ足します**（`step`倍しない）——
-                    // 倍にすると、後ろのタップほど大きく揺れて**パターンが伸び縮み**します
-                    const double tapDelay = clampDelay ((double) tapSteps[(size_t) tap] * currentDelaySamples
-                                                          + modulationOffset);
-
-                    tapSum += tapGain * delayLine.popSample (channel, (float) tapDelay, false);
-                }
-
-                // **読み出し位置を進めるのはここ1回だけ**（最後の1回を`true`にする）。
-                // **読んでから書く**のはPhase 1から変わりません
-                const float feedbackSource = delayLine.popSample (channel, (float) patternDelay, true);
-
-                // 8.214：**色を付ける道は2本**（Phase 243。ヘッダの図）。
-                //
-                // 8.210：**フィルターもフィードバックの中**（Phase 242）。
-                // Pre／Postはキャラクターとの前後です（仕様書5-2の`Position`）——
-                // **Preは削ってから歪ませ、Postは歪ませてから削ります**
-                //
-                // 8.208：**キャラクターはフィードバックの中**（Phase 240）。
-                // 反復するたびに掛かるので、1回目より2回目が暗く、汚れていきます。
-                // **入口に1度だけ掛けると、何回反復しても同じ音**になります
-                const float wetSample = colour (tapSum, wetFilters[(size_t) channel],
-                                                 wetCharacters[(size_t) channel],
-                                                 filterActive, filterPost);
-
-                const float feedbackSample = colour (feedbackSource, feedbackFilters[(size_t) channel],
-                                                      feedbackCharacters[(size_t) channel],
-                                                      filterActive, filterPost);
-
-                delayLine.pushSample (channel, input + feedbackSample * feedback);
-
-                // 8.212：**ダッキングは出口のウェットにだけ。** 戻すほう（`pushSample`）には
-                // 掛けません——掛けると減衰の速さが入力の大きさで変わります（`MantaDelayDucker`）
-                //
-                // 8.217：**原音はもう足しません**（Phase 244。`processWet()`の説明）
-                data[i] = wetSample * duckGain;
+                data[i] = wet;
             }
         }
+    }
 
-        // 表示用。**音のスレッドから書いて、画面が読むだけ**なので`atomic`
+    //==========================================================================
+    /**
+        8.218：**1サンプルずつ外から回すための口**（Phase 245／仕様書3-1）。
+
+        Ping-Pongとクロスフィードバックは、**Aの戻りがBの線へ入ります。**
+        ブロックごとに`processWet()`を呼ぶ形では**間に合いません**——
+        Aを1ブロック分回し終えてからBを回すと、Bが受け取るのは
+        **1ブロック遅れたA**になり、ディレイタイムが勝手に伸びます。
+
+        なので**プロセッサが1サンプルずつ回します**：
+
+        ```
+        for 各サンプル:
+            A.beginSample();  B.beginSample();
+            for 各チャンネル:
+                A.readChannel (…);  B.readChannel (…);   ← 読むだけ（線は動かない）
+                戻りを混ぜる
+                A.writeChannel (…); B.writeChannel (…);  ← 書く
+        ```
+
+        **読むのが先、書くのが後**はPhase 1から変わりません（8.204）。
+        2つのエンジンのあいだでも同じで、**両方読んでから両方書きます**——
+        先にAへ書いてしまうと、Bが読むのは**もうAの新しい音が入った線**になります。
+    */
+
+    /** ブロックの頭で1回。**使えるチャンネル数**を返します（0なら回さないこと）。 */
+    int beginBlock (int bufferChannels)
+    {
+        // **`juce::dsp::DelayLine`は`getNumChannels()`を持っていません**（Phase 238で踏んだ）。
+        // `prepare()`へ渡した数を自分で覚えておきます
+        blockChannels = juce::jmin (juce::jmin (bufferChannels, preparedChannels),
+                                     (int) feedbackCharacters.size());
+
+        if (blockChannels <= 0 || sampleRate <= 0.0)
+            return 0;
+
+        targetDelaySamples = juce::jlimit (1.0,
+                                            (double) delayLine.getMaximumDelayInSamples() - 2.0,
+                                            settings.delaySeconds * sampleRate);
+
+        if (currentDelaySamples < 0.0)
+            currentDelaySamples = targetDelaySamples;   // 最初の1回だけ、いきなり合わせる
+
+        blockFeedback = juce::jlimit (0.0f, 0.99f, settings.feedback);
+        blockFilterActive = filterDesign.active;
+        blockFilterPost = settings.filter.post;
+
+        return blockChannels;
+    }
+
+    /** 1サンプルにつき1回、**チャンネルより先に**。`dryMonoSample`はダッキングが見る原音。 */
+    void beginSample (float dryMonoSample)
+    {
+        // **毎サンプル寄せる。** ブロックの頭で1回だけ動かすと、
+        // ブロックの境目が段差になって「プチッ」と鳴ります
+        currentDelaySamples += (targetDelaySamples - currentDelaySamples) * smoothingCoefficient;
+
+        // 8.208：Wow/Flutterの揺れ（Phase 240）。
+        // 8.211：LFOの揺れ（Phase 242）。**足す先は同じ**ですが、
+        // Wow/Flutterはキャラクターのもの、LFOは効果として掛けるものです。
+        //
+        // **チャンネルごとに進めないこと**——左右で違う揺れになると定位が動きます。
+        // ここで1回進めて、同じ値を両チャンネルへ使います。
+        //
+        // 8.214：**足す先はタップごとに増えました**（Phase 243）。
+        // 進めるのは**やはりここで1回だけ**です
+        const double modulationOffset = feedbackCharacters[0].advanceModulation()
+                                          + lfo.advance();
+
+        // 8.212：ダッキング（Phase 242）。**原音を見ます**——ディレイ音ではありません。
+        //
+        // 8.217：**その原音はプロセッサからもらいます**（Phase 244）。
+        // Phase 4までは`buffer`から作っていましたが、Seriesではそこに
+        // **Aの反復が入っている**ので、自分の出した音で自分を絞ることになります
+        currentDuckGain = ducker.advance (dryMonoSample);
+
+        // 8.214：**パターンの終わり**（Phase 243）。フィードバックはここから戻します
+        currentPatternDelay = clampDelay ((double) patternSteps * currentDelaySamples + modulationOffset);
+
+        for (int tap = 0; tap < activeTaps; ++tap)
+        {
+            // **揺れはパターン全体に同じだけ足します**（`step`倍しない）——
+            // 倍にすると、後ろのタップほど大きく揺れて**パターンが伸び縮み**します
+            currentTapDelays[(size_t) tap] = clampDelay ((double) tapSteps[(size_t) tap] * currentDelaySamples
+                                                           + modulationOffset);
+        }
+    }
+
+    /** チャンネル1つぶんを**読む**（線の読み出し位置はここで進みます）。
+
+        `wetOut`は出口へ出す音、`feedbackOut`は**戻す道の音**です。
+        交換するのは呼ぶ側の仕事——`feedbackOut`には`feedback`を掛けていません。 */
+    void readChannel (int channel, float& wetOut, float& feedbackOut)
+    {
+        // 8.214：**タップを足し合わせる**（Phase 243）。
+        // `updateReadPointer`を`false`にして読むだけなので、**何本でも読めます**
+        float tapSum = 0.0f;
+
+        for (int tap = 0; tap < activeTaps; ++tap)
+        {
+            const float tapGain = (blockChannels > 1) ? tapGains[(size_t) tap][(size_t) channel]
+                                                       : tapMonoGains[(size_t) tap];
+
+            if (tapGain == 0.0f)
+                continue;   // 鳴らないタップは読まない（読んでも状態は動きません）
+
+            tapSum += tapGain * delayLine.popSample (channel, (float) currentTapDelays[(size_t) tap], false);
+        }
+
+        // **読み出し位置を進めるのはここ1回だけ**（最後の1回を`true`にする）。
+        // **読んでから書く**のはPhase 1から変わりません
+        const float feedbackSource = delayLine.popSample (channel, (float) currentPatternDelay, true);
+
+        {
+            const bool filterActive = blockFilterActive;
+            const bool filterPost = blockFilterPost;
+
+            // 8.214：**色を付ける道は2本**（Phase 243。ヘッダの図）。
+            //
+            // 8.210：**フィルターもフィードバックの中**（Phase 242）。
+            // Pre／Postはキャラクターとの前後です（仕様書5-2の`Position`）——
+            // **Preは削ってから歪ませ、Postは歪ませてから削ります**
+            //
+            // 8.208：**キャラクターはフィードバックの中**（Phase 240）。
+            // 反復するたびに掛かるので、1回目より2回目が暗く、汚れていきます。
+            // **入口に1度だけ掛けると、何回反復しても同じ音**になります
+            //
+            // 8.212：**ダッキングは出口のウェットにだけ。** 戻すほうには掛けません——
+            // 掛けると減衰の速さが入力の大きさで変わります（`MantaDelayDucker`）
+            wetOut = colour (tapSum, wetFilters[(size_t) channel],
+                              wetCharacters[(size_t) channel],
+                              filterActive, filterPost) * currentDuckGain;
+
+            feedbackOut = colour (feedbackSource, feedbackFilters[(size_t) channel],
+                                   feedbackCharacters[(size_t) channel],
+                                   filterActive, filterPost);
+        }
+    }
+
+    /** チャンネル1つぶんを**書く**。
+
+        `feedbackIn`は**交換を済ませた戻り**（`feedback`はここで掛けます）——
+        Ping-Pongなら相手のもの、Dualなら自分と相手を混ぜたもの、Singleなら自分のもの。 */
+    void writeChannel (int channel, float input, float feedbackIn)
+    {
+        delayLine.pushSample (channel, input + feedbackIn * blockFeedback);
+
+        // 表示用。**音のスレッドから書いて、画面が読むだけ**なので`atomic`。
+        // **チャンネルごとに書いても同じ値**なので、まとめずにここで済ませます
         displayDelaySeconds.store (currentDelaySamples / sampleRate);
         displayDuckReduction.store (ducker.getReductionForDisplay());
     }
@@ -453,6 +521,19 @@ private:
     std::array<int, (size_t) MantaDelayTaps::maxTaps> tapSteps { { 1 } };
     std::array<std::array<float, 2>, (size_t) MantaDelayTaps::maxTaps> tapGains {};
     std::array<float, (size_t) MantaDelayTaps::maxTaps> tapMonoGains {};
+
+    /** 8.218：`beginBlock()`／`beginSample()`が置いて、`readChannel()`が読むもの
+        （Phase 245）。**1サンプルずつ外から回せるようにするため**に持っています——
+        以前はぜんぶ`processWet()`の中のローカル変数でした。 */
+    int blockChannels = 0;
+    double targetDelaySamples = 0.0;
+    float blockFeedback = 0.0f;
+    bool blockFilterActive = false;
+    bool blockFilterPost = false;
+
+    float currentDuckGain = 1.0f;
+    double currentPatternDelay = 1.0;
+    std::array<double, (size_t) MantaDelayTaps::maxTaps> currentTapDelays {};
 
     /** 8.211：LFO（Phase 242）。**1つだけ**——左右で同じ揺れを使います。 */
     MantaDelayLfo::Oscillator lfo;

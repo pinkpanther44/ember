@@ -579,6 +579,7 @@
     { "Listen中", "Listening", false },
 
     // MantaDelayEditor.cpp
+    { "AとBで戻りをどれだけ入れ替えるか。Dualのときだけ効きます", "How much of the feedback A and B swap. Dual only", true },
     { "反復の間隔。Syncを入れると曲のテンポに合わせます", "How far apart the repeats are. Turn on Sync to follow the song tempo", true },
     { "返ってきた音をどれだけ戻すか。上げるほど長く反復します", "How much of the echo is fed back. Higher means the repeats last longer", true },
     { "このエンジンの音量。AとBの釣り合いを取ります", "This engine's level - it balances A against B", true },
@@ -605,7 +606,7 @@
     { "そのタップの音量", "The level of this tap", true },
     { "そのタップの左右の位置", "Where this tap sits left to right", true },
     { "テンポが取れていません（Timeの値で鳴っています）", "No tempo from the host - using the Time value", true },
-    { "Ping-Pong  ·  Cross-Feedback  ·  Reverse  ·  Diffusion  ·  Freeze　（Phase 5b以降）", "Ping-Pong  ·  Cross-Feedback  ·  Reverse  ·  Diffusion  ·  Freeze  (Phase 5b onwards)", true },
+    { "Reverse  ·  Diffusion  ·  Freeze　（Phase 6）", "Reverse  ·  Diffusion  ·  Freeze  (Phase 6)", true },
 
     // MantaEQEditor.cpp
     { "Linear Phaseは位相をずらさない代わりに遅れます", "Linear Phase keeps the phase intact, at the cost of latency", true },

@@ -32,7 +32,8 @@ MantaDelayProcessor::MantaDelayProcessor()
     // 8.217：**エンジン共通**（Phase 244）
     parameters.mix         = get (MantaDelayParams::mix);
     parameters.outputGain  = get (MantaDelayParams::outputGain);
-    parameters.routingMode = get (MantaDelayParams::routingMode);
+    parameters.routingMode   = get (MantaDelayParams::routingMode);
+    parameters.crossFeedback = get (MantaDelayParams::crossFeedback);   // 8.218（Phase 245）
 
     // **文字列で引くのはここだけ**（毎ブロック引き直すと無視できない時間になります）
     for (int engine = 0; engine < MantaDelayParams::numEngines; ++engine)
@@ -151,8 +152,7 @@ void MantaDelayProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
                          MantaDelayParams::maxDelayMs / 1000.0);
 
     // 8.217：ルーティングで使う場所（Phase 244）。**ここで取ること**
-    engineBufferA.setSize (numChannels, samplesPerBlock, false, true, true);
-    engineBufferB.setSize (numChannels, samplesPerBlock, false, true, true);
+    inputCopy.setSize (numChannels, samplesPerBlock, false, true, true);
 
     dryMono.assign ((size_t) juce::jmax (1, samplesPerBlock), 0.0f);
 }
@@ -295,11 +295,13 @@ void MantaDelayProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
     for (int channel = getTotalNumInputChannels(); channel < getTotalNumOutputChannels(); ++channel)
         buffer.clear (channel, 0, numSamples);
 
-    if (numSamples <= 0 || numChannels <= 0 || numSamples > (int) dryMono.size())
+    if (numSamples <= 0 || numChannels <= 0
+         || numSamples > (int) dryMono.size()
+         || numSamples > inputCopy.getNumSamples())
         return;
 
     //--------------------------------------------------------------------------
-    // 8.217：Phase 5aのルーティング（Phase 244／仕様書3-1）
+    // 8.217〜8.218：ルーティング（Phase 244・245／仕様書3-1）
 
     for (int engine = 0; engine < MantaDelayParams::numEngines; ++engine)
         engines[(size_t) engine].setSettings (buildEngineSettings (engine));
@@ -310,23 +312,35 @@ void MantaDelayProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
     const float dryAmount = 1.0f - wetAmount;
     const float outputGain = juce::Decibels::decibelsToGain (parameters.outputGain->load());
 
-    // **ダッキングが見る原音**（左右をまとめたもの）。**書き換える前に作ること**——
-    // あとから作ると、混ぜたあとの音を見ることになります（8.212）
+    // 8.218：**戻りをどれだけ入れ替えるか**（Phase 245）。判断は`MantaDelayRouting`ただ1つ
+    const float cross = MantaDelayRouting::getCrossAmount (mode, parameters.crossFeedback->load());
+    const float keep = 1.0f - cross;
+
+    const bool usesB = MantaDelayRouting::usesEngineB (mode)
+                         && ! (mode == MantaDelayRouting::Mode::splitLR && numChannels < 2);
+
+    //--------------------------------------------------------------------------
+    // 入口を取っておく。**`buffer`は出口として書き換えます**
+
+    const float monoScale = 1.0f / (float) numChannels;
+
+    for (int i = 0; i < numSamples; ++i)
     {
-        const float scale = 1.0f / (float) numChannels;
+        float sum = 0.0f;
 
-        for (int i = 0; i < numSamples; ++i)
-        {
-            float sum = 0.0f;
+        for (int channel = 0; channel < numChannels; ++channel)
+            sum += buffer.getReadPointer (channel)[i];
 
-            for (int channel = 0; channel < numChannels; ++channel)
-                sum += buffer.getReadPointer (channel)[i];
-
-            dryMono[(size_t) i] = sum * scale;
-        }
+        dryMono[(size_t) i] = sum * monoScale;
     }
 
+    // **`makeCopyOf()`は確保します**（9.4）。`prepareToPlay()`で取った場所へ写します
+    for (int channel = 0; channel < juce::jmin (numChannels, inputCopy.getNumChannels()); ++channel)
+        inputCopy.copyFrom (channel, 0, buffer, channel, 0, numSamples);
+
+    //--------------------------------------------------------------------------
     // エンジンの出口のレベルと定位。**パンの式はタップと同じものを使います**（1.27）
+
     float gainA[2] = { 1.0f, 1.0f };
     float gainB[2] = { 1.0f, 1.0f };
 
@@ -334,100 +348,113 @@ void MantaDelayProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
         const auto& a = engineParameters[0];
         const auto& b = engineParameters[1];
 
-        MantaDelayTaps::getPanGains (a.pan->load(), gainA[0], gainA[1]);
-        MantaDelayTaps::getPanGains (b.pan->load(), gainB[0], gainB[1]);
+        // 8.218：**Ping-PongではPanが効きません**（左右を決めるのはモードそのもの）
+        if (MantaDelayRouting::usesEnginePan (mode) && numChannels > 1)
+        {
+            MantaDelayTaps::getPanGains (a.pan->load(), gainA[0], gainA[1]);
+            MantaDelayTaps::getPanGains (b.pan->load(), gainB[0], gainB[1]);
+        }
 
         const float levelA = juce::jlimit (0.0f, 1.0f, a.level->load());
         const float levelB = juce::jlimit (0.0f, 1.0f, b.level->load());
 
         for (int side = 0; side < 2; ++side)
         {
-            // モノラルではパンの行き先がないので、Levelだけ（タップと同じ扱い）
-            gainA[side] = (numChannels > 1) ? gainA[side] * levelA : levelA;
-            gainB[side] = (numChannels > 1) ? gainB[side] * levelB : levelB;
-        }
-    }
-
-    // **`makeCopyOf()`は確保します**（9.4）。`prepareToPlay()`で取った場所へ
-    // `copyFrom()`で写します
-    const auto fillFrom = [numChannels, numSamples] (juce::AudioBuffer<float>& destination,
-                                                      const juce::AudioBuffer<float>& source)
-    {
-        const int count = juce::jmin (numSamples, destination.getNumSamples());
-
-        for (int channel = 0; channel < juce::jmin (numChannels, destination.getNumChannels()); ++channel)
-            destination.copyFrom (channel, 0, source, channel, 0, count);
-    };
-
-    // **Split L/Rはモノラルでは成り立ちません**（分ける先が無い）。
-    // 黙ってAだけにします——**片方を無音にするより、鳴るほうがまし**
-    const bool usesB = MantaDelayRouting::usesEngineB (mode)
-                         && ! (mode == MantaDelayRouting::Mode::splitLR && numChannels < 2)
-                         && numSamples <= engineBufferB.getNumSamples();
-
-    fillFrom (engineBufferA, buffer);
-
-    if (mode == MantaDelayRouting::Mode::series && usesB)
-    {
-        // **AをBの入口へ。** Aのレベルは「Bへどれだけ送るか」になります
-        engines[0].processWet (engineBufferA, dryMono.data());
-
-        for (int channel = 0; channel < numChannels; ++channel)
-            engineBufferA.applyGain (channel, 0, numSamples, gainA[juce::jmin (channel, 1)]);
-
-        fillFrom (engineBufferB, engineBufferA);
-
-        // **原音はプラグインの入口のまま渡します**（`processWet()`の説明）
-        engines[1].processWet (engineBufferB, dryMono.data());
-    }
-    else
-    {
-        engines[0].processWet (engineBufferA, dryMono.data());
-
-        if (usesB)
-        {
-            fillFrom (engineBufferB, buffer);
-            engines[1].processWet (engineBufferB, dryMono.data());
+            gainA[side] *= levelA;
+            gainB[side] *= levelB;
         }
     }
 
     //--------------------------------------------------------------------------
-    // 出口で混ぜる
+    // 8.218：**1サンプルずつ、2つのエンジンを交互に回します**（Phase 245）。
+    //
+    // Phase 5aはブロックごとに`processWet()`を呼んでいましたが、
+    // クロスフィードバックは**Aの戻りがBの線へ入る**ので間に合いません——
+    // Aを1ブロック回し終えてからBを回すと、Bが受け取るのは**1ブロック遅れたA**です。
+    //
+    // **道は1本にしました。** Singleも同じ輪を通ります（`usesB`が`false`になるだけ）——
+    // モードごとに別の道を作ると、**片方だけ直す日**が来ます（1.27）。
 
-    for (int channel = 0; channel < numChannels; ++channel)
+    if (engines[0].beginBlock (numChannels) <= 0)
+        return;
+
+    if (usesB && engines[1].beginBlock (numChannels) <= 0)
+        return;
+
+    for (int i = 0; i < numSamples; ++i)
     {
-        auto* data = buffer.getWritePointer (channel);
+        engines[0].beginSample (dryMono[(size_t) i]);
 
-        const auto* wetA = engineBufferA.getReadPointer (channel);
-        const auto* wetB = usesB ? engineBufferB.getReadPointer (channel) : nullptr;
+        if (usesB)
+            engines[1].beginSample (dryMono[(size_t) i]);
 
-        const int side = juce::jmin (channel, 1);
-
-        for (int i = 0; i < numSamples; ++i)
+        for (int channel = 0; channel < numChannels; ++channel)
         {
-            float wet = 0.0f;
+            const int side = juce::jmin (channel, 1);
+
+            const float input = inputCopy.getReadPointer (channel)[i];
+
+            // **両方読んでから、両方書く。** 先にAへ書いてしまうと、
+            // Bが読むのは**もうAの新しい音が入った線**になります
+            float wetA = 0.0f, feedbackA = 0.0f;
+            float wetB = 0.0f, feedbackB = 0.0f;
+
+            engines[0].readChannel (channel, wetA, feedbackA);
+
+            if (usesB)
+                engines[1].readChannel (channel, wetB, feedbackB);
+
+            //------------------------------------------------------------------
+            // 8.218：**戻りを入れ替える**（Phase 245）。
+            //
+            // **混ぜること。足さないこと。** `自分 + cross × 相手`にすると、
+            // 一周の利得が`feedback`を超えます——8.209（Driveの補正）と
+            // 8.210（フィルターの山）でやったのと**まったく同じ間違い**です。
+            //
+            // 混ぜる形なら、行列`[[(1-x)a, xa], [xb, (1-x)b]]`の固有値は
+            // 大きいほうでも`max(a, b)`を超えません（`x = 1`のときは`±√(ab)`）。
+            // **つまり、どこまで回しても`feedback`の上限95%が効いています。**
+
+            const float toA = usesB ? (feedbackA * keep + feedbackB * cross) : feedbackA;
+            const float toB = usesB ? (feedbackB * keep + feedbackA * cross) : feedbackB;
+
+            //------------------------------------------------------------------
+            // 入口（モードごと）
+
+            float inA = 0.0f;
+            float inB = 0.0f;
 
             switch (mode)
             {
                 case MantaDelayRouting::Mode::single:
-                    wet = wetA[i] * gainA[side];
+                    inA = input;
                     break;
 
                 case MantaDelayRouting::Mode::dual:
-                    wet = wetA[i] * gainA[side] + (wetB != nullptr ? wetB[i] * gainB[side] : 0.0f);
+                    inA = input;
+                    inB = input;
                     break;
 
                 case MantaDelayRouting::Mode::series:
-                    // **出てくるのはBだけ**（Aの音はもうBの中を通っています）
-                    wet = (wetB != nullptr) ? wetB[i] * gainB[side] : wetA[i] * gainA[side];
+                    // **AをBの入口へ。** Aのレベルは「Bへどれだけ送るか」になります
+                    inA = input;
+                    inB = wetA * gainA[side];
                     break;
 
                 case MantaDelayRouting::Mode::splitLR:
-                    // **左はA、右はB**
-                    if (wetB == nullptr)
-                        wet = wetA[i] * gainA[side];
-                    else
-                        wet = (channel == 0) ? wetA[i] * gainA[0] : wetB[i] * gainB[1];
+                    // **Aは左だけ、Bは右だけ**（モノラルのときは`usesB`が`false`なのでAだけ）
+                    inA = (channel == 0 || ! usesB) ? input : 0.0f;
+                    inB = (channel == 1) ? input : 0.0f;
+                    break;
+
+                case MantaDelayRouting::Mode::pingPong:
+                    // 8.218：**入口はAだけ**（Phase 245）。Bは相手の戻りだけで鳴ります——
+                    // Bにも入れると、1回目から左右そろって鳴って**跳ねません**。
+                    //
+                    // **左右はまとめて入れます**（`collapsesInputToMono()`）——
+                    // 両エンジンをハードパンするので、ステレオのまま入れても
+                    // 左右の情報は残らず、**1回目の反復が片側だけ欠けます**
+                    inA = dryMono[(size_t) i];
                     break;
 
                 case MantaDelayRouting::Mode::count:
@@ -435,7 +462,46 @@ void MantaDelayProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
                     break;
             }
 
-            data[i] = (data[i] * dryAmount + wet * wetAmount) * outputGain;
+            engines[0].writeChannel (channel, inA, toA);
+
+            if (usesB)
+                engines[1].writeChannel (channel, inB, toB);
+
+            //------------------------------------------------------------------
+            // 出口
+
+            float wet = 0.0f;
+
+            switch (mode)
+            {
+                case MantaDelayRouting::Mode::single:
+                    wet = wetA * gainA[side];
+                    break;
+
+                case MantaDelayRouting::Mode::dual:
+                    wet = wetA * gainA[side] + wetB * gainB[side];
+                    break;
+
+                case MantaDelayRouting::Mode::series:
+                    // **出てくるのはBだけ**（Aの音はもうBの中を通っています）
+                    wet = usesB ? wetB * gainB[side] : wetA * gainA[side];
+                    break;
+
+                case MantaDelayRouting::Mode::splitLR:
+                case MantaDelayRouting::Mode::pingPong:
+                    // **左はA、右はB**
+                    if (! usesB)
+                        wet = wetA * gainA[side];
+                    else
+                        wet = (channel == 0) ? wetA * gainA[0] : wetB * gainB[1];
+                    break;
+
+                case MantaDelayRouting::Mode::count:
+                default:
+                    break;
+            }
+
+            buffer.getWritePointer (channel)[i] = (input * dryAmount + wet * wetAmount) * outputGain;
         }
     }
 }
