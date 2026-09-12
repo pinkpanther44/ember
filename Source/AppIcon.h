@@ -84,11 +84,50 @@ namespace AppIcon
         ### 窓が画面に出てから呼ぶこと
 
         ピアは`setVisible(true)`（`addToDesktop()`）で初めてできます。
-        **それより前に呼ぶと`getPeer()`が`nullptr`**で、やはり何も起きません。 */
+        **それより前に呼ぶと`getPeer()`が`nullptr`**で、やはり何も起きません。
+
+        ### 8.235：**縮めてから渡すこと**（Phase 251／2度目の「まだ歯車」）
+
+        ピアへ渡しても、**まだ歯車のままでした。**
+
+        リポジトリのアイコンは**1000×1000**（Emberは1000、Mantaは1024）。
+        JUCEの`XWindowSystem::setIcon()`は`_NET_WM_ICON`を
+        **`幅×高さ+2`個の`unsigned long`**で組むので、64bitでは
+
+        ```
+            (1000 × 1000 + 2) × 8バイト ≒ 8MB
+        ```
+
+        **X11のリクエスト上限に当たって、黙って捨てられます。**
+        Xのエラーは非同期で返るうえ、JUCEはそれを握り潰すので、
+        **呼び出しは成功したように見えます。**
+
+        `_NET_WM_ICON`が想定しているのは16〜256px程度です。
+        **128×128**にしています——これで約131KBに収まり、
+        ドックの実表示（48〜64px、HiDPIでも128px程度）には十分です。
+
+        > **「呼べた」と「届いた」は別。** ここは2回続けて、
+        > **呼べているのに届いていない**でつまずきました
+        > （1度目は`DocumentWindow::setIcon()`、2度目は大きさ）。 */
+    inline constexpr int windowIconSize = 128;
+
     inline void applyToWindow (juce::Component& window)
     {
-        if (auto* peer = window.getPeer())
-            if (const auto icon = load(); icon.isValid())
-                peer->setIcon (icon);
+        auto* peer = window.getPeer();
+
+        if (peer == nullptr)
+            return;   // まだ画面に出ていない（上の説明）
+
+        const auto icon = load();
+
+        if (! icon.isValid())
+            return;
+
+        // **縮めてから渡す**（上の説明）。ついでに`getPixelAt()`を100万回
+        // 呼ばずに済みます——あれは1画素ずつロックを取る作りです
+        peer->setIcon (icon.getWidth() == windowIconSize && icon.getHeight() == windowIconSize
+                          ? icon
+                          : icon.rescaled (windowIconSize, windowIconSize,
+                                            juce::Graphics::highResamplingQuality));
     }
 }

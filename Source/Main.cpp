@@ -358,6 +358,10 @@ public:
             // （メニューとウィンドウ操作が出ていないと、閉じることもできなくなる）。
             setFullScreen (true);
 
+            // 8.235：**最大化のあともう一度渡します**（Phase 251）。
+            // ピアが作り直されたときに消えないための保険で、128pxなら安いものです
+            AppIcon::applyToWindow (*this);
+
             toFront (true);
         }
 
