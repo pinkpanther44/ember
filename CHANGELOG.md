@@ -23,9 +23,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - Ctrl-dragging a **multiple selection** of audio clips duplicated only the one
   you were holding. All of them are copied now, and the copies end up selected
-- The **Linux window and taskbar icon** was a generic cog. JUCE's icon setting
-  covers Windows and macOS only; on Linux the icon has to be handed to the
-  window by the application, which it now is
+- The **Linux window icon** was a generic cog. JUCE's icon setting covers
+  Windows and macOS only; on Linux the icon has to be handed to the window by
+  the application, and it has to be small enough for X to carry — the source
+  image is 1000 px square, which was quietly too large to deliver
+- The Linux archive now includes the icon and `install-desktop-entry.sh`.
+  **GNOME ignores the window's own icon** and looks for a matching desktop
+  entry, so without one it shows a generic icon however correct the window is
 - The application reported version 0.1.0 to the system however it was built,
   because the number was written out in a second place instead of being read
   from the one that sets it

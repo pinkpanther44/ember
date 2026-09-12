@@ -148,6 +148,54 @@ jobs:
           mkdir -p "stage/$NAME"
           cp "$EMBER" "stage/$NAME/"
           cp Packaging/Ember/README.md Packaging/Ember/CHANGELOG.md Packaging/Ember/LICENSE.txt "stage/$NAME/"
+
+          # 8.236：**アイコンとデスクトップ項目を同梱する**（Phase 252／本人の報告）。
+          #
+          # アプリは`_NET_WM_ICON`を正しく立てています（8.235で確かめました）が、
+          # **GNOME（Wayland）のドックはそれを読みません**——窓の`WM_CLASS`に
+          # 合う`.desktop`を探して、**そちらのアイコン**を出します。
+          # 合うものが無いと「実行ファイル」の既定の絵（**歯車**）になります。
+          #
+          # `Exec=`は展開した場所によって変わるので、**その場で書く小さなスクリプト**を
+          # 入れます（雛形を置いて手で直してもらうより間違いが少ない）。
+          cp Resources/Icons/ember_icon.png "stage/$NAME/ember.png"
+
+          cat > "stage/$NAME/install-desktop-entry.sh" <<'INSTALLER'
+          #!/bin/sh
+          # Puts a desktop entry in your home folder so that Ember shows its own
+          # icon in the dock and the application list, instead of a generic one.
+          #
+          # Nothing outside ~/.local/share is touched. To undo:
+          #   rm ~/.local/share/applications/ember.desktop ~/.local/share/icons/ember.png
+          set -e
+
+          HERE="$(cd "$(dirname "$0")" && pwd)"
+          APPS="$HOME/.local/share/applications"
+          ICONS="$HOME/.local/share/icons"
+
+          mkdir -p "$APPS" "$ICONS"
+          cp "$HERE/ember.png" "$ICONS/ember.png"
+
+          cat > "$APPS/ember.desktop" <<DESKTOP
+          [Desktop Entry]
+          Type=Application
+          Name=Ember
+          Comment=Digital audio workstation
+          Exec=$HERE/Ember
+          Icon=$ICONS/ember.png
+          StartupWMClass=Ember
+          Categories=AudioVideo;Audio;AudioVideoEditing;
+          Terminal=false
+          DESKTOP
+
+          update-desktop-database "$APPS" 2>/dev/null || true
+
+          echo "Installed $APPS/ember.desktop"
+          echo "If Ember is running, close and start it again to see the icon."
+          INSTALLER
+
+          chmod +x "stage/$NAME/install-desktop-entry.sh"
+
           tar -C stage -czf "$NAME.tar.gz" "$NAME"
           echo "NAME=$NAME" >> "$GITHUB_ENV"
 

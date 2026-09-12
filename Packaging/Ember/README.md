@@ -65,6 +65,28 @@ code-signed. Choose **More info → Run anyway** if you are happy to continue.
 **Start it from a terminal the first time.** A desktop launcher hides any
 message the application prints if something goes wrong.
 
+#### If the dock shows a generic icon
+
+Ember sets its own window icon, and most desktops use it. **GNOME does not** —
+it looks for a desktop entry whose `StartupWMClass` matches the window instead,
+and falls back to a generic one when it finds none. That is what the cog is.
+
+The archive carries a script that writes the entry into your home folder:
+
+```
+./install-desktop-entry.sh
+```
+
+It touches nothing outside `~/.local/share`. To undo it:
+
+```
+rm ~/.local/share/applications/ember.desktop ~/.local/share/icons/ember.png
+```
+
+The AppImage carries the same entry inside it, but nothing installs it on your
+behalf unless you use a tool that integrates AppImages. Until then GNOME shows
+the generic icon for it too.
+
 ## First run
 
 1. **Pick your audio device.** File → Preferences → Audio. Ember uses Windows
