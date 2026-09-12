@@ -57,4 +57,38 @@ namespace AppIcon
     {
         return loadEmbedded (Branding::isEmber ? "ember_icon_png" : "app_icon_png");
     }
+
+    //==========================================================================
+    /** 8.234：**窓そのものにアイコンを渡す**（Phase 251／本人の報告「まだ歯車のまま」）。
+
+        ### `DocumentWindow::setIcon()`では届きません
+
+        Phase 249ではこう書いて、**何も起きませんでした**：
+
+        ```cpp
+        void DocumentWindow::setIcon (const Image& imageToUse)
+        {
+            titleBarIcon = imageToUse;   // ← これだけ
+            repaintTitleBar();
+        }
+        ```
+
+        **JUCEが自分で描くタイトルバーの絵**を変えるだけです。
+        `setUsingNativeTitleBar (true)`にしてあるので**そのタイトルバーは描かれず**、
+        呼んでも呼ばなくても同じでした。
+
+        X11へ渡す（`_NET_WM_ICON`を立てる）のは**`ComponentPeer::setIcon()`**のほうです。
+
+        > **同じ名前で、届く先が違います。** 呼べたから効いている、とは限りません。
+
+        ### 窓が画面に出てから呼ぶこと
+
+        ピアは`setVisible(true)`（`addToDesktop()`）で初めてできます。
+        **それより前に呼ぶと`getPeer()`が`nullptr`**で、やはり何も起きません。 */
+    inline void applyToWindow (juce::Component& window)
+    {
+        if (auto* peer = window.getPeer())
+            if (const auto icon = load(); icon.isValid())
+                peer->setIcon (icon);
+    }
 }

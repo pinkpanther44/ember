@@ -164,6 +164,14 @@ jobs:
           cp Resources/Icons/ember_icon.png AppDir/usr/share/icons/hicolor/256x256/apps/ember.png
           cp Resources/Icons/ember_icon.png AppDir/ember.png
 
+          # 8.234：**`StartupWMClass`を入れること**（Phase 251／本人の報告）。
+          #
+          # GNOMEのドックは、窓の`WM_CLASS`と`.desktop`を突き合わせて
+          # **`.desktop`のアイコン**を出します。合うものが無いと
+          # 「実行ファイル」の既定の絵（**歯車**）になります。
+          #
+          # JUCEは`WM_CLASS`にアプリ名をそのまま入れます
+          # （`XWindowSystem_linux.cpp`。ここでは`Ember`）。
           cat > AppDir/ember.desktop <<'DESKTOP'
           [Desktop Entry]
           Type=Application
@@ -171,6 +179,7 @@ jobs:
           Comment=Digital audio workstation
           Exec=Ember
           Icon=ember
+          StartupWMClass=Ember
           Categories=AudioVideo;Audio;AudioVideoEditing;
           Terminal=false
           DESKTOP

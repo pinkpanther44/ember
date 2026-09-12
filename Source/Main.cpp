@@ -304,16 +304,16 @@ public:
             //
             // `juce_add_gui_app`の`ICON_BIG`は**WindowsのexeとmacOSのバンドル**に効きますが、
             // **Linuxには効きません**——juceaideが作るのは`.ico`と`.icns`だけで、
-            // X11の窓に付けるアイコンはアプリが`setIcon()`で渡す決まりです。
+            // X11の窓に付けるアイコンはアプリが渡す決まりです。
             //
             // 渡さないと、デスクトップ環境が「実行ファイル」の既定の絵を出します
             // （**歯車**が出るのはこれ）。AppImageに`.desktop`とアイコンを入れてあっても、
             // **走り出したあとの窓とタスクバーはそれとは別**です。
             //
-            // **`setContentOwned()`より先に呼びます**（窓が出てから渡すと、
-            // 出た直後の一瞬だけ既定の絵が見えます）
-            if (const auto icon = AppIcon::load(); icon.isValid())
-                setIcon (icon);
+            // 8.234：**渡すのは`revealAfterStartup()`**（Phase 251）。
+            // ここで`DocumentWindow::setIcon()`を呼んでいましたが、
+            // **あれはJUCEが自分で描くタイトルバーの絵**で、X11へは届きません
+            // （`AppIcon::applyToWindow()`の説明）。ピアは窓が出てから出来ます
 
             setContentOwned (new MainComponent(), true);
 
@@ -343,6 +343,10 @@ public:
                 return;
 
             setVisible (true);
+
+            // 8.234：**ここで窓へアイコンを渡します**（Phase 251／本人の報告）。
+            // `setVisible(true)`で初めてピアが出来るので、**これより前では届きません**
+            AppIcon::applyToWindow (*this);
 
             // 設計書2.2：起動時は画面いっぱいに開く（Phase 63／8.1のC8）。
             //

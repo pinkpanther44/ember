@@ -1,5 +1,6 @@
 #include "ProjectChooser.h"
 #include "AppColours.h"
+#include "AppIcon.h"    // 8.234：窓のアイコン（Phase 251）
 #include "ProjectModel.h"
 #include "RecentProjects.h"
 #include "StorageLocations.h"
@@ -324,6 +325,11 @@ ProjectChooserWindow::ProjectChooserWindow()
 
     centreWithSize (getWidth(), getHeight());
     setVisible (true);
+
+    // 8.234：**この窓にもアイコンを渡します**（Phase 251）。
+    // 起動していちばん先に出るのはここなので、**これが無いと最初の絵が歯車**です
+    AppIcon::applyToWindow (*this);
+
     toFront (true);
 }
 
