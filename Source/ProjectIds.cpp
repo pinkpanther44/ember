@@ -84,6 +84,7 @@ namespace IDs
     const juce::Identifier clipHitPoints      { "hitPoints" };
     const juce::Identifier clipGainDb         { "gainDb" };
     const juce::Identifier clipReversed       { "reversed" };
+    const juce::Identifier clipMono           { "mono" };          // 8.228（Phase 249）
     const juce::Identifier clipTranspose      { "transpose" };   // 8.147（Phase 185／改善案㉞）
     const juce::Identifier clipStretch        { "stretch" };     // 8.149（Phase 187／8.48）
 

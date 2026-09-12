@@ -451,9 +451,17 @@ public:
         trackIdが空文字なら「トラックを指定せずに落とされた」（呼び出し側が決める）。
 
         8.154：**複数まとめて来ます**（Phase 192）。1つのときも要素1つの配列です
-        ——「1つのときだけ別の口」にすると、受け手が2通りを見ることになります（1.27）。 */
+        ——「1つのときだけ別の口」にすると、受け手が2通りを見ることになります（1.27）。
+
+        8.232：`intoNewTrack`は**空白の場所へ落とされた**という合図です（Phase 250）。
+        音源プラグインを空白へ落としたときと同じ扱いで、**トラックごと作ります**。
+
+        > **`trackId`が空なだけでは足りません。** あれは
+        > 「行の上ではなかった」（ルーラーやヘッダーの上を含む）という意味で、
+        > **そのときの行き先は「最初のオーディオトラック」**でした。
+        > 空白へ落としたときだけ作りたいので、**別の合図が要ります。** */
     std::function<void (const juce::StringArray& paths, const juce::String& trackId,
-                         double startTime)> onFilesDropped;
+                         double startTime, bool intoNewTrack)> onFilesDropped;
 
 private:
     // Seekはクリップの編集ではなく再生位置の変更（Phase 18）。
@@ -871,13 +879,33 @@ private:
     /** 8.42：選んでいる他のクリップも、同じだけ時間方向へ動かす（Phase 82）。
         **掴んだクリップを書いた後に呼ぶこと**（3.1）。 */
     void moveOtherSelectedClipsByDrag (double deltaTime);
+
+    /** 8.227：Ctrl＋ドラッグで複製するときの、**掴んだもの以外**（Phase 249）。
+
+        `moveOtherSelectedClipsByDrag()`の複製版です。動かす側と**同じ約束**——
+        掴んだものがトラックをまたいでも、**他は自分のトラックに残ります。** */
+    struct SelectedClipSource
+    {
+        juce::String trackId;
+        juce::ValueTree state;
+    };
+
+    /** **複製する前に集めること。** 複製はクリップを増やすので、
+        走りながら足すと**足したものをまた複製し続けます。** */
+    std::vector<SelectedClipSource> collectOtherSelectedClips (const juce::String& draggedClipId) const;
+
+    /** 集めたものを、それぞれ自分のトラックへ`deltaTime`ずらして置く。
+        できたものの`ClipRef`を返します（選び直すのに使います）。 */
+    std::vector<ClipRef> duplicateCollectedClips (const std::vector<SelectedClipSource>& sources,
+                                                  double deltaTime);
     /** 8.61：`trackColour`は**そのトラックの色**（Phase 99／改善案⑫）。
         地と波形に使う。**選択の枠はパープルのまま**にすること（設計書2.6）。 */
     void drawClip (juce::Graphics& g, juce::Rectangle<int> bounds, const juce::String& sourceFilePath,
                    double offsetSeconds, double lengthSeconds, double fadeInSeconds, double fadeOutSeconds,
                    const juce::Array<double>& hitPoints, bool isSelected, float gainLinear,
                    bool isReversed, juce::Colour trackColour,
-                    const WarpMap& clipMap = {});
+                    const WarpMap& clipMap = {},
+                    bool isMono = false);   // 8.231：モノラル化したクリップは波形も1本（Phase 250）
 
 
     //==========================================================================
@@ -1381,6 +1409,12 @@ private:
         **MIDIクリップは飛ばす。** 反転・オートフェードの入口はここ1本。 */
     bool applyToSelectedAudioClips (const juce::String& actionName,
                                      std::function<void (AudioClip&)> action);
+
+    /** 8.228：選んでいるオーディオクリップが**全部モノラル化されているか**（Phase 249）。
+
+        メニューは「する／戻す」の1項目なので、**混ざった選択をどちらへ揃えるか**を
+        これで決めます。1つずつ反転させると、押すたびに入れ替わって揃いません。 */
+    bool allSelectedAudioClipsAreMono() const;
 
     /** 8.78：ClipRefが指しているクリップのValueTree（Phase 118）。無ければ無効なものを返す。 */
     juce::ValueTree findClipStateForRef (const ClipRef& ref) const;

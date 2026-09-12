@@ -176,6 +176,11 @@ namespace IDs
         ファイルには手を加えず、鳴らすときに後ろから読む。 */
     extern const juce::Identifier clipReversed;
 
+    /** 8.228：**モノラル化**（Phase 249／本人の要望）。
+        `clipReversed`と同じく**ファイルには手を加えません**——
+        鳴らすときに全チャンネルを混ぜて、どの出口へも同じ音を出します。 */
+    extern const juce::Identifier clipMono;
+
     /** 8.147：**オーディオのトランスポーズ**（Phase 185／改善案㉞。仕様書5.5）。
         半音の数（`-24`〜`+24`）。入っていなければ0＝素のファイルをそのまま鳴らす。
 

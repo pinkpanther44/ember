@@ -218,8 +218,43 @@ ArrangeView::ArrangeView (ProjectModel& projectToUse, AudioEngine& audioEngineTo
     };
 
     timeline.onFilesDropped = [this] (const juce::StringArray& paths, const juce::String& trackId,
-                                       double startTime)
+                                       double startTime, bool intoNewTrack)
     {
+        // 8.232：**空白へ落としたら、オーディオトラックごと作る**（Phase 250／本人の要望）。
+        // 音源プラグインと同じ扱いです（8.123の`addTrackForDroppedInstrument()`）。
+        //
+        // 8.233：**空白では1ファイル＝1トラック**（Phase 250／本人の要望）。
+        //
+        // `importAudioFiles()`は**1本のトラックへ時間方向に並べます**——
+        // 行の上へ落としたときは、置き場所を勝手に増やさないためにそうしてあります。
+        // **空白は「置き場所を作る」場面**なので、逆にしました。
+        //
+        // > **同じ「まとめて落とす」でも、落とした場所で意味が違います。**
+        // > 行の上＝「このトラックへ」、空白＝「入れる場所ごと」。
+        if (intoNewTrack)
+        {
+            int created = 0;
+
+            for (const auto& path : paths)
+            {
+                const juce::File file (path);
+                const auto newTrackId = addTrackForDroppedAudio (file);
+
+                if (newTrackId.isEmpty())
+                    continue;
+
+                // **1本ずつ渡すこと。** まとめて渡すと、その中でまた時間方向に並びます
+                importAudioFiles ({ path }, newTrackId, startTime);
+                ++created;
+            }
+
+            if (created > 1)
+                showStatusMessage (juce::String (created)
+                                     + utf8 (" 本のオーディオトラックを作りました。"));
+
+            return;
+        }
+
         importAudioFiles (paths, trackId, startTime);
     };
 
@@ -1077,6 +1112,33 @@ juce::String ArrangeView::addTrackForDroppedInstrument (const juce::String& plug
     return track.getId();
 }
 
+juce::String ArrangeView::addTrackForDroppedAudio (const juce::File& file)
+{
+    // 8.232：空白へ落とされた音声ファイルのためのトラック（Phase 250／本人の要望）。
+    //
+    // **名前はファイル名にする**（`addTrackForDroppedInstrument()`と同じ考え）。
+    // 「Audio 3」より「Kick」のほうが、何のためのトラックか後から読めます。
+    //
+    // 8.233：**1ファイルにつき1回呼ばれます**（Phase 250）。
+    // まとめて落とされたときも、呼ぶ側が1本ずつ回します
+    auto name = file.getFileNameWithoutExtension();
+
+    if (name.isEmpty())
+        name = "Audio " + juce::String (project.getNumTracks() + 1);
+
+    auto track = project.addTrack (name, TrackType::Audio, {});
+
+    if (! track.state.getParent().isValid())
+        return {};
+
+    // **作ったほうを選んでおく**（`addTrackForDroppedInstrument()`と同じ）
+    selection.selectTrack (track.getId());
+
+    timeline.refresh();
+
+    return track.getId();
+}
+
 void ArrangeView::addMidiTrackClicked()
 
 {
@@ -1319,6 +1381,11 @@ void ArrangeView::importAudioFiles (const juce::StringArray& paths, const juce::
     // 1つ前の終わりが次の頭になります。**別々のトラックへ配らない**のは、
     // 置き場所を勝手に増やすことになるからです——1本のトラックに並んでいれば、
     // 選んで動かすのも、別のトラックへ移すのも、後からできます。
+    //
+    // 8.233：**これは「行の上へ落としたとき」の話です**（Phase 250）。
+    // **空白へ落としたときは1ファイル＝1トラック**で、
+    // 呼ぶ側（`timeline.onFilesDropped`）が1本ずつここへ渡します——
+    // **空白は「置き場所を作る」場面**なので、逆の判断になります。
     double nextStart = juce::jmax (0.0, startTimeSeconds);
 
     for (const auto& path : paths)

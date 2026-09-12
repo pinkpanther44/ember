@@ -140,6 +140,7 @@ void ClipPlayerProcessor::prepareClipsForPlayback()
 
             active.gainLinear = clip.getGainLinear();   // Phase 80：クリップゲイン（8.40）
             active.reversed = clip.isReversed();        // Phase 86：逆再生（8.46）
+            active.mono     = clip.isMono();            // 8.228：モノラル化（Phase 249）
             active.readerSource = std::make_unique<juce::AudioFormatReaderSource> (reader.release(), true);
 
             maxSamplesPerOutput = juce::jmax (maxSamplesPerOutput, active.sourceSamplesPerOutput);
@@ -281,10 +282,20 @@ void ClipPlayerProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
             return gain;
         };
 
+        // 8.228：**モノラル化**（Phase 249）。読んだチャンネルを混ぜて、
+        // どの出口へも同じ音を出します。**ファイルは触りません**（逆再生と同じ）。
+        //
+        // **混ぜるのは補間より前**です——チャンネルごとに補間してから混ぜても
+        // 結果は同じですが、**読む位置は全チャンネルで同じ**なので、
+        // 先に混ぜたほうが補間が1回で済みます
+        const int sourceChannels = juce::jmax (1, scratchBuffer.getNumChannels());
+        const bool mixToMono = clipSrc.mono && sourceChannels > 1;
+        const float monoScale = 1.0f / (float) sourceChannels;
+
         // 音量・パンはここでは適用しない（後段のTrackChannelProcessorが行う）
         for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
         {
-            const int sourceChannel = juce::jmin (ch, scratchBuffer.getNumChannels() - 1);
+            const int sourceChannel = juce::jmin (ch, sourceChannels - 1);
             const auto* source = scratchBuffer.getReadPointer (sourceChannel);
             auto* destination = buffer.getWritePointer (ch) + blockOffsetForClipStart;
 
@@ -298,9 +309,19 @@ void ClipPlayerProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
                 // 末尾より後ろは、読めたぶんの端をそのまま使う
                 const int index = (int) (base - (double) readStart);
 
-                auto tap = [source, index, numToRead] (int offset)
+                auto tap = [&] (int offset)
                 {
-                    return source[juce::jlimit (0, numToRead - 1, index + offset)];
+                    const int at = juce::jlimit (0, numToRead - 1, index + offset);
+
+                    if (! mixToMono)
+                        return source[at];
+
+                    float sum = 0.0f;
+
+                    for (int c = 0; c < sourceChannels; ++c)
+                        sum += scratchBuffer.getReadPointer (c)[at];
+
+                    return sum * monoScale;
                 };
 
                 const float value = needsInterpolation

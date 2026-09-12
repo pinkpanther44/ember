@@ -1,5 +1,6 @@
 #include "AboutDialog.h"
 #include "AppColours.h"
+#include "AppIcon.h"    // 8.229：アイコンを読むのは1箇所（Phase 249）
 #include "Branding.h"
 #include "BinaryData.h"
 #include "Utf8.h"
@@ -11,16 +12,6 @@ namespace
 
     constexpr int iconSize = 72;
     constexpr int margin   = 24;
-
-    juce::Image loadEmbedded (const char* binaryDataName)
-    {
-        int size = 0;
-
-        if (const auto* data = BinaryData::getNamedResource (binaryDataName, size))
-            return juce::ImageFileFormat::loadFrom (data, (size_t) size);
-
-        return {};
-    }
 
     /** 下の読み取り専用エディタに流し込む本文。
 
@@ -71,7 +62,7 @@ namespace
 AboutDialog::AboutDialog()
 {
     // 8.175と同じ引き方。CMakeはそのブランドのぶんだけ埋め込むので、名前で引きます
-    appIcon = loadEmbedded (Branding::isEmber ? "ember_icon_png" : "app_icon_png");
+    appIcon = AppIcon::load();
 
     titleLabel.setText (Branding::productName, juce::dontSendNotification);
     titleLabel.setFont (juce::Font (juce::FontOptions (22.0f, juce::Font::bold)));

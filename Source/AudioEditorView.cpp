@@ -602,10 +602,26 @@ void AudioEditorView::drawWaveform (juce::Graphics& g, juce::Rectangle<int> area
         // 見えている大きさと鳴る音量が一致するので、上げ下げの結果が目で分かる
         g.setColour (AppColours::purple);
 
+        // 8.231：**モノラル化したクリップは波形も1本**（Phase 250／アレンジ画面と同じ）。
+        // 混ぜた波形はサムネイルから取れないので、**全チャンネルを同じ枠へ重ねます**
+        const bool drawAsMono = clip.isMono();
+
+        auto drawWave = [&thumbnail, &g, drawAsMono, this] (juce::Rectangle<int> r, double t1, double t2)
+        {
+            if (! drawAsMono)
+            {
+                thumbnail.drawChannels (g, r, t1, t2, clip.getGainLinear());
+                return;
+            }
+
+            for (int channel = 0; channel < juce::jmax (1, thumbnail.getNumChannels()); ++channel)
+                thumbnail.drawChannel (g, r, t1, t2, channel, clip.getGainLinear());
+        };
+
         if (! isShowingReversed())
         {
-            thumbnail.drawChannels (g, { fromX, area.getY(), juce::jmax (1, toX - fromX), area.getHeight() },
-                                     fromSeconds, toSeconds, clip.getGainLinear());
+            drawWave ({ fromX, area.getY(), juce::jmax (1, toX - fromX), area.getHeight() },
+                       fromSeconds, toSeconds);
         }
         else
         {
@@ -622,8 +638,7 @@ void AudioEditorView::drawWaveform (juce::Graphics& g, juce::Rectangle<int> area
                 if (x2 <= x1 || t2 <= t1)
                     return;
 
-                thumbnail.drawChannels (g, { x1, area.getY(), x2 - x1, area.getHeight() },
-                                         t1, t2, clip.getGainLinear());
+                drawWave ({ x1, area.getY(), x2 - x1, area.getHeight() }, t1, t2);
             };
 
             // 窓より前（そのまま）
@@ -966,6 +981,10 @@ void AudioEditorView::showClipMenu (juce::Point<int> screenPosition)
 
     // 8.46：反転とオートフェード（Phase 86）。**アレンジ画面のクリップメニューと同じ項目**
     menu.addItem (7, utf8 ("逆再生にする"), true, clip.isReversed());
+
+    // 8.228：**モノラル化**（Phase 249）。アレンジ画面のクリップメニューと同じ項目
+    menu.addItem (9, utf8 ("モノラルにする"), true, clip.isMono());
+
     menu.addItem (8, utf8 ("オートフェードをかける"));
 
     menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this)
@@ -1013,6 +1032,13 @@ void AudioEditorView::showClipMenu (juce::Point<int> screenPosition)
             {
                 project.beginAction (utf8 ("逆再生の切り替え"));
                 clip.setReversed (! clip.isReversed(), &undoManager);
+                setClip (clip);   // 見出しの印を出し直す
+            }
+            else if (result == 9)
+            {
+                // 8.228：Phase 249
+                project.beginAction (utf8 ("モノラル化の切り替え"));
+                clip.setMono (! clip.isMono(), &undoManager);
                 setClip (clip);   // 見出しの印を出し直す
             }
             else if (result == 8)

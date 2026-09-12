@@ -6,6 +6,32 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- Audio clips can be made **mono** from the right-click menu, in the arrange
+  view or the audio editor. The file is untouched — the channels are summed as
+  it plays, so it can be undone at any time. The waveform is drawn as one
+  channel too, so you can see which clips are mono
+- Dropping audio into the empty area below the tracks now **makes tracks for
+  it**, the way dropping an instrument there already did. Each file gets its
+  own track, named after it, and they all start where you dropped them.
+  Dropping onto a track still lays them end to end on that one track
+
+### Fixed
+
+- Ctrl-dragging a **multiple selection** of audio clips duplicated only the one
+  you were holding. All of them are copied now, and the copies end up selected
+- The **Linux window and taskbar icon** was a generic cog. JUCE's icon setting
+  covers Windows and macOS only; on Linux the icon has to be handed to the
+  window by the application, which it now is
+- The application reported version 0.1.0 to the system however it was built,
+  because the number was written out in a second place instead of being read
+  from the one that sets it
+
+---
+
 ## [0.2.0] - 2026-09-12
 
 ### Added

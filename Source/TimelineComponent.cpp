@@ -2087,6 +2087,39 @@ void TimelineComponent::drawClipTransposeMarker (juce::Graphics& g, juce::Rectan
     g.drawText (text, area, juce::Justification::centred, false);
 }
 
+bool TimelineComponent::allSelectedAudioClipsAreMono() const
+{
+    // 8.228：Phase 249。**選んでいるオーディオクリップが全部モノラル化されているか。**
+    //
+    // メニューは「する／戻す」の1項目なので、**混ざった選択で押したときに
+    // どちらへ揃えるか**をこれで決めます——1つずつ反転させると、
+    // 押すたびに入れ替わって**いつまでも揃いません。**
+    auto refs = selectedClips;
+
+    if (refs.empty() && selectedTrackIndex >= 0 && selectedClipIndex >= 0)
+        refs.push_back (makeClipRef (selectedTrackIndex, selectedClipIndex, selectedIsMidi));
+
+    bool sawAudio = false;
+
+    for (const auto& ref : refs)
+    {
+        if (ref.isMidi)
+            continue;
+
+        const auto state = findClipStateForRef (ref);
+
+        if (! state.isValid())
+            continue;
+
+        sawAudio = true;
+
+        if (! AudioClip (state).isMono())
+            return false;
+    }
+
+    return sawAudio;
+}
+
 bool TimelineComponent::applyToSelectedAudioClips (const juce::String& actionName,
                                                     std::function<void (AudioClip&)> action)
 {
@@ -2353,6 +2386,10 @@ void TimelineComponent::showClipMenu (const juce::MouseEvent& e)
     // 8.46：8.29の表の積み残し、最後の2つ（Phase 86）
     menu.addItem (9, utf8 ("逆再生にする／戻す"), hasAudioSelection);
     menu.addItem (10, utf8 ("オートフェードをかける"), hasAudioSelection);
+
+    // 8.228：**モノラル化**（Phase 249／本人の要望）。
+    // **逆再生の隣**に置きます——どちらも「ファイルは触らず、鳴らし方を変える」もの
+    menu.addItem (16, utf8 ("モノラルにする／戻す"), hasAudioSelection);
     menu.addSeparator();
 
     // 8.49：**オーディオエディタで開く**（Phase 88）。
@@ -2385,6 +2422,18 @@ void TimelineComponent::showClipMenu (const juce::MouseEvent& e)
                                             {
                                                 clip.applyAutoFade (&project.getUndoManager());
                                             });
+            else if (result == 16)
+            {
+                // 8.228：Phase 249。**選んでいるぶん全部を同じ向きへ揃えます**——
+                // 1つずつ反転させると、混ざった選択で**押すたびに入れ替わります**
+                const bool shouldBeMono = ! allSelectedAudioClipsAreMono();
+
+                applyToSelectedAudioClips (utf8 ("モノラル化の切り替え"),
+                                            [this, shouldBeMono] (AudioClip& clip)
+                                            {
+                                                clip.setMono (shouldBeMono, &project.getUndoManager());
+                                            });
+            }
             else if (result == 11 && onAudioClipEditorRequested != nullptr)
                 onAudioClipEditorRequested (selectedTrackIndex, selectedClipIndex);
             else if (result == 4 && onDuplicateClipRequested != nullptr)
@@ -6799,6 +6848,13 @@ void TimelineComponent::mouseUp (const juce::MouseEvent& e)
 
                 auto sourceState = sourceTrack.getClip (selectedClipIndex).state;   // 8.94
 
+                // 8.227：**選んでいる残りも集めてから複製する**（Phase 249／本人の報告）。
+                //
+                // **先に集めること。** 複製はトラックにクリップを増やすので、
+                // 走りながら足すと**足したものをまた複製し続けます**
+                // （ノート・マーカー・範囲でも同じことを書いてあります）
+                const auto others = collectOtherSelectedClips (sourceTrack.getClip (selectedClipIndex).getId());
+
                 // 中身ごとの複製はモデル側の1箇所に集めてある（8.9）。
                 // 置く場所だけ、落とした位置へ直す
                 project.beginAction (utf8 ("クリップの複製"));
@@ -6808,9 +6864,29 @@ void TimelineComponent::mouseUp (const juce::MouseEvent& e)
                 if (copy.isValid())
                     AudioClip (copy).setStartTime (dragPreviewStartTime, &undoManager);
 
-                // 複製したものを選び直す。**元を選んだままにすると、
-                // 続けてもう一度ドラッグしたときに、複製ではなく元が動く**
-                clearClipSelection();
+                // 8.227：残りも同じだけずらして複製（Phase 249）。
+                // **動かす側（`moveOtherSelectedClipsByDrag()`）と同じ約束**——
+                // 掴んだものがトラックをまたいでも、**他は自分のトラックに残ります**
+                auto created = duplicateCollectedClips (others, dragPreviewStartTime - dragOriginalStartTime);
+
+                // 8.227：**複製したものを選び直します**（Phase 249）。
+                //
+                // Phase 249までは`clearClipSelection()`でした——
+                // **元を選んだままにすると、続けてもう一度ドラッグしたときに
+                // 複製ではなく元が動く**ので、外すだけで済ませていたものです。
+                // 複数を複製できるようになると、**作った端から見失う**ので選び直します
+                selectedClips.clear();
+
+                if (copy.isValid())
+                    selectedClips.push_back ({ targetTrack.getId(), AudioClip (copy).getId(), false });
+
+                for (const auto& ref : created)
+                    selectedClips.push_back (ref);
+
+                clearSelection();   // 掴んでいた単数の選択は外す（`clearClipSelection()`と同じ理由）
+
+                if (onClipSelectionChanged != nullptr)
+                    onClipSelectionChanged();
 
                 if (onModelChanged != nullptr)
                     onModelChanged();
@@ -6849,6 +6925,7 @@ void TimelineComponent::mouseUp (const juce::MouseEvent& e)
                 newClip.setHitPoints (clip.getHitPoints(), &undoManager);
                 newClip.setGainDb (clip.getGainDb(), &undoManager);   // Phase 80：ゲインも運ぶ（8.40）
                 newClip.setReversed (clip.isReversed(), &undoManager);   // Phase 86：向きも運ぶ（8.46）
+                newClip.setMono (clip.isMono(), &undoManager);           // 8.228：モノラル化も運ぶ（Phase 249）
                 sourceTrack.removeClip (clip, &undoManager);
 
                 selectedTrackIndex = dragPreviewTrackIndex;
@@ -7183,6 +7260,62 @@ void TimelineComponent::drawClipDragPreview (juce::Graphics& g)
     }
 }
 
+std::vector<TimelineComponent::SelectedClipSource>
+TimelineComponent::collectOtherSelectedClips (const juce::String& draggedClipId) const
+{
+    // 8.227：Phase 249。**掴んだもの以外**を、複製する前に集めておきます
+    std::vector<SelectedClipSource> sources;
+
+    if (selectedClips.size() < 2)
+        return sources;
+
+    for (const auto& ref : selectedClips)
+    {
+        // 8.94：クリップはオーディオだけ（Phase 134）
+        if (ref.isMidi || ref.clipId == draggedClipId)
+            continue;
+
+        auto state = findClipStateForRef (ref);
+
+        if (state.isValid())
+            sources.push_back ({ ref.trackId, state });
+    }
+
+    return sources;
+}
+
+std::vector<TimelineComponent::ClipRef>
+TimelineComponent::duplicateCollectedClips (const std::vector<SelectedClipSource>& sources, double deltaTime)
+{
+    // 8.227：Phase 249。**それぞれ自分のトラックへ、同じだけずらして置きます**
+    std::vector<ClipRef> created;
+
+    auto& undoManager = project.getUndoManager();
+
+    for (const auto& source : sources)
+    {
+        auto track = project.findTrackById (source.trackId);
+
+        if (! track.state.getParent().isValid())
+            continue;
+
+        // **元の位置は、複製する前に読むこと**（`duplicateClip()`は
+        // 置き場所を「元＋長さ」へ動かすので、あとから読むと別の値になります）
+        const double startTime = AudioClip (source.state).getStartTime();
+
+        auto copy = track.duplicateClip (source.state, &undoManager);
+
+        if (! copy.isValid())
+            continue;
+
+        AudioClip (copy).setStartTime (juce::jmax (0.0, startTime + deltaTime), &undoManager);
+
+        created.push_back ({ source.trackId, AudioClip (copy).getId(), false });
+    }
+
+    return created;
+}
+
 void TimelineComponent::moveOtherSelectedClipsByDrag (double deltaTime)
 {
     // 8.42：**選んでいる他のクリップも同じだけ動かす**（Phase 82）。
@@ -7231,7 +7364,7 @@ void TimelineComponent::drawClip (juce::Graphics& g, juce::Rectangle<int> bounds
                                    double offsetSeconds, double lengthSeconds, double fadeInSeconds,
                                    double fadeOutSeconds, const juce::Array<double>& hitPoints, bool isSelected,
                                    float gainLinear, bool isReversed, juce::Colour trackColour,
-                                   const WarpMap& clipMap)
+                                   const WarpMap& clipMap, bool isMono)
 {
     auto& thumbnail = waveformCache.getThumbnail (sourceFilePath, this);
 
@@ -7272,6 +7405,30 @@ void TimelineComponent::drawClip (juce::Graphics& g, juce::Rectangle<int> bounds
                                 .scaled (-1.0f, 1.0f)
                                 .translated ((float) bounds.getCentreX(), 0.0f));
 
+        // 8.231：**モノラル化したクリップは、波形も1本に見せます**（Phase 250／本人の要望）。
+        //
+        // `drawChannels()`は**チャンネルの数だけ上下に分けて**描きます。
+        // 混ぜて鳴らしているのに2段のままだと、**切り替えても見た目が変わりません。**
+        //
+        // 混ぜた波形そのものは`juce::AudioThumbnail`からは取れないので、
+        // **全チャンネルを同じ枠へ重ねて**描きます。上下の包絡の重なりが出るので、
+        // 混ぜた結果の山とほぼ同じ形になります（真ん中1本に見えます）。
+        //
+        // **`drawChannels()`を`drawChannel(…, 0, …)`で済ませないこと**——
+        // それでは**左だけ**を出すことになり、右にしか無い音が消えて見えます
+        const auto drawWave = [&thumbnail, &g, isMono, gainLinear] (juce::Rectangle<int> area,
+                                                                     double from, double to)
+        {
+            if (! isMono)
+            {
+                thumbnail.drawChannels (g, area, from, to, gainLinear);
+                return;
+            }
+
+            for (int channel = 0; channel < juce::jmax (1, thumbnail.getNumChannels()); ++channel)
+                thumbnail.drawChannel (g, area, from, to, channel, gainLinear);
+        };
+
         // 8.150：**表の区間ごとに描く**（Phase 188／8.48）。
         // マーカーが無ければ区間は1つで、Phase 187までとまったく同じ1回の呼び出しです
         if (clipMap.points.size() >= 2)
@@ -7287,14 +7444,12 @@ void TimelineComponent::drawClip (juce::Graphics& g, juce::Rectangle<int> bounds
                 if (x1 <= x0)
                     continue;
 
-                thumbnail.drawChannels (g, bounds.withX (x0).withWidth (x1 - x0),
-                                         from.sourceSeconds, to.sourceSeconds, gainLinear);
+                drawWave (bounds.withX (x0).withWidth (x1 - x0), from.sourceSeconds, to.sourceSeconds);
             }
         }
         else
         {
-            thumbnail.drawChannels (g, bounds, offsetSeconds, offsetSeconds + sourceLengthSeconds,
-                                     gainLinear);
+            drawWave (bounds, offsetSeconds, offsetSeconds + sourceLengthSeconds);
         }
     }
 
@@ -10177,9 +10332,14 @@ void TimelineComponent::itemDragMove (const SourceDetails& details)
     // 「行の上ではない」ことだけを覚えて、種類の判断は落としたときに任せます
     // **ルーラーの上は除くこと。** `getTrackIndexForY()`はそこでも-1を返すので、
     // 「行ではない」だけで判断すると、時間の物差しへ落としてトラックが増える
+    //
+    // 8.232：**音声ファイルも同じ扱いにしました**（Phase 250／本人の要望）。
+    // Phase 249までは音源プラグインだけで、ファイルを空白へ落としても
+    // **枠すら出ませんでした**（黙って最初のオーディオトラックへ入っていた）
     const bool overEmpty = ! isTrackRow
                              && details.localPosition.y >= rulerHeight
-                             && DragAndDropIds::isPluginDrag (details.description);
+                             && (DragAndDropIds::isPluginDrag (details.description)
+                                  || DragAndDropIds::isFileDrag (details.description));
 
     if (newRow == dragOverRowIndex && overEmpty == dragOverEmptyArea)
         return;
@@ -10201,6 +10361,9 @@ void TimelineComponent::itemDropped (const SourceDetails& details)
     const int row = dragOverRowIndex;
     const bool hasValidRow = juce::isPositiveAndBelow (row, project.getNumTracks());
     const auto trackId = hasValidRow ? project.getTrack (row).getId() : juce::String();
+
+    // 8.232：**空白へ落としたか**（Phase 250）。`dragOverEmptyArea`を消す前に控えます
+    const bool droppedOnEmptyArea = dragOverEmptyArea;
 
     dragOverRowIndex = -1;
     dragOverEmptyArea = false;
@@ -10234,9 +10397,12 @@ void TimelineComponent::itemDropped (const SourceDetails& details)
         // Phase 54：落とす位置もスナップに従う（8.14）
         const double startTime = project.snapTime (xToTime (details.localPosition.x));
 
+        // 8.232：**空白へ落としたら、トラックごと作る**（Phase 250／本人の要望）。
+        // 音源プラグインと同じ扱いです（8.123）——
+        // **「行の上」と「空白」は、別の意味の落とし方**なので、分けて渡します
         // 8.154：**1つでも配列で渡す**（Phase 192）。外からのドラッグと同じ口
         onFilesDropped ({ DragAndDropIds::getFile (details.description).getFullPathName() },
-                         trackId, startTime);
+                         trackId, startTime, droppedOnEmptyArea);
     }
 }
 
@@ -10281,6 +10447,8 @@ void TimelineComponent::filesDropped (const juce::StringArray& files, int x, int
     const bool hasValidRow = juce::isPositiveAndBelow (row, project.getNumTracks());
     const auto trackId = hasValidRow ? project.getTrack (row).getId() : juce::String();
 
+    const bool droppedOnEmptyArea = dragOverEmptyArea;   // 8.232（Phase 250）
+
     dragOverRowIndex = -1;
     dragOverEmptyArea = false;
     repaint();
@@ -10303,7 +10471,7 @@ void TimelineComponent::filesDropped (const juce::StringArray& files, int x, int
     // （中からのドラッグと揃える。`itemDropped()`）
     const double startTime = project.snapTime (xToTime (x));
 
-    onFilesDropped (audioFiles, trackId, startTime);
+    onFilesDropped (audioFiles, trackId, startTime, droppedOnEmptyArea);
 }
 
 bool TimelineComponent::isReadableAudioFile (const juce::File& file) const
@@ -10326,11 +10494,15 @@ void TimelineComponent::updateFileDragRow (int y)
     const int newRow = (isTrackRow && project.getTrack (row).getType() == TrackType::Audio)
                            ? row : -1;
 
-    if (newRow == dragOverRowIndex && ! dragOverEmptyArea)
+    // 8.232：**空白も落とし先**（Phase 250）。中からのドラッグと同じ判断にすること——
+    // **外から持ってきたときだけ枠が出ない**のでは、覚えることが2つになります
+    const bool overEmpty = ! isTrackRow && y >= rulerHeight;
+
+    if (newRow == dragOverRowIndex && overEmpty == dragOverEmptyArea)
         return;
 
     dragOverRowIndex = newRow;
-    dragOverEmptyArea = false;
+    dragOverEmptyArea = overEmpty;
     repaint();
 }
 
@@ -10657,7 +10829,8 @@ void TimelineComponent::paint (juce::Graphics& g)
 
             drawClip (g, getClipBounds (t, c), clip.getSourceFilePath(), clip.getOffset(), clip.getLength(),
                       clip.getFadeInSeconds(), clip.getFadeOutSeconds(), clip.getHitPoints(), isSelected,
-                      clip.getGainLinear(), clip.isReversed(), getTrackColour (t), clip.getWarpMap());
+                      clip.getGainLinear(), clip.isReversed(), getTrackColour (t), clip.getWarpMap(),
+                      clip.isMono());   // 8.231（Phase 250）
 
             // 8.78：グループに入っている印（Phase 118/改善案㊱）
             drawClipGroupMarker (g, getClipBounds (t, c), clip.state);
@@ -10702,7 +10875,7 @@ void TimelineComponent::paint (juce::Graphics& g)
         drawClip (g, clipBounds, clip.getSourceFilePath(), dragPreviewOffset, dragPreviewLength,
                   dragPreviewFadeIn, dragPreviewFadeOut, clip.getHitPoints(), true, clip.getGainLinear(),
                   clip.isReversed(), getTrackColour (selectedTrackIndex),
-                  makeDragPreviewWarpMap (clip));
+                  makeDragPreviewWarpMap (clip), clip.isMono());   // 8.231（Phase 250）
     }
 
     // 8.56：オートメーションの行の中身（Phase 94／D3）。
@@ -10805,8 +10978,11 @@ void TimelineComponent::paint (juce::Graphics& g)
         g.setColour (AppColours::purple);
         g.drawRect (newRowBounds, 2);
 
+        // 8.232：**音声ファイルも作るようになりました**（Phase 250）。
+        // 文をそのままにすると、**ファイルを持っているときに嘘を言います**
         g.setFont (juce::FontOptions (12.0f));
-        g.drawText (utf8 ("音源ならトラックごと作ります"), newRowBounds.reduced (10, 0),
+        g.drawText (utf8 ("音源か音声ファイルなら、トラックごと作ります"),
+                     newRowBounds.reduced (10, 0),
                      juce::Justification::centredLeft, false);
     }
 

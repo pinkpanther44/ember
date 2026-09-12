@@ -8,6 +8,7 @@
 #include "ProjectChooser.h"      // 8.151：プロジェクト選択画面（Phase 189／改善案⑰）
 #include "Utf8.h"
 #include "Branding.h"   // 8.175：表に出る名前（Phase 216）
+#include "AppIcon.h"    // 8.229：窓のアイコン（Phase 249）
 
 //==============================================================================
 class PersonalDAWApplication : public juce::JUCEApplication
@@ -16,7 +17,13 @@ public:
     PersonalDAWApplication() = default;
 
     const juce::String getApplicationName() override    { return Branding::productName; }
-    const juce::String getApplicationVersion() override { return "0.1.0"; }
+    // 8.230：**版を直に書かないこと**（Phase 249）。
+    //
+    // ここは`"0.1.0"`のままで、0.2.0を出したあとも**古い版を答えていました。**
+    // `CMakeLists.txt`の`project(... VERSION x.y.z)`が唯一の出どころで、
+    // `JUCE_APPLICATION_VERSION_STRING`がそれを運んできます
+    // （バージョン情報ダイアログは前からこちらを見ています）。
+    const juce::String getApplicationVersion() override { return JUCE_APPLICATION_VERSION_STRING; }
     bool moreThanOneInstanceAllowed() override           { return true; }
 
     void initialise (const juce::String& commandLine) override
@@ -292,6 +299,22 @@ public:
                                DocumentWindow::allButtons)
         {
             setUsingNativeTitleBar (true);
+
+            // 8.229：**窓のアイコンは自分で渡すこと**（Phase 249／本人の報告）。
+            //
+            // `juce_add_gui_app`の`ICON_BIG`は**WindowsのexeとmacOSのバンドル**に効きますが、
+            // **Linuxには効きません**——juceaideが作るのは`.ico`と`.icns`だけで、
+            // X11の窓に付けるアイコンはアプリが`setIcon()`で渡す決まりです。
+            //
+            // 渡さないと、デスクトップ環境が「実行ファイル」の既定の絵を出します
+            // （**歯車**が出るのはこれ）。AppImageに`.desktop`とアイコンを入れてあっても、
+            // **走り出したあとの窓とタスクバーはそれとは別**です。
+            //
+            // **`setContentOwned()`より先に呼びます**（窓が出てから渡すと、
+            // 出た直後の一瞬だけ既定の絵が見えます）
+            if (const auto icon = AppIcon::load(); icon.isValid())
+                setIcon (icon);
+
             setContentOwned (new MainComponent(), true);
 
             setResizable (true, true);

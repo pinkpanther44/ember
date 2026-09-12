@@ -261,6 +261,13 @@ private:
         作れなければ空文字を返す。名前はプラグイン名。 */
     juce::String addTrackForDroppedInstrument (const juce::String& pluginName);
 
+    /** 8.232：空白へ落とされた音声ファイルのためにオーディオトラックを作る（Phase 250）。
+        作れなければ空文字を返す。名前はファイル名。
+
+        8.233：**1ファイルにつき1本**（Phase 250／本人の要望）。
+        まとめて落とされたときは、呼ぶ側が1本ずつ回します。 */
+    juce::String addTrackForDroppedAudio (const juce::File& file);
+
     void addSendTrackClicked();
     void addChordTrackClicked();
     void addVcaTrackClicked();

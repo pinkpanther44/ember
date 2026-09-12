@@ -3535,6 +3535,18 @@ void AudioClip::setReversed (bool shouldBeReversed, juce::UndoManager* undoManag
     state.setProperty (IDs::clipReversed, shouldBeReversed, undoManager);
 }
 
+bool AudioClip::isMono() const
+{
+    return state[IDs::clipMono];
+}
+
+void AudioClip::setMono (bool shouldBeMono, juce::UndoManager* undoManager)
+{
+    // 8.228：Phase 249。**逆再生と同じ扱い**——ファイルは触らず、
+    // 鳴らすときに混ぜます（取り消せる／元に戻せる）
+    state.setProperty (IDs::clipMono, shouldBeMono, undoManager);
+}
+
 int AudioClip::getTranspose() const
 {
     return (int) state.getProperty (IDs::clipTranspose, 0);

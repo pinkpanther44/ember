@@ -164,6 +164,16 @@ public:
     bool isReversed() const;
     void setReversed (bool shouldBeReversed, juce::UndoManager* undoManager);
 
+    /** 8.228：**モノラル化**（Phase 249／本人の要望）。
+
+        **ファイルには手を加えません**（逆再生と同じ）——鳴らすときに
+        全チャンネルを混ぜて、どの出口へも同じ音を出します。
+        **取り消せますし、いつでも戻せます。**
+
+        モノラルのファイルに掛けても何も起きません（混ぜる相手がいないので）。 */
+    bool isMono() const;
+    void setMono (bool shouldBeMono, juce::UndoManager* undoManager);
+
     /** 8.147：**トランスポーズ**（Phase 185／改善案㉞。仕様書5.5）。半音の数。
 
         **逆再生と同じで、ファイルには手を加えません。** 音程を動かしたものは

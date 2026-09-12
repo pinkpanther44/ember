@@ -104,6 +104,7 @@ private:
 
         /** 仕様書5.5：逆再生（Phase 86/8.46）。**ファイルは触らず、読む向きを変える**。 */
         bool reversed = false;
+        bool mono = false;      ///< 8.228：全チャンネルを混ぜて出す（Phase 249）
     };
 
     ProjectModel& project;

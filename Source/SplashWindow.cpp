@@ -1,5 +1,6 @@
 #include "SplashWindow.h"
 #include "AppColours.h"
+#include "AppIcon.h"    // 8.229：アイコンを読むのは1箇所（Phase 249）
 #include "Branding.h"   // 8.175：ブランドのアイコン（Phase 216）
 #include "BinaryData.h"
 #include "Utf8.h"
@@ -9,15 +10,8 @@ namespace
     constexpr int splashWidth  = 560;
     constexpr int splashHeight = 320;
 
-    juce::Image loadEmbedded (const char* binaryDataName)
-    {
-        int size = 0;
-
-        if (const auto* data = BinaryData::getNamedResource (binaryDataName, size))
-            return juce::ImageFileFormat::loadFrom (data, (size_t) size);
-
-        return {};
-    }
+    // 8.229：**読むのは`AppIcon`ただ1つ**（Phase 249／1.27）
+    using AppIcon::loadEmbedded;
 }
 
 SplashWindow::SplashWindow()
@@ -28,7 +22,7 @@ SplashWindow::SplashWindow()
     artwork = loadEmbedded ("splash_png");
     // 8.175：**ブランドのアイコンを引く**（Phase 216）。CMakeはそのブランドのぶんだけ
     // 埋め込むので、名前で引いているここを変えるだけで済みます
-    appIcon = loadEmbedded (Branding::isEmber ? "ember_icon_png" : "app_icon_png");
+    appIcon = AppIcon::load();
 
     setOpaque (false);
     setSize (splashWidth, splashHeight);
