@@ -403,8 +403,14 @@ private:
     /** ベロシティレーン（下部）の領域を返す。 */
     juce::Rectangle<int> getVelocityLaneBounds() const;
 
-    /** ベロシティレーン内での、指定ノートの縦棒の領域を返す。 */
+    /** ベロシティレーン内での、指定ノートの縦棒の領域を返す。**描くための矩形**。 */
     juce::Rectangle<int> getVelocityBarBounds (const Note& note) const;
+
+    /** 同じ棒の**掴むための矩形**（Phase 253）。左右へ`velocityBarGrabMargin`だけ広い。
+
+        棒を細くしたので、見た目どおりの幅で当てさせると掴めません。
+        掴む・なぞる・範囲選択は**すべてこちらを通すこと**。 */
+    juce::Rectangle<int> getVelocityBarGrabBounds (const Note& note) const;
 
     /** ベロシティレーン内の座標から、対応するノートのインデックスを求める。 */
     /** ベロシティレーンの座標にある棒のノート（無ければ無効なValueTree）。 */
@@ -802,6 +808,17 @@ private:
     static constexpr int lowestPitch = 36;   // C2
     static constexpr int highestPitch = 96;  // C7
     static constexpr int resizeGrabMargin = 5;
+
+    // 8.237／Phase 253：**棒は細く、掴みしろは広く。**
+    //
+    // 8pxの棒は、16分で並べると隣とくっついて1本の帯になり、
+    // 「何本あるか」が読めませんでした。1/3にして数えられるようにしています。
+    //
+    // **細くしたぶん、当たり判定は見た目と別に持つこと。**
+    // 3pxを狙わせると、掴めないほうが普通になります（`ccGrabMargin`と同じ考え方）
+    static constexpr int velocityBarWidth = 3;
+    static constexpr int velocityBarGrabMargin = 3;
+
     static constexpr double defaultNoteLength = 0.5;
     static constexpr double minNoteLength = 0.05;
     // 8.1のG5：下部のレーン1本ぶんの高さ（Phase 75）。

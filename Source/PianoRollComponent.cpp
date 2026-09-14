@@ -676,8 +676,13 @@ void PianoRollComponent::applyRangeSelection()
         // **グリッドの矩形とベロシティの棒、どちらに触れても選ぶ**（Phase 69）。
         // 2つの領域は重ならないので、両方を見ても取り違えは起きない。
         // 領域ごとに別の関数を用意すると、呼び分けの条件を持ち回ることになる
+        // Phase 253：**棒を細くしたぶんだけ、横に広げてから見る。**
+        // 見た目の3pxで囲わせると、囲ったつもりで外れる。
+        // **縦は棒のまま**（`getVelocityBarGrabBounds()`はレーンいっぱいなので使わない）：
+        // 空いている上のほうを囲っただけで選ばれると、囲い直しができない
         if (getNoteBounds (note).intersects (rangeSelectBounds)
-             || getVelocityBarBounds (note).intersects (rangeSelectBounds))
+             || getVelocityBarBounds (note).expanded (velocityBarGrabMargin, 0)
+                  .intersects (rangeSelectBounds))
             selectedNotes.push_back (noteState);
     });
 
@@ -1216,7 +1221,14 @@ void PianoRollComponent::drawNoteDragPreview (juce::Graphics& g) const
     drawPreview (getNoteBoundsFor (dragPreviewStartTime, dragPreviewPitch, dragPreviewLength));
 
     if (dragMode != DragMode::Move)
+    {
+        // Phase 253：ペンで置いている最中は上下もするので、読み取りだけ出す
+        // （動くのは置いた1つだけなので、下のまとめて動かす分は要らない）
+        if (dragStartedFromPencil)
+            drawDragReadout (g);
+
         return; // 長さを変えているのは掴んだ1つだけ
+    }
 
     // Phase 52：選択中のノートは掴んだものと同じ量だけ動く。
     // **ずらす量は掴んだノートの移動量**（1つずつ「落とした位置」で計算すると、
@@ -1245,8 +1257,13 @@ void PianoRollComponent::drawNoteDragPreview (juce::Graphics& g) const
 void PianoRollComponent::drawDragReadout (juce::Graphics& g) const
 {
     // 8.121：**上下に動かしている最中だけ**（Phase 156／改善案22）。
-    // 長さを変えているときは音が変わらないので、出しても読むものが無い
-    if (dragMode != DragMode::Move || ! hasActiveNote())
+    // 長さを変えているときは音が変わらないので、出しても読むものが無い。
+    //
+    // 8.239／Phase 253：**ペンで置いている最中も上下する**ので、そこでも出す
+    // （置きながら「いま何の音か」が読めるほうが、置き直しが減る）
+    const bool placingWithPencil = (dragMode == DragMode::ResizeRight && dragStartedFromPencil);
+
+    if ((dragMode != DragMode::Move && ! placingWithPencil) || ! hasActiveNote())
         return;
 
     // 音名（C4＝60の流儀）とMIDIノート番号。**両方出すこと**：
@@ -1658,7 +1675,19 @@ juce::Rectangle<int> PianoRollComponent::getVelocityBarBounds (const Note& note)
     // ベロシティ（0〜127）を棒の高さへ変換する
     const int barHeight = (int) ((double) note.getVelocity() / 127.0 * (lane.getHeight() - 8));
 
-    return { x, lane.getBottom() - barHeight - 4, 8, barHeight };
+    return { x, lane.getBottom() - barHeight - 4, velocityBarWidth, barHeight };
+}
+
+juce::Rectangle<int> PianoRollComponent::getVelocityBarGrabBounds (const Note& note) const
+{
+    // **高さはレーンいっぱい。** 棒の高さで当てさせると、
+    // 弱いノート（＝短い棒）ほど掴みにくくなる（従来からX方向だけで当てている）
+    auto lane = getVelocityLaneBounds();
+
+    return getVelocityBarBounds (note)
+             .expanded (velocityBarGrabMargin, 0)
+             .withY (lane.getY())
+             .withHeight (lane.getHeight());
 }
 
 juce::ValueTree PianoRollComponent::findVelocityBarAt (juce::Point<int> position) const
@@ -1667,20 +1696,31 @@ juce::ValueTree PianoRollComponent::findVelocityBarAt (juce::Point<int> position
         return {};
 
     juce::ValueTree found;
+    juce::ValueTree foundSelected;
 
-    forEachNote ([this, position, &found] (const juce::ValueTree& noteState)
+    forEachNote ([this, position, &found, &foundSelected] (const juce::ValueTree& noteState)
     {
-        if (found.isValid())
+        if (foundSelected.isValid())
             return;
 
         // 棒の高さに関係なく、X方向が合っていれば掴めるようにする（操作しやすさ優先）
-        auto bar = getVelocityBarBounds (Note (noteState));
+        if (! getVelocityBarGrabBounds (Note (noteState)).contains (position))
+            return;
 
-        if (position.x >= bar.getX() && position.x < bar.getRight())
+        // 8.238／Phase 253：**重なっているときは、選んでいるものを優先する。**
+        //
+        // 和音は同じ時刻＝同じXなので、棒は**完全に重なります**。
+        // 先に見つかったもの（＝並び順のいちばん手前）を返していたため、
+        // 上の音を選んでから棒を掴んでも、下の音が持っていきました。
+        // 選択は「どれを触りたいか」の答えそのものなので、それに従います。
+        // 何も選んでいなければ従来どおり最初の1つ（8.1のE3）
+        if (isNoteSelected (noteState) || noteState == activeNoteState)
+            foundSelected = noteState;
+        else if (! found.isValid())
             found = noteState;
     });
 
-    return found;
+    return foundSelected.isValid() ? foundSelected : found;
 }
 
 void PianoRollComponent::quantiseNotes (int gridDivision, double swingAmount, bool selectedOnly)
@@ -1957,15 +1997,29 @@ void PianoRollComponent::paintVelocityAt (juce::Point<int> position)
 
     bool changed = false;
 
-    // **カーソルのX座標に棒がかかっているノートを全部書き換える。**
-    // 和音は同じ位置に重なるので、1つだけ選ぶと「どれが変わったのか」が読めない
-    // （重なっているときの選び分けは8.1のE3。まだ手を付けていない）
+    // 8.238／Phase 253：**選んでいるものがあるなら、そこだけ書き換える。**
+    //
+    // もとは「Xが合っているものを全部」でした。和音は同じ位置に重なるので、
+    // 1つだけ選ぶと「どれが変わったのか」が読めない、という理由です。
+    // ただ、それだと**上の音だけ弱くする**ができませんでした。
+    // 選択が無ければ従来どおり全部（重なっていないところでは今までと同じ）
+    bool hasSelectedHere = false;
+
+    forEachNote ([&] (const juce::ValueTree& noteState)
+    {
+        if (getVelocityBarGrabBounds (Note (noteState)).getHorizontalRange().contains (position.x)
+             && isNoteSelected (noteState))
+            hasSelectedHere = true;
+    });
+
     forEachNote ([&] (const juce::ValueTree& noteState)
     {
         Note note { juce::ValueTree (noteState) };
-        auto bar = getVelocityBarBounds (note);
 
-        if (position.x < bar.getX() || position.x > bar.getRight())
+        if (! getVelocityBarGrabBounds (note).getHorizontalRange().contains (position.x))
+            return;
+
+        if (hasSelectedHere && ! isNoteSelected (noteState))
             return;
 
         if (note.getVelocity() == velocity)
@@ -3523,6 +3577,46 @@ void PianoRollComponent::mouseDrag (const juce::MouseEvent& e)
         // 伸縮も「終端の位置」を寄せる（クリップのトリムと同じ考え方）
         const double end = project.snapTime (dragOriginalStartTime + dragOriginalLength + deltaSeconds);
         dragPreviewLength = juce::jmax (minNoteLength, end - dragOriginalStartTime);
+
+        // 8.239／Phase 253：**ペンで置いた直後は、離すまで上下にも動かせる。**
+        //
+        // ペンのドラッグは「長さを決める」ためのものでしたが、
+        // **押した瞬間に音高が確定してしまう**ので、1つ下の行を押した、が
+        // 分かった時点でもう直せませんでした（消してから置き直す）。
+        // 押したまま上下すれば行を移れる、にしておくと置き直しが要らない。
+        //
+        // **ここだけはモデルへ直に書きます。**（`DragMode::Move`はプレビューを重ねて
+        // 離してから書く形ですが、それは「元の場所も見せる」ため。
+        // 置いたばかりのノートに元の場所は無く、重ねると2つ置いたように見えます）
+        // **区切りは`addNoteAt()`が作った1つだけ**なので、Undoは1回で消えます
+        // ドラムはクリック1回で置く（長さが無い）ので、この経路には来ません（8.121）
+        if (dragStartedFromPencil && ! drumMode)
+        {
+            // **行の数で数えること。** カーソルのYを`yToPitch()`に渡すと、
+            // 行の境目ぎりぎりで押したとき、横へ引いただけの数pxのぶれで
+            // 隣の行へ飛びます。押した場所からの**移動量**なら、
+            // 1行ぶん動かすまで変わらない（切り捨ては上下とも0方向なので対称）
+            const int deltaRows = (dragStartPosition.y - e.getPosition().y) / noteRowHeight;
+            const int pitch = juce::jlimit (lowestPitch, highestPitch, dragOriginalPitch + deltaRows);
+
+            if (pitch != dragPreviewPitch)
+            {
+                Note dragged { juce::ValueTree (activeNoteState) };
+
+                dragPreviewPitch = pitch;
+                dragged.setPitch (pitch, &project.getUndoManager());
+
+                // 8.29の表と同じで、**移った先の音を鳴らす**（`startPreview()`が
+                // 同じ音なら何もせず、違う音なら前を止めてから鳴らす）
+                startPreview (pitch, dragged.getVelocity());
+
+                if (onModelChanged != nullptr)
+                    onModelChanged();
+            }
+
+            // 読み取りはカーソルの位置に出す（8.121／Phase 156と同じ）
+            dragReadoutPosition = e.getPosition();
+        }
     }
     else if (dragMode == DragMode::ResizeLeft)
     {
@@ -4972,8 +5066,7 @@ void PianoRollComponent::paintLanePointAt (juce::Point<int> position)
 }
 void PianoRollComponent::drawVelocityLaneContents (juce::Graphics& g, const juce::Rectangle<int>& laneBounds)
 {
-    // **Phase 127：トラックの全クリップのノートを並べる**（8.87）
-    forEachNote ([&] (const juce::ValueTree& noteState)
+    auto drawBar = [&] (const juce::ValueTree& noteState)
     {
         Note note { juce::ValueTree (noteState) };
         // Phase 52：複数選択されているものも「選択中」として描く
@@ -4998,6 +5091,26 @@ void PianoRollComponent::drawVelocityLaneContents (juce::Graphics& g, const juce
 
         g.setColour (isSelected ? AppColours::orange : AppColours::purple);
         g.fillRect (bar);
+    };
+
+    // 8.238／Phase 253：**選んでいる棒は後から描く。**
+    //
+    // 和音の棒は同じXにぴったり重なるので、並び順のままだと
+    // 選んでいない棒が上に乗り、**どれを掴んでいるのか見えません**。
+    // 掴み分けを選択で決めた以上（`findVelocityBarAt()`）、
+    // 「いま選んでいるのはこれ」が見えていないと操作にならない。
+    //
+    // **Phase 127：トラックの全クリップのノートを並べる**（8.87）
+    forEachNote ([&] (const juce::ValueTree& noteState)
+    {
+        if (! (noteState == activeNoteState || isNoteSelected (noteState)))
+            drawBar (noteState);
+    });
+
+    forEachNote ([&] (const juce::ValueTree& noteState)
+    {
+        if (noteState == activeNoteState || isNoteSelected (noteState))
+            drawBar (noteState);
     });
 }
 

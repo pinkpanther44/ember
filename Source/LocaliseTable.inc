@@ -771,7 +771,7 @@
     { "強さ", "Strength", false },
     { "100%（そのまま当てる）", "100% (snap exactly)", false },
     { "選択・移動・伸縮／空きのドラッグで範囲選択（1）", "Select, move and resize / drag empty space to select a range (1)", true },
-    { "空きをドラッグしたぶんノートを追加／ノートは選択・移動・伸縮／ベロシティのなぞり書き（2）", "Drag empty space to add notes / notes can be selected, moved and resized / draw velocity (2)", true },
+    { "空きをドラッグしたぶんノートを追加（押したまま上下で音を選び直せます）／ノートは選択・移動・伸縮／ベロシティのなぞり書き（2）", "Drag empty space to add notes (keep holding and move up or down to change the pitch) / notes can be selected, moved and resized / draw velocity (2)", true },
     { "ノートをクリックした位置で分割（4）", "Split a note where you click (4)", true },
     { "触れたノート・レーンの点を消す（なぞると続けて消える。5）", "Delete notes and lane points you touch (drag to keep deleting. 5)", true },
     { "MIDIトラックを選んでから切り替えてください。", "Select a MIDI track first, then switch.", true },

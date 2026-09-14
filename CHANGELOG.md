@@ -18,8 +18,27 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   it**, the way dropping an instrument there already did. Each file gets its
   own track, named after it, and they all start where you dropped them.
   Dropping onto a track still lays them end to end on that one track
+- The pen tool now lets you **change the pitch while you are still placing a
+  note**. Keep the button held and move up or down: the note follows, sounds as
+  it moves, and the note name shows beside the cursor. Before, the pitch was
+  settled the moment you pressed, so a note on the wrong row had to be deleted
+  and put back
+
+### Changed
+
+- **Velocity bars are a third as wide.** At eight bars they ran together into a
+  single band once the notes were close, so you could not count them. They are
+  no easier to miss — the area you can grab is held separately from the width
+  you see
 
 ### Fixed
+
+- Where notes **start at the same time**, their velocity bars sit exactly on top
+  of one another, and dragging one always took the same note however you had
+  selected. It now follows the selection — and the selected bar is drawn in
+  front, so you can see which one you have. Drawing velocity with the pen
+  follows the selection in the same way, so you can thin out one note of a chord
+  without touching the rest
 
 - Ctrl-dragging a **multiple selection** of audio clips duplicated only the one
   you were holding. All of them are copied now, and the copies end up selected

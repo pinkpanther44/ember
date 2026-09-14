@@ -237,7 +237,7 @@ PianoRollView::PianoRollView (ProjectModel& projectToUse, AudioEngine& engineToU
         const ToolButtonSetup toolSetups[] =
         {
             { &arrowToolButton,  utf8 ("選択"),   utf8 ("選択・移動・伸縮／空きのドラッグで範囲選択（1）"), EditTool::arrow, "tool_select_svg" },
-            { &pencilToolButton, utf8 ("ペン"),   utf8 ("空きをドラッグしたぶんノートを追加／ノートは選択・移動・伸縮／ベロシティのなぞり書き（2）"), EditTool::pencil, "tool_pen_svg" },
+            { &pencilToolButton, utf8 ("ペン"),   utf8 ("空きをドラッグしたぶんノートを追加（押したまま上下で音を選び直せます）／ノートは選択・移動・伸縮／ベロシティのなぞり書き（2）"), EditTool::pencil, "tool_pen_svg" },
             { &cutToolButton,    utf8 ("カット"), utf8 ("ノートをクリックした位置で分割（4）"), EditTool::cut, "tool_cut_svg" },
             { &eraserToolButton, utf8 ("消しゴム"), utf8 ("触れたノート・レーンの点を消す（なぞると続けて消える。5）"), EditTool::eraser, "tool_eraser_svg" },
         };
