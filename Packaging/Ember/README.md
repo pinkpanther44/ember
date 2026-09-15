@@ -1,7 +1,7 @@
 # Ember
 
 A digital audio workstation for Windows and Linux. Record, arrange, edit MIDI,
-host VST3 and LV2 plugins, and mix — with three instruments and effects built in.
+host VST3 and LV2 plugins, and mix — with a synthesizer and four effects built in.
 
 Ember is free and open source.
 

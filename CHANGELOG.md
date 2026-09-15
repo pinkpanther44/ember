@@ -195,12 +195,19 @@ it — later entries will be shorter.
 <!--
   8.193：**次の版を出すときは、この上に節を足してください**（Phase 230）。
 
-      ## [0.2.0] - 2026-XX-XX
+  **まず直したぶんを`## [Unreleased]`へ書き、出すときに版と日付へ変えます。**
+
+      ## [Unreleased]          ← 作業中はこれ
+      ## [0.4.0] - 2026-XX-XX  ← 出すときにこう変える
       ### Added / Changed / Fixed / Removed
 
   **`CMakeLists.txt`の`project(... VERSION ...)`と揃えること。**
   タグとその版が食い違うと、ワークフローが**貼る前に止まります**
   （`.github/workflows/ember-linux.yml` の「Read the version」）。
+
+  **exeの中の版も揃うか確かめること**（8.191・8.226。3回踏みました）。
+  `out`と`out-ember`の`PersonalDAW_resources.rc`を消して、
+  **`cmake -S . -B out`を打ち直す**——ビルドし直すだけでは古いままです。
 
   **利用者に見えることだけ書くこと。** 内部の作り直しは、
   動きが変わらないなら書かなくて構いません。
