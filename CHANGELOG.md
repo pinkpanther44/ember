@@ -24,6 +24,27 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   settled the moment you pressed, so a note on the wrong row had to be deleted
   and put back
 
+- **Bf Owl Reverb**, a fifth built-in plugin, with seven algorithms:
+  - **Room**, **Hall** and **Ambience** — a room, a big space, and the air
+    around a sound with barely any tail. Predelay, decay, size, and how the
+    early reflections are shaped and spread in time
+  - **Plate**, the classic dense metallic sound, built to Dattorro's published
+    design. Nothing about it is our own tuning
+  - **Random Hall**, a hall whose tail drifts. Turn Modulation up: two of the
+    four delay lines move slowly, and the network spreads that movement through
+    the rest
+  - **Twin Delays**, two delays with one on each side, which can swap what they
+    feed back so the repeats bounce between them. Not a reverb
+  - **Panorama**, a stereo tool with width, mono sum, phase invert and a
+    channel swap. No tail at all — turn Mix up to 100% to use it
+  - Damping for the highs and the lows, so the tail darkens as it decays the
+    way a real room does; and a saturation that only bites on the loud part
+  - **Two engines**, wired as Single, Cascade, Mono Split or Stereo Split, each
+    with its own algorithm and its own settings. The knobs show one at a time
+  - A display that draws what you will hear: the gap before the reverb starts,
+    each early reflection, and the slope of the tail — or the repeats, for Twin
+    Delays, and the stereo width for Panorama
+
 ### Changed
 
 - **Velocity bars are a third as wide.** At eight bars they ran together into a

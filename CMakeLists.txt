@@ -285,6 +285,13 @@ target_sources(PersonalDAW
         Source/Plugins/MantaDelay/MantaDelayParameters.cpp
         Source/Plugins/MantaDelay/MantaDelayProcessor.cpp
         Source/Plugins/MantaDelay/MantaDelayEditor.cpp
+
+        # 8.240：5つめ「Manta Reverb」（Phase 254/リバーブ設計書8章のPhase 1）。
+        # **エンジン（初期反射・FDN・オールパス・ダンピング）はヘッダだけ**——
+        # どれも状態を持つ小さな部品で、`.cpp`へ分けても読む場所が増えるだけです
+        Source/Plugins/MantaReverb/MantaReverbParameters.cpp
+        Source/Plugins/MantaReverb/MantaReverbProcessor.cpp
+        Source/Plugins/MantaReverb/MantaReverbEditor.cpp
 )
 
 target_compile_definitions(PersonalDAW

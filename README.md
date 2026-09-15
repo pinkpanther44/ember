@@ -104,7 +104,7 @@ the generic icon for it too.
 
 ## What is included
 
-Four plugins are built in — nothing to install separately.
+Five plugins are built in — nothing to install separately.
 
 | | |
 |---|---|
@@ -112,6 +112,7 @@ Four plugins are built in — nothing to install separately.
 | **Ember Comp** | Compressor. Soft knee, auto/adaptive envelope, look-ahead, external side-chain, parallel mix, and a transfer curve overlaid on the level history |
 | **Red Panda** | Virtual analog synthesizer. Two unison oscillators, sub and noise, filter, two envelopes, two LFOs, a 4-slot modulation matrix, two effect slots, EQ — and 156 factory presets |
 | **Hawkbill Delay** | Delay. One echo line with tempo sync (dotted and triplet divisions), feedback and mix, and a timeline showing where the repeats fall. Four characters — Digital Clean, Analog BBD, Tape Echo and Lo-Fi — a filter inside the feedback loop, an LFO on the delay time, ducking, and up to eight taps with their own level and pan. Two engines can run as Single, Dual, Series, Split L/R or Ping-Pong, with cross-feedback between them. Freeze holds what is in the line, Reverse turns the input around, and Diffuse smears the repeats towards a reverb |
+| **Bf Owl Reverb** | Reverb. Seven algorithms: Room, Plate, Hall, Ambience, Random Hall, Twin Delays and Panorama. Predelay, decay, size, and the shape and spread of the early reflections; damping for the highs and the lows; modulation that makes the tail drift; and a saturation that only bites on the loud part. Two engines run as Single, Cascade, Mono Split or Stereo Split. Twin Delays is two delays, one each side, that can bounce between them; Panorama is a stereo tool with width, mono sum, phase invert and a channel swap |
 
 ## Where your files are kept
 

@@ -4,6 +4,7 @@
 #include "MantaComp/MantaCompProcessor.h"
 #include "MantaSynth/MantaSynthProcessor.h"
 #include "MantaDelay/MantaDelayProcessor.h"   // 8.204：4つめ（Phase 238）
+#include "MantaReverb/MantaReverbProcessor.h" // 8.240：5つめ（Phase 254）
 #include "../Branding.h"   // 8.175：ブランドごとの名前（Phase 216）
 
 namespace MantaPlugins
@@ -70,6 +71,19 @@ namespace MantaPlugins
                 [] () -> std::unique_ptr<juce::AudioPluginInstance>
                 {
                     return std::make_unique<MantaDelayProcessor>();
+                }
+            },
+            {
+                "manta:reverb",
+                Branding::reverbPluginName,
+                "Reverb",
+                "Fx|Reverb",
+                "1.0.0",
+                0x4d525631,   // 'MRV1'
+                false,
+                [] () -> std::unique_ptr<juce::AudioPluginInstance>
+                {
+                    return std::make_unique<MantaReverbProcessor>();
                 }
             },
             {

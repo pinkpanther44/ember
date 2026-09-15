@@ -102,6 +102,13 @@ namespace Branding
     /** 8.204：4つめ（Phase 238／本人の指定）。Ember側は`Hawkbill Delay`。 */
     inline constexpr const char* delayPluginName = isEmber ? "Hawkbill Delay" : "Manta Delay";
 
+    /** 8.240：5つめ（Phase 254／本人の指定）。Ember側は`Bf Owl Reverb`。
+
+        **Ember側の名前は絶滅危惧種から採ります**（本人の方針。Phase 254で聞きました）——
+        `Red Panda`（EN）、`Hawkbill`＝タイマイ（CR）、そしてこれ。
+        **次のプラグインもここから選ぶこと。** */
+    inline constexpr const char* reverbPluginName = isEmber ? "Bf Owl Reverb" : "Manta Reverb";
+
     /** プリセットの置き場所（`%APPDATA%\<data>\Presets\<これ>\`）。
 
         **プラグイン名とは別に持ちます。** 名前を変えたときに
@@ -110,6 +117,7 @@ namespace Branding
     inline constexpr const char* compPresetFolder = "MantaComp";
     inline constexpr const char* synthPresetFolder = "MantaSynth";
     inline constexpr const char* delayPresetFolder = "MantaDelay";   // 8.204（Phase 238）
+    inline constexpr const char* reverbPresetFolder = "MantaReverb";  // 8.240（Phase 254）
 
     //==========================================================================
     // 既定値
@@ -232,6 +240,31 @@ namespace Branding
     inline constexpr juce::uint32 delayAccentSecondary (bool dark)
     {
         if (isEmber) return dark ? 0xffe8c84a : 0xffc9a72c;   // イエロー
+        return accentSecondary (dark);                          // オレンジ（従来どおり）
+    }
+
+    /** 8.253：**リバーブも専用の2色**（Phase 261／本人の指定）。
+
+        | | 主 | 副 |
+        |---|---|---|
+        | Manta Reverb | パープル | オレンジ（**アプリと同じ＝従来どおり**） |
+        | Bf Owl Reverb | **パープル** | **ブルー** |
+
+        ディレイ（8.204）に続いて2つめです。**主はどちらもパープル**で、
+        副だけが違います——`Hawkbill Delay`が**ブルー＋イエロー**なので、
+        並べたときに**主の色で見分けられる**ようにしてあります。
+
+        > **地・枠・文字は`MantaTheme`のまま**（8.204と同じ）。
+        > 変えるのはアクセント2色だけです。 */
+    inline constexpr juce::uint32 reverbAccentPrimary (bool dark)
+    {
+        // Ember側もパープル。**本体のアクセントと同じ値**を使います
+        return accentPrimary (dark);
+    }
+
+    inline constexpr juce::uint32 reverbAccentSecondary (bool dark)
+    {
+        if (isEmber) return dark ? 0xff5ab4f0 : 0xff2b8fc9;   // ブルー
         return accentSecondary (dark);                          // オレンジ（従来どおり）
     }
 
