@@ -125,7 +125,11 @@ MantaReverbEditor::MantaReverbEditor (MantaReverbProcessor& processorToUse)
             engineToggles.push_back ({ entry.button, entry.id });
         }
 
-        // 9.7：**説明は表の外で、`utf8 ("…")`の中に日本語を直接書くこと。**
+        // 9.7：**説明は表の外で、`utf8 (…)`の中に日本語を直接書くこと。**
+        //
+        // **見本を引用符付きで書かないこと。** `Update-Translations.ps1`は
+        // 呼び出しの書き方をそのまま探すので、**コメントの中の見本まで拾います**
+        // ——ここに書いてあった見本が、ずっと「訳の無い文字列」として1件数えられていました
         // 上の表へ入れて`const char*`で持ち回すと、**訳の表の道具から見えません**
         monoSumButton.setTooltip (utf8 ("左右を足して真ん中へまとめます（Widthを0%にするのと同じ）"));
         invertButton.setTooltip (utf8 ("右チャンネルの位相を反転します。"

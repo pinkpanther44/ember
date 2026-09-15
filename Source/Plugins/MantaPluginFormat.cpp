@@ -5,6 +5,8 @@
 #include "MantaSynth/MantaSynthProcessor.h"
 #include "MantaDelay/MantaDelayProcessor.h"   // 8.204：4つめ（Phase 238）
 #include "MantaReverb/MantaReverbProcessor.h" // 8.240：5つめ（Phase 254）
+#include "RaccoGuitar/RaccoGuitarProcessor.h" // 8.256：6つめ（Phase 264）
+#include "JavaRhinoBass/JavaRhinoBassProcessor.h" // 8.257：7つめ（Phase 265）
 #include "../Branding.h"   // 8.175：ブランドごとの名前（Phase 216）
 
 namespace MantaPlugins
@@ -99,6 +101,36 @@ namespace MantaPlugins
                 [] () -> std::unique_ptr<juce::AudioPluginInstance>
                 {
                     return std::make_unique<MantaSynthProcessor>();
+                }
+            },
+            {
+                // 8.256：6つめ＝**2つめの音源**（Phase 264）。
+                // 名前は**両製品とも`Racco Guitar`**（本人の指定。`Branding.h`）
+                "manta:guitar",
+                Branding::guitarPluginName,
+                "Physical Modelling Guitar",
+                "Instrument|Guitar",
+                "1.0.0",
+                0x4d475431,   // 'MGT1'
+                true,         // **音源**
+                [] () -> std::unique_ptr<juce::AudioPluginInstance>
+                {
+                    return std::make_unique<RaccoGuitarProcessor>();
+                }
+            },
+            {
+                // 8.257：7つめ＝**3つめの音源**（Phase 265）。
+                // 名前は**両製品とも`Java Rhino Bass`**（本人の指定。`Branding.h`）
+                "manta:bass",
+                Branding::bassPluginName,
+                "Physical Modelling Bass",
+                "Instrument|Bass",
+                "1.0.0",
+                0x4d425331,   // 'MBS1'
+                true,         // **音源**
+                [] () -> std::unique_ptr<juce::AudioPluginInstance>
+                {
+                    return std::make_unique<JavaRhinoBassProcessor>();
                 }
             },
         };

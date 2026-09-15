@@ -354,6 +354,18 @@
     { "オートメーションの色の変更", "Change automation colour", false },
     { "トラックカラーの変更", "Change track colour", false },
 
+    // JavaRhinoBassEditor.cpp
+    { "いまの奏法と、その減衰のかたち。MuteとGhostはSustainに関係なく短く切れます", "The current style and the shape of its decay. Mute and Ghost cut off short whatever Sustain says", true },
+    { "2つのピックアップの混ぜ具合。真ん中で両方フル（ジャズベの定番。中域がへこみます）", "How the two pickups are mixed. In the middle both are full up - the Jazz Bass sound, with a scooped middle", true },
+    { "押さえたまま次を弾いたときに、弾き直さず音程だけ変えます（切ると全部弾き直しになります）", "Holding one key and playing the next changes the pitch without plucking again (switch it off and every note is plucked)", true },
+    { "音色の明るさ。基音の6〜96倍のところで切ります（どの音程でも倍音の構成がそろいます）", "Tone brightness. It cuts at 6 to 96 times the fundamental, so the harmonics line up at every pitch", true },
+    { "弾く位置。ブリッジ寄り（小さい値）ほど硬い音になります", "Where the string is plucked. Nearer the bridge (a smaller value) is a harder sound", true },
+    { "パッシブトーン。出口で高い側を削ります（800Hz〜12kHz）", "The passive tone control. It trims the high side at the output (800 Hz to 12 kHz)", true },
+    { "指やピックの硬さ。励起の明るさの基準になります", "How hard the finger or pick is. It sets the brightness the pluck starts from", true },
+    { "弾いた瞬間のノイズの量。レガートには付きません", "How much noise the attack has. Legato notes get none", true },
+    { "スラップのときの、弦がフレットに当たる音。ほかの奏法では効きません", "The sound of the string hitting the frets when you slap. It does nothing in the other styles", true },
+    { "B0からG4までが鳴ります。右端の色つきの6鍵は奏法の切り替えです", "B0 to G4 sound. The six coloured keys at the right switch the style", true },
+
     // LevelMeterComponent.cpp
     { "--", "--", false },
 
@@ -361,6 +373,8 @@
     { "保存", "Save", false },
 
     // Main.cpp
+    { "プロジェクトを読み込んでいます...", "Loading the project...", true },
+    { "画面を開いています...", "Opening the window...", true },
     { "起動しています...", "Starting up...", true },
     { "画面とオーディオを準備しています...", "Preparing the interface and audio...", true },
 
@@ -636,6 +650,34 @@
     { "プリセットを保存", "Save preset", false },
     { "名前を付けて保存します。", "Save it under a name.", true },
 
+    // MantaReverbEditor.cpp
+    { "響きの種類。切り替えると、いま鳴っている響きは止まります", "The kind of reverb. Switching it stops whatever is sounding now", true },
+    { "つまみを Engine A に向けます", "Points the knobs at Engine A", true },
+    { "つまみを Engine B に向けます（Single では鳴りません）", "Points the knobs at Engine B (which makes no sound in Single)", true },
+    { "AとBのつなぎ方。切り替えると、いま鳴っている響きは止まります。Stereo SplitはAとBを違う設定にして使うものです（同じだと3dB大きいだけになります）", "How A and B are joined. Switching it stops whatever is sounding now. Stereo Split is meant for A and B set differently - with the same settings it is only 3 dB louder", true },
+    { "左右を足して真ん中へまとめます（Widthを0%にするのと同じ）", "Sums left and right into the middle (the same as setting Width to 0%)", true },
+    { "右チャンネルの位相を反転します。左右の打ち消しを確かめるのに使います", "Inverts the phase of the right channel. Use it to check what the two sides cancel", true },
+    { "左右を入れ替えます", "Swaps left and right", true },
+    { "幅は Output の Width、掛かり具合は Mix です", "Width is set by Width in Output, and how much you hear of it by Mix", true },
+    { "原音が鳴ってから響きが始まるまで。空けるほど原音が前に出ます", "From the dry sound to where the reverb begins. The more you leave, the further forward the dry sound sits", true },
+    { "響きが60dB落ちるまでの時間。Dampingを上げると、削られた帯域はこれより早く消えます", "How long the reverb takes to fall by 60 dB. Raise Damping and the bands it trims die away sooner than this", true },
+    { "部屋の大きさ。初期反射とテールの両方が伸び縮みします。減衰時間（Decay）は変わりません", "The size of the room. Both the early reflections and the tail stretch with it. The decay time (Decay) does not change", true },
+    { "初期反射の量。上げると部屋の形が近く聞こえます", "How much of the early reflections you hear. Raise it and the shape of the room sounds closer", true },
+    { "初期反射の山の位置。下げると近くの壁がはっきり返り、上げると遠くからゆっくり湧いてきます（50%で素）", "Where the early reflections peak. Lower it and the near walls answer clearly; raise it and the sound wells up slowly from further away (50% leaves them as they are)", true },
+    { "左のディレイの間隔。右はSpreadで決まる比率だけ短くなります", "The spacing of the left delay. The right one is shorter by the ratio Spread sets", true },
+    { "左右の戻りを入れ替えます。上げると反復が左右に跳ねます（Spreadが0だと2本が同じ長さになり、違いが出ません）", "Feeds each side back into the other. Raise it and the repeats bounce from side to side (with Spread at 0 both lines are the same length, so nothing changes)", true },
+    { "響きの左右の広がり。100%がそのままで、0%で真ん中に寄ります", "How wide the reverb sits. 100% is as it is, 0% pulls it into the middle", true },
+    { "高い音から先に消えるようにします（実際の部屋と同じ）", "Lets the high notes die away first (the way a real room does)", true },
+    { "低い側を削って、響きが濁らないようにします", "Trims the low side so the reverb does not turn muddy", true },
+    { "原音と響きの混ぜ具合", "How the dry sound and the reverb are mixed", true },
+    { "出口の音量", "The level at the output", true },
+    { "テールをゆっくり揺らします（Random Hall専用）。止まって聞こえる響きに動きが出ます", "Lets the tail drift slowly (Random Hall only). It gives movement to a reverb that sounds still", true },
+    { "響きが大きいところだけを潰して、ざらつきを足します。0%で何もしません", "Squashes only the loud part of the reverb and adds some grit. At 0% it does nothing", true },
+    { "2本のディレイの間隔。0%だと同じ長さになり、Crossを回しても違いが出ません", "The spacing of the two delays. At 0% they are the same length, and turning Cross changes nothing", true },
+    { "初期反射が散らばる幅。テールは動きません（そちらはSize。50%で素）", "How far the early reflections are spread. The tail does not move (that is Size. 50% leaves them as they are)", true },
+    { "板の拡散。70%がDattorroの原典そのもので、それ以上は頭打ちになります", "The diffusion of the plate. 70% is exactly Dattorro's original, and above that it levels off", true },
+    { "響きの詰まり具合。下げると一発ずつが聞こえ、上げるとなめらかに溶けます", "How densely the reverb is packed. Lower it and you hear each return; raise it and they melt together", true },
+
     // MantaSynthEditor.cpp
     { "同じ波を重ねる本数。増やすほど太くなります", "How many copies of the wave are stacked. More is thicker", true },
     { "重ねた波の音程をずらす量", "How far apart the stacked copies are tuned", true },
@@ -844,6 +886,7 @@
     { "配色はアプリ全体の設定として保存されます。", "The theme is saved as an application-wide setting.", true },
 
     // ProjectChooser.cpp
+    { "プラグインを使っているプロジェクトは、その数だけ時間がかかります", "Projects that use plugins take longer, the more of them there are", true },
     { "バージョン ", "Version ", false },
     { "テンプレートから始める", "Start from a template", false },
     { "最近開いたプロジェクト", "Recent projects", false },
@@ -880,6 +923,20 @@
     { "名前を入れてください。", "Please enter a name.", true },
     { "その名前はファイル名に使えません。", "That name cannot be used as a file name.", true },
     { "書き込めませんでした:\n", "Could not write:\n", true },
+
+    // RaccoGuitarEditor.cpp
+    { "コントロールにカーソルを合わせると、ここに説明が出ます", "Hover a control and what it does appears here", true },
+    { "いまの奏法と、その減衰のかたち。奏法によってSustainに上限が掛かります", "The current articulation and the shape of its decay. Some articulations cap Sustain", true },
+    { "このプラグインから出る音量", "The level this plugin sends out", true },
+    { "ピックアップの位置。ブリッジ寄り（Rear）ほど硬い音になります", "Pickup position. Nearer the bridge (Rear) gives a harder sound", true },
+    { "つまみと奏法を、最初の状態へ戻します", "Puts the knobs and the articulation back to how they started", true },
+    { "鍵盤のキースイッチと同じ切り替えです（音は鳴りません）", "The same switch as the key switches on the keyboard (these make no sound)", true },
+    { "弦が鳴り続ける秒数。どの音程でも同じ秒数だけ鳴ります", "How long the string keeps ringing, in seconds - the same length at every pitch", true },
+    { "ピックの硬さ。0でフェルトや指、1で硬いピックの鋭い音", "How hard the pick is. 0 is felt or a finger, 1 is a hard pick with a sharp attack", true },
+    { "音色の明るさ。下げると倍音が速く減って丸いトーンになります", "Tone brightness. Lower it and the harmonics die away faster, for a rounder tone", true },
+    { "弾く位置。ブリッジ寄り（小さい値）で硬い音。ピッキングハーモニクスの次数もここで決まります", "Where the string is picked. Nearer the bridge (a smaller value) is harder, and it also sets the order of pinch harmonics", true },
+    { "弾いた瞬間のピックノイズの量。ハンマリングやプリングには付きません", "How much pick noise the attack has. Hammer-ons and pull-offs get none", true },
+    { "E2からD6までが鳴ります。左端の色つきの6鍵は奏法の切り替えです", "E2 to D6 sound. The six coloured keys at the left switch the articulation", true },
 
     // RecorderProcessor.cpp
     { "録音ファイルを作成できませんでした: ", "Could not create the recording file: ", true },

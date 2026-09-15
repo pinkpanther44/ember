@@ -109,6 +109,23 @@ namespace Branding
         **次のプラグインもここから選ぶこと。** */
     inline constexpr const char* reverbPluginName = isEmber ? "Bf Owl Reverb" : "Manta Reverb";
 
+    /** 8.256：6つめ（Phase 264／本人の指定）。**両方とも同じ名前**です。
+
+        ここまでの5つは製品ごとに名前を分けてきました（`Manta EQ`／`Ember EQ`、
+        `Manta Synthesizer`／`Red Panda`……）。**このギターだけは本人の指定で共通**です。
+
+        **識別子は名前を含みますが、それでも衝突しません**（8.166）——
+        `createIdentifierString()`には`pluginFormatName`（`Manta`／`Ember`）も
+        混ざるためです。名前が同じでも、**保存先も識別子も別のまま**です。 */
+    inline constexpr const char* guitarPluginName = "Racco Guitar";
+
+    /** 8.257：7つめ（Phase 265／本人の指定）。**こちらも両製品とも同じ名前**です。
+
+        Ember側の名前は絶滅危惧種から採る方針で、`Java Rhino`＝**ジャワサイ**
+        （IUCNのCR＝近絶滅種。野生に数十頭）。`Racco Guitar`に続いて、
+        **名前を分けないものが2つめ**になりました。 */
+    inline constexpr const char* bassPluginName = "Java Rhino Bass";
+
     /** プリセットの置き場所（`%APPDATA%\<data>\Presets\<これ>\`）。
 
         **プラグイン名とは別に持ちます。** 名前を変えたときに
@@ -118,6 +135,8 @@ namespace Branding
     inline constexpr const char* synthPresetFolder = "MantaSynth";
     inline constexpr const char* delayPresetFolder = "MantaDelay";   // 8.204（Phase 238）
     inline constexpr const char* reverbPresetFolder = "MantaReverb";  // 8.240（Phase 254）
+    inline constexpr const char* guitarPresetFolder = "RaccoGuitar";  // 8.256（Phase 264）
+    inline constexpr const char* bassPresetFolder = "JavaRhinoBass";  // 8.257（Phase 265）
 
     //==========================================================================
     // 既定値
@@ -266,6 +285,52 @@ namespace Branding
     {
         if (isEmber) return dark ? 0xff5ab4f0 : 0xff2b8fc9;   // ブルー
         return accentSecondary (dark);                          // オレンジ（従来どおり）
+    }
+
+    /** 8.256：**ギターのアクセント2色**（Phase 264／本人の指定は「水色とピンク」）。
+
+        | | 主 | 副 |
+        |---|---|---|
+        | Racco Guitar（両製品） | **水色** | **ピンク** |
+
+        ディレイ（8.204）・リバーブ（8.253）に続いて3つめですが、
+        **製品で色を分けていないのはこれが初めて**です——名前が両方とも
+        `Racco Guitar`なので（上の`guitarPluginName`）、色まで同じにしてあります。
+
+        **明暗の2値があるのは他と同じ**ですが、**つまみの弧には使いません**——
+        つまみは常に明るい画像の上に乗るので、そちらは`RaccoGuitarTheme`が
+        明るい側の値を固定で使います（`RaccoGuitarTheme.h`）。
+        ここの2値が効くのは、**画像の外**（帯・チップ・鍵盤）です。
+
+        > **地・枠・文字は`MantaTheme`のまま**（8.204と同じ）。 */
+    inline constexpr juce::uint32 guitarAccentPrimary (bool dark)
+    {
+        return dark ? 0xff5cc3e0 : 0xff2f9bbc;   // 水色
+    }
+
+    inline constexpr juce::uint32 guitarAccentSecondary (bool dark)
+    {
+        return dark ? 0xffef86b5 : 0xffd9548f;   // ピンク
+    }
+
+    /** 8.257：**ベースのアクセント2色**（Phase 265／本人の指定は「濃いめのグリーンと濃いめの青」）。
+
+        | | 主 | 副 |
+        |---|---|---|
+        | Java Rhino Bass（両製品） | **濃いグリーン** | **濃いブルー** |
+
+        ギター（8.256）と同じく**製品で分けていません**。
+
+        `Hawkbill Delay`のブルー（`0xff4a9eff`）よりも**濃い**ところを選んであります
+        ——Ember側で並んだときに、色で見分けが付かなくなるのを避けるためです。 */
+    inline constexpr juce::uint32 bassAccentPrimary (bool dark)
+    {
+        return dark ? 0xff2f9e6b : 0xff1e7350;   // 濃いグリーン
+    }
+
+    inline constexpr juce::uint32 bassAccentSecondary (bool dark)
+    {
+        return dark ? 0xff3a6fc4 : 0xff23508f;   // 濃いブルー
     }
 
 }

@@ -104,7 +104,7 @@ the generic icon for it too.
 
 ## What is included
 
-Five plugins are built in — nothing to install separately.
+Seven plugins are built in — nothing to install separately.
 
 | | |
 |---|---|
@@ -113,6 +113,8 @@ Five plugins are built in — nothing to install separately.
 | **Red Panda** | Virtual analog synthesizer. Two unison oscillators, sub and noise, filter, two envelopes, two LFOs, a 4-slot modulation matrix, two effect slots, EQ — and 156 factory presets |
 | **Hawkbill Delay** | Delay. One echo line with tempo sync (dotted and triplet divisions), feedback and mix, and a timeline showing where the repeats fall. Four characters — Digital Clean, Analog BBD, Tape Echo and Lo-Fi — a filter inside the feedback loop, an LFO on the delay time, ducking, and up to eight taps with their own level and pan. Two engines can run as Single, Dual, Series, Split L/R or Ping-Pong, with cross-feedback between them. Freeze holds what is in the line, Reverse turns the input around, and Diffuse smears the repeats towards a reverb |
 | **Bf Owl Reverb** | Reverb. Seven algorithms: Room, Plate, Hall, Ambience, Random Hall, Twin Delays and Panorama. Predelay, decay, size, and the shape and spread of the early reflections; damping for the highs and the lows; modulation that makes the tail drift; and a saturation that only bites on the loud part. Two engines run as Single, Cascade, Mono Split or Stereo Split. Twin Delays is two delays, one each side, that can bounce between them; Panorama is a stereo tool with width, mono sum, phase invert and a channel swap |
+| **Racco Guitar** | Electric guitar instrument, modelled string by string rather than sampled. A 648 mm scale, a pickup you can move between front, centre and rear, and knobs for brightness, sustain, picking position, pick hardness and pick noise. Six key switches (A#1 to D#2) choose the articulation — normal, palm mute, natural and pinch harmonics, slide and brushing — and hammer-ons, pull-offs and slides come from how you play, with no key switch at all. E2 to D6 sound, as on a 22-fret guitar; the modulation wheel bends the note upwards, like a finger vibrato. There is no amp or cabinet in it: it sends out a DI sound for the amp of your choice |
+| **Java Rhino Bass** | Five-string jazz bass instrument, modelled string by string rather than sampled. A 34-inch scale tuned B-E-A-D-G, two pickups you blend (both full in the middle, the way a jazz bass is usually played), and knobs for brightness, sustain, plucking position, tone, hardness, attack and the clank of the strings on the frets. Six key switches (C5 to F5) choose the style — finger, pick, slap, mute, ghost and harmonic — and on slap the two top strings are popped instead, the way they are played. Hammer-ons, pull-offs and slides come from how you play and can be switched off. B0 to G4 sound, as on a 24-fret bass. No amp or cabinet: it sends out a DI sound |
 
 ## Where your files are kept
 
