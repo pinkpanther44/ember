@@ -6,6 +6,49 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.4.0] - 2026-09-16
+
+### Added
+
+- **Racco Guitar**, a sixth built-in plugin and the second instrument — an
+  electric guitar modelled string by string rather than sampled:
+  - A **648 mm scale** string model. Because the pickup sits a fixed distance
+    from the bridge, the same note sounds different played open or fretted,
+    the way it does on a real guitar
+  - **Brightness**, **Sustain** (in seconds, and the same length at every
+    pitch), **Pick Position**, **Hardness** and **Attack**, with the pickup
+    switchable between front, centre and rear
+  - Six **key switches** (A#1 to D#2) for the articulation: normal, palm mute,
+    natural harmonic, pinch harmonic, slide and brushing. Palm mutes get deeper
+    the softer you play, and the pinch harmonic's order follows Pick Position
+  - **Hammer-ons, pull-offs and slides need no key switch** — they come from
+    holding one key and playing the next
+  - E2 to D6 sound, as on a 22-fret guitar. Notes outside that range are
+    silent, and the keyboard shows them greyed out
+  - The **modulation wheel** bends the note upwards only, the way bending a
+    string does
+  - **No amp or cabinet.** It sends out a DI sound for the amp of your choice
+
+- **Java Rhino Bass**, a seventh built-in plugin and the third instrument — a
+  five-string jazz bass, modelled string by string rather than sampled:
+  - A **34-inch scale** tuned B-E-A-D-G, with each string given its own
+    brightness, decay and level, the way a thicker string behaves
+  - **Two pickups you blend.** In the middle both are full up — the jazz bass
+    sound, with the scooped middle that comes from summing them
+  - **Brightness**, **Sustain**, **Pluck Position**, **Tone**, **Hardness**,
+    **Attack** and **Clank** — the last being the strings hitting the frets
+    when you slap
+  - Six **key switches** (C5 to F5) for the style: finger, pick, slap, mute,
+    ghost and harmonic. On slap, the two top strings are **popped** instead,
+    the way they are actually played
+  - **Hammer-ons, pull-offs and slides** come from how you play, and can be
+    switched off with Legato
+  - B0 to G4 sound, as on a 24-fret five-string. The keyboard greys out the
+    notes between the top of the range and the key switches
+  - **No amp or cabinet**, and no compressor either: it sends out a DI sound
+
+---
+
 ## [0.3.0] - 2026-09-15
 
 ### Added

@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(PersonalDAW VERSION 0.3.0)
+project(PersonalDAW VERSION 0.4.0)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -136,6 +136,20 @@ set(PERSONALDAW_EMBEDDED_ASSETS
     # 元の名前：バイパスボタン.svg／画面固定ボタン.svg（**ファイル名はASCII**）
     Resources/Icons/plugin_bypass.svg
     Resources/Icons/plugin_pin.svg
+
+    # 8.256：Racco Guitarの画面のまん中に敷く絵（Phase 264／本人が用意）。
+    #
+    # **1600x900のJPEGにしてあります**（元は1920x1080のPNGで1.8MB）。
+    # 滑らかな階調だけの絵なのでJPEGで劣化が見えず、**85KB**まで落ちます——
+    # exeへ埋め込むものなので、使われない画素を持ち歩かないこと（ICON_BIGと同じ話）
+    Resources/Plugins/racco_guitar_field.jpg
+
+    # 8.257：Java Rhino Bassの画面のまん中に敷く絵（Phase 265／本人が用意）。
+    #
+    # こちらは**ラメの粒**が全面にあるので、同じ1600x900でも**469KB**あります
+    # （ギターのほうは滑らかな階調だけで85KB）。粒が絵の見どころなので、
+    # ここを削ると別の絵になります——**品質82まで**にとどめてあります
+    Resources/Plugins/java_rhino_bass_field.jpg
 
     # 8.151：起動画面に出すアプリのアイコン（Phase 189／改善案⑰）。
     # exeのアイコン（ICON_BIG）と**同じファイル**を、絵としても読めるように埋め込む。
@@ -292,6 +306,22 @@ target_sources(PersonalDAW
         Source/Plugins/MantaReverb/MantaReverbParameters.cpp
         Source/Plugins/MantaReverb/MantaReverbProcessor.cpp
         Source/Plugins/MantaReverb/MantaReverbEditor.cpp
+
+        # 8.256：6つめ「Racco Guitar」＝**2つめの音源**（Phase 264／本人の要望）。
+        # 本人が別に作った`KSGuitar`（Karplus-Strong拡張版）を移したもので、
+        # **アンプ段は持って来ていません**（本人の指定）。
+        # **弦とボイスはヘッダだけ**——JUCEに依存しない小さな部品なので、
+        # `.cpp`へ分けても読む場所が増えるだけです（リバーブと同じ扱い）
+        Source/Plugins/RaccoGuitar/RaccoGuitarParameters.cpp
+        Source/Plugins/RaccoGuitar/RaccoGuitarProcessor.cpp
+        Source/Plugins/RaccoGuitar/RaccoGuitarEditor.cpp
+
+        # 8.257：7つめ「Java Rhino Bass」＝**3つめの音源**（Phase 265／本人の要望）。
+        # 本人が別に作った`JBass5`（5弦ジャズベースの物理モデリング）を移したもので、
+        # **アンプ段は持って来ていません**（本人の指定。ギターと同じ切り分け）
+        Source/Plugins/JavaRhinoBass/JavaRhinoBassParameters.cpp
+        Source/Plugins/JavaRhinoBass/JavaRhinoBassProcessor.cpp
+        Source/Plugins/JavaRhinoBass/JavaRhinoBassEditor.cpp
 )
 
 target_compile_definitions(PersonalDAW
