@@ -47,6 +47,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- **Opening a project no longer leaves the screen empty.** The startup window
+  stays where it is and says what it is doing, instead of closing and leaving
+  nothing on screen until the project appears. Opening still takes as long as
+  it did — a project with a lot of plugins has to build every one of them, and
+  the spinner stops while that happens, so the window says so
 - **Velocity bars are a third as wide.** At eight bars they ran together into a
   single band once the notes were close, so you could not count them. They are
   no easier to miss — the area you can grab is held separately from the width

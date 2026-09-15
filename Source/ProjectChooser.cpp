@@ -130,10 +130,129 @@ ProjectChooserComponent::ProjectChooserComponent()
 
     updateButtonStates();
 
+    //--------------------------------------------------------------------------
+    // 8.254：読み込み中の表示（Phase 262／本人の要望）。
+    //
+    // **作るだけ作って、隠しておきます**——`showLoading()`まで出番はありません
+
+    loadingLabel.setFont (juce::Font (juce::FontOptions (20.0f)));
+    loadingLabel.setColour (juce::Label::textColourId, AppColours::textPrimary);
+    loadingLabel.setJustificationType (juce::Justification::centred);
+    loadingLabel.setVisible (false);
+    addChildComponent (loadingLabel);
+
+    loadingDetail.setFont (juce::Font (juce::FontOptions (13.0f)));
+    loadingDetail.setColour (juce::Label::textColourId, AppColours::textSecondary);
+    loadingDetail.setJustificationType (juce::Justification::centred);
+    loadingDetail.setVisible (false);
+    addChildComponent (loadingDetail);
+
+    // 8.254：**待つ理由を先に書いておく**（Phase 262）。
+    //
+    // 読み込みのあいだ、くるくるは**止まります**（ヘッダの`BusySpinner`）。
+    // 止まった絵だけだと「固まった」に見えますが、**時間がかかると
+    // 先に書いてあれば「働いている」に見えます。**
+    //
+    // 8.225で引いた線と同じ：**説明するしかないものは、画面に出す。**
+    loadingHint.setFont (juce::Font (juce::FontOptions (11.0f)));
+    loadingHint.setColour (juce::Label::textColourId, AppColours::textSecondary.withAlpha (0.7f));
+    loadingHint.setJustificationType (juce::Justification::centred);
+    loadingHint.setText (utf8 ("プラグインを使っているプロジェクトは、その数だけ時間がかかります"),
+                          juce::dontSendNotification);
+    loadingHint.setVisible (false);
+    addChildComponent (loadingHint);
+
+    spinner.setVisible (false);
+    addChildComponent (spinner);
+
     setSize (880, 540);
 }
 
 ProjectChooserComponent::~ProjectChooserComponent() = default;
+
+//==============================================================================
+// 8.254：くるくる（Phase 262）。**止まる理由はヘッダに書いてあります**
+
+ProjectChooserComponent::BusySpinner::BusySpinner()
+{
+    // 押しても何も起きないものを、押せそうに見せない（8.161）
+    setInterceptsMouseClicks (false, false);
+}
+
+void ProjectChooserComponent::BusySpinner::start()  { startTimerHz (30); }
+void ProjectChooserComponent::BusySpinner::stop()   { stopTimer(); }
+
+void ProjectChooserComponent::BusySpinner::timerCallback()
+{
+    phase += 0.035f;
+
+    if (phase >= 1.0f)
+        phase -= 1.0f;
+
+    repaint();
+}
+
+void ProjectChooserComponent::BusySpinner::paint (juce::Graphics& g)
+{
+    auto area = getLocalBounds().toFloat().reduced (3.0f);
+
+    const float radius = juce::jmin (area.getWidth(), area.getHeight()) * 0.5f;
+
+    if (radius <= 2.0f)
+        return;
+
+    const auto centre = area.getCentre();
+    const float thickness = juce::jmax (2.0f, radius * 0.22f);
+
+    // 地の輪。**弧だけだと「何も無いところを回っている」ように見えます**
+    juce::Path ring;
+    ring.addCentredArc (centre.x, centre.y, radius - thickness * 0.5f, radius - thickness * 0.5f,
+                         0.0f, 0.0f, juce::MathConstants<float>::twoPi, true);
+
+    g.setColour (AppColours::border);
+    g.strokePath (ring, juce::PathStrokeType (thickness));
+
+    // 回る弧（3/4周ぶん）
+    const float start = phase * juce::MathConstants<float>::twoPi;
+
+    juce::Path arc;
+    arc.addCentredArc (centre.x, centre.y, radius - thickness * 0.5f, radius - thickness * 0.5f,
+                        0.0f, start, start + juce::MathConstants<float>::pi * 1.5f, true);
+
+    g.setColour (AppColours::purple);
+    g.strokePath (arc, juce::PathStrokeType (thickness, juce::PathStrokeType::curved,
+                                               juce::PathStrokeType::rounded));
+}
+
+//==============================================================================
+
+void ProjectChooserComponent::showLoading (const juce::String& message, const juce::String& detail)
+{
+    loading = true;
+
+    // **子を名前で並べて隠さないこと。** 後から部品を足したときに
+    // 書き忘れて、読み込み中の画面に1つだけボタンが残ります（1.15と同じ性質）
+    for (auto* child : getChildren())
+        child->setVisible (child == &loadingLabel || child == &loadingDetail
+                            || child == &loadingHint || child == &spinner);
+
+    loadingLabel.setText (message, juce::dontSendNotification);
+    loadingDetail.setText (detail, juce::dontSendNotification);
+
+    spinner.start();
+
+    resized();
+    repaint();
+}
+
+void ProjectChooserComponent::setLoadingMessage (const juce::String& message)
+{
+    if (! loading)
+        return;
+
+    loadingLabel.setText (message, juce::dontSendNotification);
+    loadingLabel.repaint();
+}
 
 void ProjectChooserComponent::paint (juce::Graphics& g)
 {
@@ -142,6 +261,22 @@ void ProjectChooserComponent::paint (juce::Graphics& g)
 
 void ProjectChooserComponent::resized()
 {
+    // 8.254：読み込み中は**真ん中に3つだけ**（Phase 262）
+    if (loading)
+    {
+        auto middle = getLocalBounds().withSizeKeepingCentre (getWidth(), 150);
+
+        spinner.setBounds (middle.removeFromTop (48).withSizeKeepingCentre (44, 44));
+        middle.removeFromTop (18);
+        loadingLabel.setBounds (middle.removeFromTop (28));
+        middle.removeFromTop (6);
+        loadingDetail.setBounds (middle.removeFromTop (20));
+        middle.removeFromTop (10);
+        loadingHint.setBounds (middle.removeFromTop (18));
+
+        return;
+    }
+
     auto area = getLocalBounds().reduced (18);
 
     auto header = area.removeFromTop (36);
@@ -331,6 +466,22 @@ ProjectChooserWindow::ProjectChooserWindow()
     AppIcon::applyToWindow (*this);
 
     toFront (true);
+}
+
+void ProjectChooserWindow::showLoading (const juce::String& message, const juce::String& detail)
+{
+    // 8.254：**×も消します**（Phase 262）。読み込みの途中で閉じられると、
+    // 本体が出てくる先が無くなります——押せないボタンを残さない（8.161）
+    setTitleBarButtonsRequired (0, false);
+
+    if (auto* content = dynamic_cast<ProjectChooserComponent*> (getContentComponent()))
+        content->showLoading (message, detail);
+}
+
+void ProjectChooserWindow::setLoadingMessage (const juce::String& message)
+{
+    if (auto* content = dynamic_cast<ProjectChooserComponent*> (getContentComponent()))
+        content->setLoadingMessage (message);
 }
 
 void ProjectChooserWindow::closeButtonPressed()

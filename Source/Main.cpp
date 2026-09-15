@@ -10,6 +10,7 @@
 #include "Branding.h"   // 8.175：表に出る名前（Phase 216）
 #include "AppIcon.h"    // 8.229：窓のアイコン（Phase 249）
 
+
 //==============================================================================
 class PersonalDAWApplication : public juce::JUCEApplication
 {
@@ -180,10 +181,52 @@ public:
             // スタックが解放済みメモリを触る
             juce::MessageManager::callAsync ([this, result]
             {
-                chooserWindow = nullptr;
-                applyProjectChoice (result);
+                if (result.type == ProjectChooser::Result::Type::quit)
+                {
+                    chooserWindow = nullptr;
+                    applyProjectChoice (result);
+                    return;
+                }
+
+                // 8.254：**選択画面は閉じません**（Phase 262／本人の要望）。
+                //
+                // Phase 261まではここで窓を消していたので、**本体が出るまでの
+                // 数秒〜十数秒、画面に何も無い**状態でした
+                // （本人の報告：「落ちてしまったのかと思うこともある」）。
+                //
+                // 中身だけ「読み込み中」へ差し替えて、**窓は残します。**
+                chooserWindow->showLoading (utf8 ("プロジェクトを読み込んでいます..."),
+                                             describeChoice (result));
+
+                // **一度メッセージループへ返してから始めること。**
+                // ここで続けて読み込みに入ると、差し替えた中身が**一度も描かれないまま**
+                // 数秒固まります（8.151で起動画面に踏んだのとまったく同じ形）。
+                //
+                // `callAsync`ではなく**少しだけ待つ**のは、
+                // 描き直しの順番が保証されないためです——60msなら目には見えません
+                juce::Timer::callAfterDelay (60, [this, result]
+                {
+                    applyProjectChoice (result);
+                });
             });
         };
+    }
+
+    /** 8.254：読み込み中に出す「何を開いているか」（Phase 262）。 */
+    static juce::String describeChoice (const ProjectChooser::Result& result)
+    {
+        switch (result.type)
+        {
+            case ProjectChooser::Result::Type::fromTemplate:
+                return result.entry.name;
+
+            case ProjectChooser::Result::Type::openFile:
+                return result.file.getFileNameWithoutExtension();
+
+            case ProjectChooser::Result::Type::quit:
+            default:
+                return {};
+        }
     }
 
     void applyProjectChoice (const ProjectChooser::Result& result)
@@ -213,7 +256,25 @@ public:
                 return;
         }
 
-        revealMainWindow();
+        // 8.254：**ここまでが「重いほう」**（Phase 262）。
+        //
+        // 上の1行（`applyTemplate()`／`loadProjectFile()`）の中で、プロジェクトに
+        // 入っている市販プラグインを1つずつ作り直します。13個のプロジェクトで
+        // 10秒近くかかることがあり、**そのあいだメッセージスレッドは塞がったまま**です。
+        //
+        // 読み込みが終わったので、**本体を出す前に文字だけ差し替えます。**
+        // 画面を組み立てるのにもまだ少しかかるので、**そこも無言にしない**
+        if (chooserWindow != nullptr)
+            chooserWindow->setLoadingMessage (utf8 ("画面を開いています..."));
+
+        juce::Timer::callAfterDelay (60, [this]
+        {
+            revealMainWindow();
+
+            // **本体を出してから消すこと。** 先に消すと、そこで一瞬また
+            // 画面から何も無くなります——直したかったのはまさにそれです
+            chooserWindow = nullptr;
+        });
     }
 
     //==========================================================================

@@ -55,10 +55,59 @@ public:
     /** 選ばれたときに1度だけ呼ばれる。 */
     std::function<void (const ProjectChooser::Result&)> onChosen;
 
+    /** 8.254：**選ばれたあと、閉じずに「読み込み中」へ切り替える**
+        （Phase 262／本人の要望）。
+
+        `detail`には開くものの名前を出します——**何を待っているのか**が分かるように。
+
+        > **ここから先、選ぶための部品は全部隠します**（8.161：押しても何も
+        > 起きないものを、押せそうに見せない）。 */
+    void showLoading (const juce::String& message, const juce::String& detail);
+
+    /** 段が変わったときに文字だけ差し替える（窓はそのまま）。 */
+    void setLoadingMessage (const juce::String& message);
+
     void paint (juce::Graphics& g) override;
     void resized() override;
 
 private:
+    //==========================================================================
+    /** 8.254：くるくる（Phase 262）。
+
+        ─────────────────────────────────────────────────────────────────
+        **読み込みのあいだ、これは止まります**
+        ─────────────────────────────────────────────────────────────────
+
+        プロジェクトを開く処理（`MainComponent::loadProjectFile()`）は
+        **メッセージスレッドを塞いだまま**走ります——中で市販プラグインを
+        1つずつ作るので、13個のプロジェクトでは10秒近くかかることがあります。
+
+        そのあいだタイマーは呼ばれないので、**絵は止まったまま**です。
+        動くのは「切り替えた直後」と「段が変わったところ」だけ。
+
+        > **それでも出す価値はあります。** 止まっていても**窓が在る**ことと、
+        > **何をしているかが書いてある**ことが、いちばん効きます
+        > （本人の報告：「落ちてしまったのかと思うこともある」）。
+        >
+        > **本当に回し続けるには**、プラグインの復元を後回しにして
+        > 本体を先に見せる作りへ変えるしかありません。**今回はそこまでやりません。** */
+    class BusySpinner : public juce::Component,
+                         private juce::Timer
+    {
+    public:
+        BusySpinner();
+
+        void start();
+        void stop();
+
+        void paint (juce::Graphics& g) override;
+
+    private:
+        void timerCallback() override;
+
+        float phase = 0.0f;
+    };
+
     //==========================================================================
     /** 一覧の中身。**テンプレートと履歴で同じ描き方**にしてある——
         2行（見出しと補足）で、選ばれている行だけ帯が付く。 */
@@ -122,6 +171,15 @@ private:
     std::unique_ptr<juce::FileChooser> fileChooser;
     bool alreadyChosen = false;
 
+    //==========================================================================
+    // 8.254：読み込み中の表示（Phase 262）
+
+    juce::Label loadingLabel, loadingDetail, loadingHint;
+    BusySpinner spinner;
+
+    /** **`resized()`が見ます。** 出す部品が入れ替わるので、置き方も分かれます。 */
+    bool loading = false;
+
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ProjectChooserComponent)
 };
 
@@ -135,6 +193,13 @@ public:
 
     /** 選ばれた／×で閉じられた。**どちらもここへ来ます**（×は`Type::quit`）。 */
     std::function<void (const ProjectChooser::Result&)> onChosen;
+
+    /** 8.254：中身を「読み込み中」へ切り替える（Phase 262）。
+
+        **窓は閉じません。** 閉じてから本体が出るまでのあいだ、
+        画面に何も無い時間ができてしまうためです（本人の報告）。 */
+    void showLoading (const juce::String& message, const juce::String& detail);
+    void setLoadingMessage (const juce::String& message);
 
     void closeButtonPressed() override;
 
