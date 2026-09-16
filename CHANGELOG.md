@@ -41,6 +41,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **Ember started at 8 kHz on Linux.** With no audio device chosen yet, it
+  opened whatever the system offered as its default, and on a PipeWire system
+  that turned out to be 8 kHz with a buffer of 16 samples. Nothing appeared to
+  be wrong — it played, and there was no error — but everything sounded dull,
+  and the EQ drew dips in the treble that nobody had placed, which is how it
+  was noticed. It now asks for 48 kHz and 512 samples, and falls back to the
+  nearest your device can do. **If you have already chosen a device under
+  Preferences → Audio, your choice is kept** — check the buffer size there if
+  you set it up before this release
+
 - A plugin in a sandbox that could not keep up with one block of audio **lost
   the notes in that block**. A missed note-off left the sound playing with no
   way to stop it. Notes now travel in a queue of their own rather than
