@@ -36,7 +36,7 @@ RaccoGuitarProcessor::RaccoGuitarProcessor()
     synth.addSound (new RaccoGuitarSound());
 
     for (int i = 0; i < numVoices; ++i)
-        synth.addVoice (new RaccoGuitarVoice());
+        synth.addVoice (new RaccoGuitarVoice (i));
 }
 
 void RaccoGuitarProcessor::fillInPluginDescription (juce::PluginDescription& description) const

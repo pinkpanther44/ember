@@ -36,7 +36,7 @@ JavaRhinoBassProcessor::JavaRhinoBassProcessor()
     synth.addSound (new JavaRhinoBassSound());
 
     for (int i = 0; i < numVoices; ++i)
-        synth.addVoice (new JavaRhinoBassVoice());
+        synth.addVoice (new JavaRhinoBassVoice (i));
 
     synth.setNoteStealingEnabled (true);
 }

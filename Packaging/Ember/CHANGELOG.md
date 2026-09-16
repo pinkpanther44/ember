@@ -6,7 +6,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [Unreleased]
+## [0.5.0] - 2026-09-17
 
 ### Added
 
@@ -43,6 +43,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   rather than the one at the start of the song, and the undo entry says which
   bar it changed. The key above the chord pad follows the playhead too; the
   pads themselves always did
+
+- **Racco Guitar and Java Rhino Bass now play the same way twice.** Both drew
+  their pick and slap noise from a source that started somewhere different
+  every time the application ran, so the same project exported twice gave two
+  files that were not identical. They still vary from note to note, and between
+  the voices of a chord, but a render is now repeatable
+
+- **Both instruments start a little quieter.** Played hard they were reaching
+  full scale — sometimes just past it, depending on how that run's noise fell,
+  which is why it went unnoticed. The guitar's output now starts at 0.70 rather
+  than 0.80, and the bass at 0.30 rather than 0.35; the loudest notes land
+  around 0.88 instead of just over 1.0. **Projects you have already saved are
+  untouched** — this is only where each starts when you add a new one
 
 - The knob labels and readouts in **Java Rhino Bass** are now white with a
   dark edge. On the speckled background of that instrument, dark text
@@ -303,9 +316,9 @@ it — later entries will be shorter.
 <!--
   8.193：**次の版を出すときは、この上に節を足してください**（Phase 230）。
 
-  **まず直したぶんを`## [Unreleased]`へ書き、出すときに版と日付へ変えます。**
+  **まず直したぶんを`## [0.5.0] - 2026-09-17`へ書き、出すときに版と日付へ変えます。**
 
-      ## [Unreleased]          ← 作業中はこれ
+      ## [0.5.0] - 2026-09-17          ← 作業中はこれ
       ## [0.4.0] - 2026-XX-XX  ← 出すときにこう変える
       ### Added / Changed / Fixed / Removed
 

@@ -102,8 +102,22 @@ public:
 class JavaRhinoBassVoice : public juce::SynthesiserVoice
 {
 public:
-    JavaRhinoBassVoice()
-        : rng ((unsigned) juce::Random::getSystemRandom().nextInt())
+    /** 8.269：**種は声ごとに違い、走らせるたびに同じ**（Phase 271）。
+
+        Phase 270まで`juce::Random::getSystemRandom()`から取っていました。
+        声ごとに違う、という狙いは満たしていましたが、**走らせるたびにも変わります**——
+        つまり
+
+        - **同じ曲を2回書き出すと、違うファイルになります**（ビット単位で）
+        - 山の高さも毎回変わり、スラップが**5回に1回ほどフルスケールを超えます**
+          （`PluginPreview --audio`が0.85〜1.04を行き来していました）
+
+        Racco Guitarは`juce::Random`を既定の種のまま使っていて、**毎回同じ**です。
+        **同じ作りの音源2つで食い違っていた**ので、そちらへ揃えました。
+
+        番号から作るので、**声どうしは別の列**のままです。 */
+    explicit JavaRhinoBassVoice (int voiceIndex)
+        : rng ((unsigned) (0x9e3779b9u + (unsigned) voiceIndex * 2654435761u))
     {
     }
 

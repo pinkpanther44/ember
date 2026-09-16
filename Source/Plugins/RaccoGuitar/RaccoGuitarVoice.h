@@ -54,8 +54,21 @@ public:
 class RaccoGuitarVoice : public juce::SynthesiserVoice
 {
 public:
-    RaccoGuitarVoice()
+    /** 8.269：**種は声ごとに違い、走らせるたびに同じ**（Phase 271）。
+
+        `juce::Random`の既定のコンストラクタは、中で`setSeedRandomly()`を呼びます
+        ——**毎回ちがう種**です。狙いどおり声ごとには別の列になりますが、
+        **走らせるたびにも変わります**：
+
+        - **同じ曲を2回書き出すと、違うファイルになります**（ビット単位で）
+        - 峰の高さも毎回変わります（実測：E2で0.70〜1.00。14回に1回、
+          フルスケールをわずかに超えていました）
+
+        番号から種を作れば、**声どうしは別の列のまま、走らせるたびには同じ**です。
+        Java Rhino Bassも同じ形にしてあります（あちらが先に見つかりました）。 */
+    explicit RaccoGuitarVoice (int voiceIndex)
     {
+        random.setSeed ((juce::int64) (0x9e3779b9u + (unsigned) voiceIndex * 2654435761u));
         excitation.resize (maxExcitationLength, 0.0f);
     }
 
