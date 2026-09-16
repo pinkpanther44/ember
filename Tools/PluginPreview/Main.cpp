@@ -9,6 +9,7 @@
         PluginPreview.exe --presets              … 工場プリセットのIDが全部あるか見る
         PluginPreview.exe --audio                … 音源3つのピッチ・減衰・大きさを測る
         PluginPreview.exe --eq-band              … EQにバンドを1つ足して、1つだけか見る
+        PluginPreview.exe --icons                … ブラウザの絵がブランドの色を受けるか見る
         PluginPreview.exe --all                  … 上ぜんぶ
 
     出力先を省くと、exeの隣の`preview`フォルダへ出します。
@@ -44,6 +45,8 @@
 #include <juce_gui_extra/juce_gui_extra.h>
 
 #include "AppColours.h"
+#include "Branding.h"
+#include "IconAssets.h"
 
 #include "Plugins/MantaFactoryPresets.h"
 
@@ -487,6 +490,107 @@ namespace
     }
 
     //==========================================================================
+    // 8.266：**ブラウザの絵が、本当に塗り替わるか**（Phase 269／本人の指定）
+    //
+    // `Drawable::replaceColour()`は**差し替え元の色が1ビットでも違うと、
+    // 黙って何もしません**（戻り値のboolだけが教えてくれます）。
+    // 絵を描き直したときに色が変わっていると、**Emberだけ元の紫のまま**になります
+    // ——画面を開くまで気づけないので、ここで数えます。
+    //
+    // 絵も1枚落とします（`browser_icons.png`）。**両ブランドぶん並べる**ので、
+    // Emberをビルドしなくても色が見られます。
+
+    void runIconCheck()
+    {
+        say ("--- browser icons ---");
+
+        struct Entry
+        {
+            const char* resource;
+            juce::uint32 source;
+            const char* name;
+            juce::uint32 manta;
+            juce::uint32 ember;
+        };
+
+        const Entry entries[]
+        {
+            { "browser_folder_svg", Branding::browserFolderSourceColour, "folder",
+              0xff8c52ff, 0xff8e2b3f },
+            { "browser_file_svg", Branding::browserFileSourceColour, "file",
+              0xffff914d, 0xffc8a02e },
+        };
+
+        juce::Image sheet (juce::Image::ARGB, 260, 140, true);
+
+        {
+        // **`Graphics`は、書き出す前に壊すこと。** 生きているあいだは
+        // 画像の中身を掴んだままなので、そのまま`writeImageToStream()`へ渡すと
+        // **描く前の（空の）中身が出ます**（実際に真っ白のPNGが出ました）
+        juce::Graphics sheetGraphics (sheet);
+
+        sheetGraphics.fillAll (juce::Colours::white);
+        sheetGraphics.setColour (juce::Colours::black);
+        sheetGraphics.setFont (juce::Font (juce::FontOptions (12.0f)));
+        sheetGraphics.drawText ("Manta", 70, 6, 60, 14, juce::Justification::centred, false);
+        sheetGraphics.drawText ("Ember", 150, 6, 60, 14, juce::Justification::centred, false);
+
+        int row = 0;
+
+        for (const auto& entry : entries)
+        {
+            sheetGraphics.setColour (juce::Colours::black);
+            sheetGraphics.drawText (entry.name, 6, 34 + row * 56, 56, 48,
+                                     juce::Justification::centredLeft, false);
+
+            int column = 0;
+
+            for (const juce::uint32 wanted : { entry.manta, entry.ember })
+            {
+                auto icon = IconAssets::load (entry.resource);
+
+                if (icon == nullptr)
+                {
+                    problem (juce::String (entry.name) + ": the picture did not load");
+                    continue;
+                }
+
+                // **戻り値を見ること**（上の説明）
+                const bool replaced = icon->replaceColour (juce::Colour (entry.source),
+                                                            juce::Colour (wanted));
+
+                if (! replaced)
+                    problem (juce::String (entry.name) + ": "
+                               + juce::String::toHexString ((int) entry.source)
+                               + " is not in the picture any more - the brand colour would be ignored");
+
+                icon->drawWithin (sheetGraphics,
+                                   juce::Rectangle<float> (70.0f + (float) column * 80.0f,
+                                                            26.0f + (float) row * 56.0f, 48.0f, 48.0f),
+                                   juce::RectanglePlacement::centred, 1.0f);
+                ++column;
+            }
+
+            ++row;
+        }
+        }
+
+        if (problems == 0)
+            say ("  ok    both pictures take the brand colour");
+
+        const auto file = outputFolder.getChildFile ("browser_icons.png");
+
+        file.deleteFile();
+
+        juce::PNGImageFormat png;
+
+        if (auto stream = file.createOutputStream())
+            png.writeImageToStream (sheet, *stream);
+
+        say ("  (a picture of it: " + file.getFullPathName() + ")");
+    }
+
+    //==========================================================================
     void runSnapshots()
     {
         say ("--- snapshots ---");
@@ -618,6 +722,7 @@ public:
         const bool wantPresets   = all || args.containsOption ("--presets");
         const bool wantAudio     = all || args.containsOption ("--audio");
         const bool wantEqBand    = all || args.containsOption ("--eq-band");
+        const bool wantIcons     = all || args.containsOption ("--icons");
 
         outputFolder = args.size() > 0 && args[args.size() - 1].isLongOption() == false
                          ? juce::File::getCurrentWorkingDirectory()
@@ -631,6 +736,7 @@ public:
 
         if (wantSnapshots) runSnapshots();
         if (wantEqBand) runEqBandCheck();
+        if (wantIcons) runIconCheck();
         if (wantPresets)   runPresetCheck();
         if (wantAudio)     runAudioCheck();
 

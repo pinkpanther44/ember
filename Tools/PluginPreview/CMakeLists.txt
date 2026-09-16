@@ -50,7 +50,11 @@ juce_add_binary_data(PluginPreviewAssets
         "${DAW_ROOT}/Resources/Plugins/java_rhino_bass_field.jpg"
         "${DAW_ROOT}/Resources/Icons/app_icon.png"
         "${DAW_ROOT}/Resources/Icons/plugin_bypass.svg"
-        "${DAW_ROOT}/Resources/Icons/plugin_pin.svg")
+        "${DAW_ROOT}/Resources/Icons/plugin_pin.svg"
+
+        # 8.266：ブラウザの絵（`--icons`が色の差し替えを確かめます。Phase 269）
+        "${DAW_ROOT}/Resources/Icons/browser_folder.svg"
+        "${DAW_ROOT}/Resources/Icons/browser_file.svg")
 
 target_sources(PluginPreview
     PRIVATE

@@ -7,6 +7,8 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 
 #include "IconAssets.h"   // 8.133：フォルダ・ファイルの絵（Phase 169）
+#include "AppColours.h"   // 8.266：絵をブランドの色へ合わせる（Phase 269）
+#include "Branding.h"
 #include <algorithm>
 #include <vector>
 
@@ -226,12 +228,25 @@ private:
         `juce::FileTreeComponent`は行の絵を`LookAndFeel`に描かせるので、
         被せないと差し替えられません。
 
-        **色は塗り替えません。** もらった絵は既に色が付いていて
-        （フォルダ＝紫、ファイル＝オレンジ）、**それが見分けの手がかり**だからです。
-        ツール類（黒）だけを塗り替えているのと扱いが違います。
+        **色は付いたままにします**（フォルダ＝紫、ファイル＝オレンジ）。
+        **それが見分けの手がかり**だからです——ツール類（黒）を
+        文字の色で塗り替えているのとは扱いが違います。
+
+        8.266：**ただし、ブランドの色へは合わせます**（Phase 269／本人の指定）。
+
+        | | フォルダ | ファイル |
+        |---|---|---|
+        | Manta Studio | パープル（**絵のまま**） | オレンジ（**絵のまま**） |
+        | Ember | **ワインレッド** | **ゴールド** |
+
+        絵は1色で塗られた1枚なので、`Drawable::replaceColour()`で差し替えられます
+        （`DrawableComposite`が子まで下りてくれます）。**絵を2枚持ちません**——
+        形を直すときに片方だけ直すことになるからです（1.27）。
+        値は`Branding.h`の1か所です。
 
         **絵は1度だけ読んで持っておくこと。** 行ごと・描き直しごとに読むと、
-        スクロールのたびにSVGを解析することになります。 */
+        スクロールのたびにSVGを解析することになります
+        （塗り替えも、そのときに1度だけ済ませます）。 */
     class FileRowLookAndFeel : public juce::LookAndFeel_V4
     {
     public:
@@ -240,6 +255,18 @@ private:
               fileIcon   (IconAssets::load ("browser_file_svg"))
         {
             setColourScheme (AppColours::createColourScheme());   // 1.43・8.117
+
+            // 8.266：**ブランドの色へ合わせる**（クラスの説明）。
+            // Mantaでは絵と同じ値が返るので、**何も変わりません**
+            const bool dark = AppColours::getTheme() == AppColours::Theme::Dark;
+
+            if (folderIcon != nullptr)
+                folderIcon->replaceColour (juce::Colour (Branding::browserFolderSourceColour),
+                                            juce::Colour (Branding::browserFolderColour (dark)));
+
+            if (fileIcon != nullptr)
+                fileIcon->replaceColour (juce::Colour (Branding::browserFileSourceColour),
+                                          juce::Colour (Branding::browserFileColour (dark)));
         }
 
         void drawFileBrowserRow (juce::Graphics& g, int width, int height,

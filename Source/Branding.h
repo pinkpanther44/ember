@@ -237,6 +237,44 @@ namespace Branding
         return dark ? 0xffff9a55 : 0xffff8a3d;       // オレンジ（Phase 34からの値）
     }
 
+    /** 8.266：**ブラウザのフォルダ／ファイルの絵の色**（Phase 269／本人の指定）。
+
+        絵（`browser_folder.svg`・`browser_file.svg`）は**1色で塗られた1枚**で、
+        本人がManta Studioの色（紫とオレンジ）で作ったものです。
+        **Emberでもその色のままでした**——ブランドの色に合っていません。
+
+        | | フォルダ | ファイル |
+        |---|---|---|
+        | Manta Studio | **パープル**（絵のまま） | **オレンジ**（絵のまま） |
+        | Ember | **ワインレッド** | **ゴールド** |
+
+        **絵は増やしません。** 読んだあとに`Drawable::replaceColour()`で
+        塗り替えます（`BrowserPanel.h`）——同じ絵を2枚持つと、
+        形を直すときに**片方だけ直す**ことになります（1.27）。
+
+        **Manta側は一切変わりません。** ここが絵と同じ値を返すので、
+        塗り替えても同じ色が入ります（テーマでも動かしません——
+        絵の色がそのまま基準です）。 */
+    inline constexpr juce::uint32 browserFolderColour (bool dark)
+    {
+        if (isEmber)
+            return accentPrimary (dark);             // ワインレッド
+
+        return 0xff8c52ff;                           // 絵が元から持っている紫
+    }
+
+    inline constexpr juce::uint32 browserFileColour (bool dark)
+    {
+        if (isEmber)
+            return accentSecondary (dark);           // ゴールド
+
+        return 0xffff914d;                           // 絵が元から持っているオレンジ
+    }
+
+    /** 絵の中に元から入っている色（塗り替えるときの「差し替え元」）。 */
+    inline constexpr juce::uint32 browserFolderSourceColour = 0xff8c52ff;
+    inline constexpr juce::uint32 browserFileSourceColour   = 0xffff914d;
+
     /** 8.204：**ディレイだけ、アプリとは違う色を使います**（Phase 238／本人の指定）。
 
         | | 主 | 副 |
