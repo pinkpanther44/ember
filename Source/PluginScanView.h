@@ -2,7 +2,6 @@
 
 #include <juce_gui_extra/juce_gui_extra.h>
 #include "AudioEngine.h"
-#include "PluginSandboxHost.h"
 
 //==============================================================================
 /**

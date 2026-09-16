@@ -1,6 +1,7 @@
 #include "MantaEQEditor.h"
 
 #include "../MantaTheme.h"
+#include "MantaEQPresets.h"   // 8.259：工場プリセット（Phase 267）
 #include "../../AppSettings.h"
 #include "../../NameEntry.h"
 #include "../../Utf8.h"
@@ -126,6 +127,12 @@ MantaEQEditor::MantaEQEditor (MantaEQProcessor& processorToUse)
         refreshAnalyserButtons();
         refreshLatencyLabel();
     };
+
+    // 8.259：**出来合いの設定**（Phase 267／本人の要望）。
+    // ユーザープリセットとは別に並びます（`MantaFactoryPresets.h`）
+    toolbar.setFactoryPresets (
+        MantaFactoryPresets::makeToolbarPresets (processor.getValueTreeState(),
+                                                  MantaEQPresets::all()));
 
     //--------------------------------------------------------------------------
     // 仕様書4.7：処理モード。**ツールバーの子として足す**（空いている場所へ置くため）

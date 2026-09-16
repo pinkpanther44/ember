@@ -1,6 +1,7 @@
 #include "MantaCompEditor.h"
 
 #include "../MantaTheme.h"
+#include "MantaCompPresets.h"   // 8.259：工場プリセット（Phase 267）
 #include "../../Utf8.h"
 
 //==============================================================================
@@ -20,6 +21,11 @@ MantaCompEditor::MantaCompEditor (MantaCompProcessor& processorToUse)
     toolbar.addAndMakeVisible (statusLabel);
 
     toolbar.onStateRestored = [this] { refreshReadouts(); };
+
+    // 8.259：**出来合いの設定**（Phase 267／本人の要望）
+    toolbar.setFactoryPresets (
+        MantaFactoryPresets::makeToolbarPresets (processor.getValueTreeState(),
+                                                  MantaCompPresets::all()));
 
     //--------------------------------------------------------------------------
     // ① Threshold / Ratio / Knee。**ここだけオレンジ**（圧縮の効きを決めるところ）

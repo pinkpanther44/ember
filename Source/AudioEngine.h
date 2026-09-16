@@ -17,8 +17,7 @@
 #include "EnginePlayHead.h"   // 8.205：プラグインへ渡す再生位置とテンポ（Phase 238）
 #include "ProjectModel.h"
 #include "PluginCrashTracker.h"
-#include "PluginSandboxHost.h"
-#include "SandboxedPluginProcessor.h" // 仕様書5.8.1：サンドボックス本格運用（Phase 26時点では未接続）
+#include "SandboxedPluginProcessor.h" // 8.260：落ちる履歴のあるものを別プロセスで（Phase 268）
 
 //==============================================================================
 /**
@@ -62,7 +61,6 @@ public:
 
     PluginManager& getPluginManager() { return pluginManager; }
     PluginCrashTracker& getCrashTracker() { return crashTracker; }
-    PluginSandboxHost& getSandboxHost() { return sandboxHost; }
 
     /** 仕様書5.7：ミキサーの設定（音量・パン・ミュート／ソロ）をエンジンへ反映する。
         再生中に呼んでも即座に効く。 */
@@ -151,6 +149,12 @@ public:
 
     /** 書き込み中に記録された内容が確定したときに呼ばれる（UIの再描画用）。 */
     std::function<void()> onAutomationRecorded;
+
+    /** 8.260：**サンドボックスの中でプラグインが落ちた**（Phase 268）。
+
+        **メッセージスレッドから呼ばれます。** 落ちたあとは素通しになるので、
+        黙っていると「音が変わらない」だけが残って理由が分かりません。 */
+    std::function<void (const juce::String& message)> onSandboxCrashed;
 
     //==========================================================================
     // 仕様書5.3：トラックごとの音源割り当て（Phase 14）
@@ -962,7 +966,13 @@ private:
 
     PluginManager pluginManager;
     PluginCrashTracker crashTracker;
-    PluginSandboxHost sandboxHost;
+
+    // 8.260：**サンドボックスはプラグイン1つに1つ**（Phase 268）。
+    //
+    // Phase 26からPhase 267まで、ここに`PluginSandboxHost`が**1つ**居ました
+    // ——つまり**サンドボックスで動かせるのは同時に1つだけ**という形でした
+    // （繋がっていなかったので、誰も踏んでいません）。
+    // いまは`SandboxedPluginProcessor`が自分のぶんを持ちます。
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (AudioEngine)
 };

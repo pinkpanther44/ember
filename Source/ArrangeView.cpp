@@ -170,6 +170,12 @@ ArrangeView::ArrangeView (ProjectModel& projectToUse, AudioEngine& audioEngineTo
     // 仕様書5.6：書き込みモードで記録された内容を、その場で描き直す（Phase 20）
     audioEngine.onAutomationRecorded = [this] { timeline.repaint(); };
 
+    // 8.260：サンドボックスの中でプラグインが落ちたら、帯で知らせる（Phase 268）
+    audioEngine.onSandboxCrashed = [this] (const juce::String& message)
+    {
+        showStatusMessage (message);
+    };
+
     // 8.125：トラックヘッダーの幅を覚えておく（Phase 161／改善案38。設計書2.5）。
     // **既定値は聞かずに、いまの値を既定として渡す**（定数を外へ出さずに済む）
     timeline.setTrackHeaderWidth (AppSettings::getInt (trackHeaderWidthKey,
@@ -375,7 +381,7 @@ ArrangeView::~ArrangeView()
     // 破棄済みのビューを呼び出す危険があるため、明示的に外しておく。
     audioEngine.onAudioDeviceChanged = nullptr;
     audioEngine.onAutomationRecorded = nullptr;
-
+    audioEngine.onSandboxCrashed = nullptr;
 }
 
 void ArrangeView::timerCallback()

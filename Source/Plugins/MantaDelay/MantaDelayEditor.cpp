@@ -3,6 +3,7 @@
 #include "../MantaTheme.h"
 #include "../../Branding.h"
 #include "../../Utf8.h"
+#include "MantaDelayPresets.h"     // 8.259：工場プリセット（Phase 267）
 #include "MantaDelayCharacter.h"   // 8.208：キャラクターの名前と可否（Phase 240）
 #include "MantaDelayFilter.h"      // 8.210：フィルターの形と可否（Phase 242）
 #include "MantaDelayLfo.h"         // 8.211：波形の名前（Phase 242）
@@ -30,6 +31,11 @@ MantaDelayEditor::MantaDelayEditor (MantaDelayProcessor& processorToUse)
         refreshFilterControls();      // 8.210（Phase 242）
         refreshTapControls();         // 8.214（Phase 243）
     };
+
+    // 8.259：**出来合いの設定**（Phase 267／本人の要望）
+    toolbar.setFactoryPresets (
+        MantaFactoryPresets::makeToolbarPresets (processor.getValueTreeState(),
+                                                  MantaDelayPresets::all()));
 
     //--------------------------------------------------------------------------
     setupSectionLabel (echoTitle, "Echo");

@@ -215,6 +215,9 @@ target_sources(PersonalDAW
         Source/SandboxWorker.cpp
         Source/PluginSandboxHost.cpp
         Source/SandboxedPluginProcessor.cpp
+        Source/SandboxedPluginEditor.cpp
+        # 8.260：サンドボックスの往復を窓なしで測る（Phase 268）
+        Source/SandboxSelfTest.cpp
         Source/PianoRollComponent.cpp
         Source/PianoRollView.cpp
         Source/PianoRollHeaderComponent.cpp

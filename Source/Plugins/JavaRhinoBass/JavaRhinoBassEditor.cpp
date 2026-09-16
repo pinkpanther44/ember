@@ -1,5 +1,6 @@
 #include "JavaRhinoBassEditor.h"
 
+#include "JavaRhinoBassPresets.h" // 8.259：工場プリセット（Phase 267）
 #include "../../AppIcon.h"        // 8.229：埋め込みの絵を名前で引く（Phase 249）
 #include "../../Branding.h"
 #include "../../ChordModel.h"     // 8.121：音名の数え方（`midiNoteName()`。Phase 156）
@@ -91,12 +92,23 @@ void BassFieldLookAndFeel::drawLabel (juce::Graphics& g, juce::Label& label)
         return;
     }
 
-    g.setColour (label.findColour (juce::Label::textColourId)
-                      .withMultipliedAlpha (label.isEnabled() ? 1.0f : 0.5f));
+    const auto text = label.getText();
+    const auto area = label.getLocalBounds();
+    const auto justification = label.getJustificationType();
+    const float alpha = label.isEnabled() ? 1.0f : 0.5f;
+
     g.setFont (juce::Font (juce::FontOptions (label.getFont().getHeight(), juce::Font::bold)));
 
-    g.drawFittedText (label.getText(), label.getLocalBounds(),
-                       label.getJustificationType(), 1, 1.0f);
+    // 8.259：**先に暗い縁を置く**（Phase 267／本人の指摘）。
+    // ラメの粒の上では、白一色だと明るいところで文字が飛びます
+    g.setColour (JavaRhinoBassTheme::fieldTextEdge().withMultipliedAlpha (alpha));
+
+    for (const auto offset : { juce::Point<int> (-1, 0), juce::Point<int> (1, 0),
+                                juce::Point<int> (0, -1), juce::Point<int> (0, 1) })
+        g.drawFittedText (text, area.translated (offset.x, offset.y), justification, 1, 1.0f);
+
+    g.setColour (label.findColour (juce::Label::textColourId).withMultipliedAlpha (alpha));
+    g.drawFittedText (text, area, justification, 1, 1.0f);
 }
 
 //==============================================================================
@@ -106,12 +118,12 @@ BassFieldKnob::BassFieldKnob (const juce::String& name, juce::Colour arcColour)
     label.setText (name, juce::dontSendNotification);
     label.setJustificationType (juce::Justification::centred);
     label.setFont (juce::Font (juce::FontOptions (10.5f, juce::Font::bold)));
-    label.setColour (juce::Label::textColourId, JavaRhinoBassTheme::fieldInk());
+    label.setColour (juce::Label::textColourId, JavaRhinoBassTheme::fieldText());
     label.setInterceptsMouseClicks (false, false);
     addAndMakeVisible (label);
 
     slider.setColour (juce::Slider::rotarySliderFillColourId, arcColour);
-    slider.setColour (juce::Slider::textBoxTextColourId, JavaRhinoBassTheme::fieldInk());
+    slider.setColour (juce::Slider::textBoxTextColourId, JavaRhinoBassTheme::fieldText());
     slider.setColour (juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
     slider.setColour (juce::Slider::textBoxBackgroundColourId, juce::Colours::transparentBlack);
     slider.setColour (juce::Slider::textBoxHighlightColourId, arcColour.withAlpha (0.35f));
@@ -354,6 +366,11 @@ JavaRhinoBassEditor::JavaRhinoBassEditor (JavaRhinoBassProcessor& processorToUse
 
     toolbar.onStateRestored = [this] { repaint(); };
 
+    // 8.259：**出来合いの音**（Phase 267／本人の要望。8.173と同じ理由）
+    toolbar.setFactoryPresets (
+        MantaFactoryPresets::makeToolbarPresets (processorToUse.getValueTreeState(),
+                                                  JavaRhinoBassPresets::all()));
+
     // 8.186：**名前を直に書かないこと**（`Branding.h`が唯一の出どころ）
     titleLabel.setText (Branding::bassPluginName, juce::dontSendNotification);
     titleLabel.setColour (juce::Label::textColourId, MantaTheme::textDim());
@@ -544,6 +561,9 @@ JavaRhinoBassEditor::~JavaRhinoBassEditor()
 
     for (auto* slider : styledSliders)
         slider->setLookAndFeel (nullptr);
+
+    for (auto* component : styledComponents)
+        component->setLookAndFeel (nullptr);
 }
 
 //==============================================================================
@@ -553,6 +573,10 @@ void JavaRhinoBassEditor::addKnob (std::unique_ptr<BassFieldKnob>& knob, const j
                                     const juce::String& hint)
 {
     knob = std::make_unique<BassFieldKnob> (name, colour);
+
+    // 箱ごと被せる（**見出しのラベルにも縁が届く**。`styledComponents`の説明）
+    knob->setLookAndFeel (&fieldLookAndFeel.get());
+    styledComponents.push_back (knob.get());
 
     knob->slider.setLookAndFeel (&fieldLookAndFeel.get());
     knob->slider.setPopupDisplayEnabled (false, false, this);   // 数値は出しっぱなし

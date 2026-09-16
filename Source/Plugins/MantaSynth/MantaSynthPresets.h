@@ -2,6 +2,8 @@
 
 #include <juce_audio_processors/juce_audio_processors.h>
 
+#include "../MantaFactoryPresets.h"   // 8.259：当てる中身は共通（Phase 267）
+
 #include <map>
 #include <vector>
 
@@ -221,24 +223,13 @@ namespace MantaSynthPresets
         return presets;
     }
 
-    /** 全パラメータを既定値へ戻す。 */
-    inline void resetToDefaults (juce::AudioProcessorValueTreeState& apvts)
-    {
-        for (auto* parameter : apvts.processor.getParameters())
-            if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*> (parameter))
-                ranged->setValueNotifyingHost (ranged->getDefaultValue());
-    }
-
     /** プリセットを当てる（既定値へ戻してから、表にある値だけ上書き）。
 
-        **`setValueNotifyingHost()`を通すこと。** つまみもオートメーションの記録も
-        ここを見ているので、直接`apvts.state`へ書くと画面が追いつきません。 */
+        8.259：**中身は`MantaFactoryPresets`へ出しました**（Phase 267）。
+        ほかの6つにも工場プリセットを足したので、同じ`apply()`が7つに
+        並ぶことになったためです（1.27）。**ここの表と呼び出し側はそのまま**です。 */
     inline void apply (juce::AudioProcessorValueTreeState& apvts, const Preset& preset)
     {
-        resetToDefaults (apvts);
-
-        for (const auto& pair : preset.values)
-            if (auto* parameter = apvts.getParameter (pair.first))
-                parameter->setValueNotifyingHost (parameter->convertTo0to1 (pair.second));
+        MantaFactoryPresets::applyValues (apvts, preset.values);
     }
 }

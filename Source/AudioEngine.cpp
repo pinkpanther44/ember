@@ -1461,24 +1461,22 @@ bool AudioEngine::isPluginBlockedByCrashes (const juce::PluginDescription& descr
 
 juce::String AudioEngine::getPluginBlockedMessage (const juce::PluginDescription& description) const
 {
+    // 8.260：**文面を変えました**（Phase 268）。
+    //
+    // Phase 148〜267は「安全のため読み込みませんでした」でした。いまは
+    // **まず別プロセスで読もうとします**ので、ここへ来るのは
+    // **それにも失敗したとき**だけです（子プロセスが起動できない等）。
     const int count = crashTracker.getCrashCount (description.createIdentifierString());
 
     return utf8 ("「") + description.name + utf8 ("」は読み込み中に ") + juce::String (count)
-             + utf8 (" 回アプリを終了させています。安全のため読み込みませんでした。\n")
-             + utf8 ("もう一度試すには、環境設定の Plugins で「クラッシュ履歴をリセット」してください。");
+             + utf8 (" 回アプリを終了させているため、別プロセス（サンドボックス）で読もうとしましたが、")
+             + utf8 ("それも失敗しました。\n")
+             + utf8 ("もう一度そのまま試すには、環境設定の Plugins で「クラッシュ履歴をリセット」してください。");
 }
 
 juce::AudioProcessorGraph::Node::Ptr AudioEngine::createPluginNode (const juce::PluginDescription& description,
                                                                      bool enableExtraOutputBuses)
 {
-    // 8.112：**落ちると分かっているものは読み込まない**（Phase 148）。
-    // プロジェクトの読み込みでもここを通るので、**開いた瞬間に落ちる**のも防げます
-    if (isPluginBlockedByCrashes (description))
-    {
-        DBG ("Plugin blocked by crash history: " << description.name);
-        return nullptr;
-    }
-
     auto* device = deviceManager.getCurrentAudioDevice();
 
     // 8.112：**0を渡さない**（Phase 148）。デバイスが開いていない・準備中のときに
@@ -1489,6 +1487,43 @@ juce::AudioProcessorGraph::Node::Ptr AudioEngine::createPluginNode (const juce::
 
     const double sampleRate = deviceRate > 0.0 ? deviceRate : 44100.0;
     const int blockSize     = deviceBlock > 0  ? deviceBlock : 512;
+
+    // 8.260：**落ちた履歴のあるものは、別プロセスで読みます**（Phase 268／設計書5.8.1）。
+    //
+    // Phase 148からPhase 267までは、ここで**読み込みを断っていました**
+    // （8.112：「サンドボックスが繋がるまでの、いちばん確実な守り」）。
+    // 繋がったので、**断るのをやめて回します**——落ちても落ちるのは子プロセスだけです。
+    //
+    // **内蔵プラグインは対象外**（`isPluginBlockedByCrashes()`が弾きます。9.5）
+    if (isPluginBlockedByCrashes (description))
+    {
+        juce::String sandboxError;
+
+        if (auto sandboxed = SandboxedPluginProcessor::create (description, sampleRate, blockSize,
+                                                                sandboxError))
+        {
+            const auto identifier = description.createIdentifierString();
+            const auto pluginName = description.name;
+
+            // 子が落ちたら、**画面へ知らせます**（黙ってバイパスになると、
+            // 「音が変わらない」だけが残って理由が分かりません）
+            // **回数は数え直しません**：ここへ来るものは既にしきい値を超えていて
+            // （だからサンドボックスに居ます）、数えても行き先は変わらないためです
+            juce::ignoreUnused (identifier);
+
+            sandboxed->onSandboxCrashed = [this, pluginName]
+            {
+                if (onSandboxCrashed != nullptr)
+                    onSandboxCrashed (utf8 ("「") + pluginName
+                                        + utf8 ("」がサンドボックス内で落ちました。そのプラグインは素通しになります。"));
+            };
+
+            return graph.addNode (std::move (sandboxed));
+        }
+
+        DBG ("Sandboxed load failed: " << sandboxError);
+        return nullptr;
+    }
 
     juce::String errorMessage;
 

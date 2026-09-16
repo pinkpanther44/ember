@@ -4,6 +4,7 @@
 #include "SandboxIPC.h"
 #include "AppColours.h"
 #include "MusicalTimeBench.h"   // 8.137：動作の重さの計測（Phase 175／8.1のE1）
+#include "SandboxSelfTest.h"    // 8.260：サンドボックスの往復を測る（Phase 268）
 #include "SplashWindow.h"        // 8.151：起動画面（Phase 189／改善案⑰）
 #include "ProjectChooser.h"      // 8.151：プロジェクト選択画面（Phase 189／改善案⑰）
 #include "Utf8.h"
@@ -47,6 +48,28 @@ public:
         // **ワーカーと同じで、メインウィンドウは作りません**（`MusicalTimeBench.h`）
         if (MusicalTimeBench::runIfRequested (commandLine))
         {
+            quit();
+            return;
+        }
+
+        // 8.260：`--sandbox-selftest`なら、サンドボックスの往復を測ってすぐ終わる
+        // （Phase 268／`SandboxSelfTest.h`）。**これもメインウィンドウを作りません**
+        if (SandboxSelfTest::runIfRequested (commandLine))
+        {
+            quit();
+            return;
+        }
+
+        // 8.262：`--sandbox-editor-test`は**窓を出します**（GUIの話なので、
+        // 出さずには確かめられません。Phase 269）。配色と言語だけ先に読みます
+        if (commandLine.contains ("--sandbox-editor-test"))
+        {
+            Localise::loadFromSettings();
+            AppColours::loadThemeFromSettings();
+            lookAndFeel = AppColours::createLookAndFeel();
+            juce::Desktop::getInstance().setDefaultLookAndFeel (lookAndFeel.get());
+
+            SandboxSelfTest::runEditorTestIfRequested (commandLine);
             quit();
             return;
         }

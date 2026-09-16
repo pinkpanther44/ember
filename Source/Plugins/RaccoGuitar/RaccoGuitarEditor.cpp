@@ -1,5 +1,6 @@
 #include "RaccoGuitarEditor.h"
 
+#include "RaccoGuitarPresets.h" // 8.259：工場プリセット（Phase 267）
 #include "../../AppIcon.h"     // 8.229：埋め込みの絵を名前で引く（Phase 249）
 #include "../../Branding.h"
 #include "../../ChordModel.h"  // 8.121：音名の数え方（`midiNoteName()`。Phase 156）
@@ -354,6 +355,13 @@ RaccoGuitarEditor::RaccoGuitarEditor (RaccoGuitarProcessor& processorToUse)
     // Undo・A/B・プリセットで値が入れ替わったとき。
     // **つまみは繋いであるので勝手に追いつきます**——描き直すだけ
     toolbar.onStateRestored = [this] { repaint(); };
+
+    // 8.259：**出来合いの音**（Phase 267／本人の要望）。
+    // 8.173と同じ理由——音源は「まず何か鳴らしてみたい」ものなので、
+    // **保存済みが1つも無い状態で開くこと自体が壁**になります
+    toolbar.setFactoryPresets (
+        MantaFactoryPresets::makeToolbarPresets (processorToUse.getValueTreeState(),
+                                                  RaccoGuitarPresets::all()));
 
     // 8.186：**名前を直に書かないこと**（`Branding.h`が唯一の出どころ）
     titleLabel.setText (Branding::guitarPluginName, juce::dontSendNotification);

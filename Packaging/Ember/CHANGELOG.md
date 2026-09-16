@@ -6,6 +6,52 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- **Factory presets in every built-in plugin.** The synthesizer already had
+  156 of them; now the EQ, the compressor, the delay, the reverb, the guitar
+  and the bass each come with a set — between eight and twelve, grouped by
+  what they are for. They sit in their own part of the preset menu, above
+  anything you have saved yourself. Picking one sets everything back to its
+  default first, so nothing from the preset before it is left behind
+
+- **Plugins that have crashed twice now run in a separate process** instead of
+  being refused. Until now, a plugin that had brought the application down
+  twice was simply not loaded again. It is now opened in a sandbox: it plays,
+  it saves with your project, its parameters can be automated, and instruments
+  can be played through it. If it crashes there, only that process dies — the
+  application keeps running and that plugin passes audio through untouched,
+  with a message telling you what happened
+
+- A plugin running in a sandbox **still opens its own window**. On Windows the
+  window is placed inside Ember's, so it looks like any other plugin. On Linux
+  it opens as a window of its own, beside a panel listing the controls. The
+  window takes a moment to appear the first time, because it is being built in
+  the other process; after that it opens at the size you left it. If the plugin
+  crashes while you are looking at it, the window says so rather than going
+  blank
+
+### Changed
+
+- The knob labels and readouts in **Java Rhino Bass** are now white with a
+  dark edge. On the speckled background of that instrument, dark text
+  disappeared into the bright half of the picture
+
+### Fixed
+
+- A plugin in a sandbox that could not keep up with one block of audio **lost
+  the notes in that block**. A missed note-off left the sound playing with no
+  way to stop it. Notes now travel in a queue of their own rather than
+  alongside the audio, so none are lost however far behind the plugin falls —
+  they arrive a fraction of a beat late instead. Audio is still dropped for
+  that one block, which is what you want there: a moment without the effect is
+  better than a gap. Notes are not audio, though, and losing one leaves
+  everything after it wrong
+
+---
+
 ## [0.4.0] - 2026-09-16
 
 ### Added

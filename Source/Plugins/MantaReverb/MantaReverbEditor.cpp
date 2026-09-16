@@ -3,6 +3,7 @@
 #include "../../Branding.h"
 #include "../../Utf8.h"
 #include "MantaReverbAlgorithm.h"
+#include "MantaReverbPresets.h"   // 8.259：工場プリセット（Phase 267）
 #include "MantaReverbRouting.h"
 #include "MantaReverbTheme.h"
 
@@ -249,6 +250,11 @@ MantaReverbEditor::MantaReverbEditor (MantaReverbProcessor& processorToUse)
         refreshRoutingControls();
         refreshAlgorithmControls();
     };
+
+    // 8.259：**出来合いの設定**（Phase 267／本人の要望）
+    toolbar.setFactoryPresets (
+        MantaFactoryPresets::makeToolbarPresets (processor.getValueTreeState(),
+                                                  MantaReverbPresets::all()));
 
     refreshRoutingControls();
     refreshAlgorithmControls();

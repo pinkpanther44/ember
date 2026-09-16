@@ -263,6 +263,13 @@ private:
 
     std::vector<juce::Slider*> styledSliders;
 
+    /** つまみの箱ごと`LookAndFeel`を被せたもの。
+
+        **見出しのラベルにも縁を付けるため**です（`BassFieldLookAndFeel::drawLabel`）。
+        ラベルは親からLookAndFeelを継ぐので、箱に被せれば届きます
+        （`ValueEntrySlider`だけは自分で持っているので、そちらは別に被せます）。 */
+    std::vector<juce::Component*> styledComponents;
+
     //==========================================================================
     // 寸法。**`Racco Guitar`と同じ値**（1.27の意味では別のプラグインなので写しています）
 

@@ -48,10 +48,25 @@ namespace JavaRhinoBassTheme
     inline juce::Colour fieldAccent()    { return juce::Colour (Branding::bassAccentPrimary (false)); }
     inline juce::Colour fieldHighlight() { return juce::Colour (Branding::bassAccentSecondary (false)); }
 
-    /** 画像の上の文字。**黒ではなく濃い緑**——絵が緑なので、真っ黒だと浮きます。 */
+    /** 画像の上の**指針**。**黒ではなく濃い緑**——絵が緑なので、真っ黒だと浮きます。
+
+        つまみの地が白に近いので、**指針は濃いまま**です（下の`fieldText()`と別に持つ理由）。 */
     inline juce::Colour fieldInk() { return juce::Colour (0xff17302a); }
 
     inline juce::Colour fieldInkDim() { return juce::Colour (0x9917302a); }
+
+    //==========================================================================
+    /** つまみの**見出しと数値**（Phase 267／本人の指摘「背景と同化して見づらい」）。
+
+        絵は**左が明るく右が濃い**ので、濃い文字だと右で沈み、白だけだと左で飛びます。
+        **白＋暗い縁**にすると、どちらの側でも読めます（縁は`fieldTextEdge()`）。
+
+        > **つまみの地（`fieldKnobBody()`）の上には載りません。** 見出しは円の上、
+        > 数値は円の下で、どちらも**絵に直接**乗っています。 */
+    inline juce::Colour fieldText() { return juce::Colour (0xfff6faf8); }
+
+    /** その縁。**細く暗く**——太いと文字が潰れ、明るいと縁が見えません。 */
+    inline juce::Colour fieldTextEdge() { return juce::Colours::black.withAlpha (0.55f); }
 
     /** つまみの地。**濃い面の上ではこれがいちばん強い手がかり**なので、白に寄せます。 */
     inline juce::Colour fieldKnobBody() { return juce::Colour (0xfff2f6f4); }

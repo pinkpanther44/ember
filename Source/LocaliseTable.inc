@@ -132,8 +132,10 @@
     { "センドのコピー", "Copy send", false },
     { "「", "\"", false },
     { "」は読み込み中に ", "\" has crashed the app ", true },
-    { " 回アプリを終了させています。安全のため読み込みませんでした。\n", " time(s) while loading. It was not loaded, to be safe.\n", true },
-    { "もう一度試すには、環境設定の Plugins で「クラッシュ履歴をリセット」してください。", "To try again, use \"Reset crash history\" under Plugins in Preferences.", true },
+    { " 回アプリを終了させているため、別プロセス（サンドボックス）で読もうとしましたが、", " time(s) while loading, so it was opened in a separate process (a sandbox) instead - and that failed too.", true },
+    { "それも失敗しました。\n", "\n", true },
+    { "もう一度そのまま試すには、環境設定の Plugins で「クラッシュ履歴をリセット」してください。", "To load it directly again, use \"Reset crash history\" under Plugins in Preferences.", true },
+    { "」がサンドボックス内で落ちました。そのプラグインは素通しになります。", "\" crashed inside its sandbox. That plugin now passes audio through untouched.", true },
     { "オーディオデバイスが開けていません。", "The audio device is not open.", true },
     { "プラグインを読み込めませんでした: ", "Could not load the plugin: ", true },
     { "コピー元のインサートが見つかりません。", "The insert to copy from was not found.", true },
@@ -845,14 +847,18 @@
     { "(読込失敗) ", "(load failed) ", false },
 
     // PluginSandboxHost.cpp
-    { "サンドボックス内でのロードに成功しました: ", "Loaded successfully in the sandbox: ", true },
-    { "（レイテンシ: ", "(latency: ", false },
-    { " サンプル）", " samples)", false },
-    { "サンドボックス内でのロードに失敗しました: ", "Loading in the sandbox failed: ", true },
-    { "プラグインのロード中にサンドボックスプロセスがクラッシュしました。", "The sandbox process crashed while loading the plugin.", true },
-    { "DAW本体は影響を受けていません。", "The DAW itself was not affected.", true },
-    { "サンドボックスプロセスが終了しました（プラグインがクラッシュした可能性があります）。", "The sandbox process exited (the plugin may have crashed).", true },
-    { "サンドボックスプロセスが応答しません（タイムアウト）。", "The sandbox process is not responding (timed out).", true },
+    { "共有メモリを用意できませんでした", "The shared memory could not be prepared", true },
+    { "サンドボックスプロセスを起動できませんでした", "The sandbox process could not be started", true },
+    { "サンドボックスプロセスへ指示を送れませんでした", "The sandbox process could not be given the instruction", true },
+    { "サンドボックスプロセスが応答しません（タイムアウト）", "The sandbox process is not responding (timed out)", true },
+    { "サンドボックス内でのロードに失敗しました", "Loading inside the sandbox failed", true },
+
+    // SandboxedPluginEditor.cpp
+    { "プラグインの画面を開いています…", "Opening the plugin's own window...", true },
+    { "このプラグインは別プロセスで動いています", "This plugin is running in a separate process", true },
+    { "このプラグインは別プロセスで動いています。本来の画面は開けませんでした", "This plugin is running in a separate process. Its own window could not be opened.", true },
+    { "このプラグインは別プロセスで動いています。本来の画面は別の窓で開いています", "This plugin is running in a separate process. Its own window is open separately.", true },
+    { "このプラグインは落ちました。音は素通しになっています", "This plugin crashed. Audio now passes through it untouched.", true },
 
     // PluginScanView.cpp
     { "スキャン中... （終わるまで一覧は変わりません）", "Scanning... (the list does not change until it finishes)", true },
