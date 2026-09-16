@@ -494,11 +494,12 @@ namespace
     //
     // `Drawable::replaceColour()`は**差し替え元の色が1ビットでも違うと、
     // 黙って何もしません**（戻り値のboolだけが教えてくれます）。
-    // 絵を描き直したときに色が変わっていると、**Emberだけ元の紫のまま**になります
-    // ——画面を開くまで気づけないので、ここで数えます。
+    // 絵を描き直したときに色が変わっていると、**画面を開くまで気づけません**。
     //
-    // 絵も1枚落とします（`browser_icons.png`）。**両ブランドぶん並べる**ので、
-    // Emberをビルドしなくても色が見られます。
+    // 絵も1枚落とします（`browser_icons.png`）。**絵のままの色と、
+    // アクセントの色を並べて**、ライト／ダークそれぞれの地の上に描くので、
+    // **どちらが良いか目で比べられます**（地が違うと見え方が変わるため、
+    // 白の上に並べても判断できません）。
 
     void runIconCheck()
     {
@@ -509,74 +510,116 @@ namespace
             const char* resource;
             juce::uint32 source;
             const char* name;
-            juce::uint32 manta;
-            juce::uint32 ember;
         };
 
         const Entry entries[]
         {
-            { "browser_folder_svg", Branding::browserFolderSourceColour, "folder",
-              0xff8c52ff, 0xff8e2b3f },
-            { "browser_file_svg", Branding::browserFileSourceColour, "file",
-              0xffff914d, 0xffc8a02e },
+            { "browser_folder_svg", Branding::browserFolderSourceColour, "folder" },
+            { "browser_file_svg",   Branding::browserFileSourceColour,   "file" },
         };
 
-        juce::Image sheet (juce::Image::ARGB, 260, 140, true);
+        // **小さすぎると見比べられません**（56pxで出したら、
+        // ライトの2つの違いが分かりませんでした）
+        constexpr int cell = 120;
+        constexpr int labelWidth = 76;
+        constexpr int headerHeight = 34;
+
+        juce::Image sheet (juce::Image::ARGB, labelWidth + cell * 4, headerHeight + cell * 2, true);
 
         {
-        // **`Graphics`は、書き出す前に壊すこと。** 生きているあいだは
-        // 画像の中身を掴んだままなので、そのまま`writeImageToStream()`へ渡すと
-        // **描く前の（空の）中身が出ます**（実際に真っ白のPNGが出ました）
-        juce::Graphics sheetGraphics (sheet);
+            juce::Graphics g (sheet);
 
-        sheetGraphics.fillAll (juce::Colours::white);
-        sheetGraphics.setColour (juce::Colours::black);
-        sheetGraphics.setFont (juce::Font (juce::FontOptions (12.0f)));
-        sheetGraphics.drawText ("Manta", 70, 6, 60, 14, juce::Justification::centred, false);
-        sheetGraphics.drawText ("Ember", 150, 6, 60, 14, juce::Justification::centred, false);
-
-        int row = 0;
-
-        for (const auto& entry : entries)
-        {
-            sheetGraphics.setColour (juce::Colours::black);
-            sheetGraphics.drawText (entry.name, 6, 34 + row * 56, 56, 48,
-                                     juce::Justification::centredLeft, false);
-
-            int column = 0;
-
-            for (const juce::uint32 wanted : { entry.manta, entry.ember })
+            for (int themeIndex = 0; themeIndex < 2; ++themeIndex)
             {
-                auto icon = IconAssets::load (entry.resource);
+                const bool dark = themeIndex == 1;
 
-                if (icon == nullptr)
+                AppColours::setTheme (dark ? AppColours::Theme::Dark : AppColours::Theme::Light);
+
+                const int x0 = labelWidth + themeIndex * cell * 2;
+
+                // **その地の上に描くこと**（白の上では判断できません）
+                g.setColour (AppColours::background);
+                g.fillRect (x0, 0, cell * 2, sheet.getHeight());
+
+                g.setColour (AppColours::textSecondary);
+                g.setFont (juce::Font (juce::FontOptions (14.0f)));
+                g.drawText (dark ? "dark" : "light", x0, 3, cell * 2, 16,
+                             juce::Justification::centred, false);
+                g.setFont (juce::Font (juce::FontOptions (12.0f)));
+                g.drawText ("now", x0, 19, cell, 13, juce::Justification::centred, false);
+                g.drawText ("accent", x0 + cell, 19, cell, 13, juce::Justification::centred, false);
+
+                int row = 0;
+
+                for (const auto& entry : entries)
                 {
-                    problem (juce::String (entry.name) + ": the picture did not load");
-                    continue;
+                    const bool isFolder = juce::String (entry.resource) == "browser_folder_svg";
+                    const juce::uint32 accent = isFolder ? Branding::browserFolderColour (dark)
+                                                          : Branding::browserFileColour (dark);
+
+                    int column = 0;
+
+                    for (const juce::uint32 wanted : { entry.source, accent })
+                    {
+                        auto icon = IconAssets::load (entry.resource);
+
+                        if (icon == nullptr)
+                        {
+                            problem (juce::String (entry.name) + ": the picture did not load");
+                            continue;
+                        }
+
+                        // **戻り値を見ること**（上の説明）
+                        if (! icon->replaceColour (juce::Colour (entry.source),
+                                                    juce::Colour (wanted)))
+                        {
+                            problem (juce::String (entry.name) + ": "
+                                       + juce::String::toHexString ((int) entry.source)
+                                       + " is not in the picture any more"
+                                         " - the brand colour would be ignored");
+                        }
+
+                        icon->drawWithin (g,
+                                           juce::Rectangle<float> ((float) (x0 + column * cell) + 12.0f,
+                                                                    (float) (headerHeight + row * cell) + 12.0f,
+                                                                    (float) cell - 24.0f,
+                                                                    (float) cell - 24.0f),
+                                           juce::RectanglePlacement::centred, 1.0f);
+                        ++column;
+                    }
+
+                    ++row;
                 }
-
-                // **戻り値を見ること**（上の説明）
-                const bool replaced = icon->replaceColour (juce::Colour (entry.source),
-                                                            juce::Colour (wanted));
-
-                if (! replaced)
-                    problem (juce::String (entry.name) + ": "
-                               + juce::String::toHexString ((int) entry.source)
-                               + " is not in the picture any more - the brand colour would be ignored");
-
-                icon->drawWithin (sheetGraphics,
-                                   juce::Rectangle<float> (70.0f + (float) column * 80.0f,
-                                                            26.0f + (float) row * 56.0f, 48.0f, 48.0f),
-                                   juce::RectanglePlacement::centred, 1.0f);
-                ++column;
             }
 
-            ++row;
-        }
+            // 行の名前（左端）
+            AppColours::setTheme (AppColours::Theme::Light);
+
+            g.setColour (AppColours::background);
+            g.fillRect (0, 0, labelWidth, sheet.getHeight());
+
+            g.setColour (AppColours::textPrimary);
+            g.setFont (juce::Font (juce::FontOptions (14.0f)));
+
+            int row = 0;
+
+            for (const auto& entry : entries)
+            {
+                g.drawText (entry.name, 6, headerHeight + row * cell, labelWidth - 10, cell,
+                             juce::Justification::centredLeft, false);
+                ++row;
+            }
         }
 
         if (problems == 0)
-            say ("  ok    both pictures take the brand colour");
+            say ("  ok    both pictures take the colour they are given");
+
+        say ("  (folder: now " + juce::String::toHexString ((int) Branding::browserFolderSourceColour)
+               + " -> accent " + juce::String::toHexString ((int) Branding::browserFolderColour (false))
+               + " / " + juce::String::toHexString ((int) Branding::browserFolderColour (true)) + ")");
+        say ("  (file:   now " + juce::String::toHexString ((int) Branding::browserFileSourceColour)
+               + " -> accent " + juce::String::toHexString ((int) Branding::browserFileColour (false))
+               + " / " + juce::String::toHexString ((int) Branding::browserFileColour (true)) + ")");
 
         const auto file = outputFolder.getChildFile ("browser_icons.png");
 

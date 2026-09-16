@@ -245,33 +245,45 @@ namespace Branding
 
         | | フォルダ | ファイル |
         |---|---|---|
-        | Manta Studio | **パープル**（絵のまま） | **オレンジ**（絵のまま） |
-        | Ember | **ワインレッド** | **ゴールド** |
+        | Manta Studio | パープル（`accentPrimary`） | オレンジ（`accentSecondary`） |
+        | Ember | ワインレッド（`accentPrimary`） | ゴールド（`accentSecondary`） |
 
         **絵は増やしません。** 読んだあとに`Drawable::replaceColour()`で
         塗り替えます（`BrowserPanel.h`）——同じ絵を2枚持つと、
         形を直すときに**片方だけ直す**ことになります（1.27）。
 
-        **Manta側は一切変わりません。** ここが絵と同じ値を返すので、
-        塗り替えても同じ色が入ります（テーマでも動かしません——
-        絵の色がそのまま基準です）。 */
+        ### **アプリのアクセント色そのもの**を使います（本人の指定で2段階）
+
+        はじめは「Emberだけ動かす」形にして、Manta側は絵の色
+        （`0xff8c52ff`／`0xffff914d`）を返していました。**頼まれていないものを
+        動かさない**ためです。そのあと本人から「Manta側もアクセントへ寄せてみたい」
+        と指定があり、**両ブランドとも`accent…()`を返す**形にしました。
+
+        | | 絵の色 | アクセント（ライト） | アクセント（ダーク） |
+        |---|---|---|---|
+        | フォルダ | `#8c52ff` | `#7c5cff` | `#8f74ff` |
+        | ファイル | `#ff914d` | `#ff8a3d` | `#ff9a55` |
+
+        **テーマで動くようになります。** ダークでは明るいほうの値が入るので、
+        暗い地の上でも沈みません——絵の色で固定していたときは、
+        **ライトの地に合わせた1色をダークでも使っていました**。
+
+        > **分岐が消えました。** ブランドで分ける必要がなくなり、
+        > 「絵はアクセントの色で塗る」という**1つの決まり**になっています。 */
     inline constexpr juce::uint32 browserFolderColour (bool dark)
     {
-        if (isEmber)
-            return accentPrimary (dark);             // ワインレッド
-
-        return 0xff8c52ff;                           // 絵が元から持っている紫
+        return accentPrimary (dark);
     }
 
     inline constexpr juce::uint32 browserFileColour (bool dark)
     {
-        if (isEmber)
-            return accentSecondary (dark);           // ゴールド
-
-        return 0xffff914d;                           // 絵が元から持っているオレンジ
+        return accentSecondary (dark);
     }
 
-    /** 絵の中に元から入っている色（塗り替えるときの「差し替え元」）。 */
+    /** 絵の中に元から入っている色（塗り替えるときの「差し替え元」）。
+
+        **絵を描き直すときは、ここも直すこと。** 1ビットでも違うと
+        `replaceColour()`は黙って何もしません（`Tools/PluginPreview --icons`が数えます）。 */
     inline constexpr juce::uint32 browserFolderSourceColour = 0xff8c52ff;
     inline constexpr juce::uint32 browserFileSourceColour   = 0xffff914d;
 
