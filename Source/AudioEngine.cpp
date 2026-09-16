@@ -128,7 +128,28 @@ juce::String AudioEngine::initialise()
     const int wantedInputChannels = 2;
    #endif
 
-    auto error = deviceManager.initialise (wantedInputChannels, 2, savedState.get(), true);
+    // 8.267：**初めて開くときの希望値を渡します**（Phase 269／本人の指定）。
+    //
+    // Phase 268まで、レートもバッファも**渡していませんでした**——
+    // デバイスが名乗った既定をそのまま使っていた、ということです。
+    // **初回起動で妙な値を掴む余地がここにありました**（実測：Ubuntu機の
+    // 保存設定が`audioDeviceRate="44100.0" audioDeviceBufferSize="16"`。
+    // 16サンプルは44.1kHzで0.36msで、PipeWireのquantum 1024とは桁が3つ違います）。
+    //
+    // **保存された設定のほうが強いままです。** JUCEはこの希望値を
+    // 「XMLに書かれていない項目の既定」として使います
+    // （`initialiseFromXML`：`xml.getIntAttribute ("audioDeviceBufferSize", setup.bufferSize)`）。
+    // **一度でも環境設定で選んだ人の値は動きません。**
+    //
+    // **デバイスが出せない値でも困りません。** `setAudioDeviceSetup()`が
+    // `findNearestValue()`で**出せるものの中のいちばん近い値**へ寄せます。
+    // 48kHzを出せないデバイスなら44.1kHzで開きます。
+    juce::AudioDeviceManager::AudioDeviceSetup preferredSetup;
+    preferredSetup.sampleRate = 48000.0;
+    preferredSetup.bufferSize = 512;
+
+    auto error = deviceManager.initialise (wantedInputChannels, 2, savedState.get(), true,
+                                            {}, &preferredSetup);
 
     if (error.isEmpty())
     {
@@ -146,7 +167,10 @@ juce::String AudioEngine::initialise()
     {
         inputError = error;
 
-        auto outputOnlyError = deviceManager.initialise (0, 2, savedState.get(), true);
+        // **こちらにも渡すこと**（8.267）。片方だけだと、
+        // 出力のみで開き直したときに希望値が抜け落ちます
+        auto outputOnlyError = deviceManager.initialise (0, 2, savedState.get(), true,
+                                                          {}, &preferredSetup);
         if (outputOnlyError.isNotEmpty())
             return outputOnlyError; // 出力すら開けない場合は本当にエラー
     }
