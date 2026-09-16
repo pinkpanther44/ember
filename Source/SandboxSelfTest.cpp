@@ -726,6 +726,26 @@ namespace SandboxSelfTest
         say ("sandbox editor test: " + description.name
                + " (" + description.pluginFormatName + ")");
 
+        // **窓を出せるか、先に確かめること**（8.264）。
+        //
+        // Linuxで`DISPLAY`は立っていても**X側に断られる**ことがあります
+        // （SSH越しに他人のセッションを覗こうとしたとき）。そのとき画面は0枚になり、
+        // `centreWithSize()`が**primaryDisplayのnullを踏んで落ちます**
+        // ——JUCEの中で落ちるので、こちらの不具合に見えます。
+        //
+        // **「確かめられなかった」は問題として数えます。** 黙って0を返すと、
+        // **試験を通していないのに通ったことになります**（7.3）。
+        if (juce::Desktop::getInstance().getDisplays().displays.isEmpty())
+        {
+            check (false, "there is a screen to put a window on"
+                            " - run this from a desktop session (or under xvfb-run)");
+
+            say ("--- " + juce::String (problems) + " problem(s) ---");
+            juce::JUCEApplication::getInstance()->setApplicationReturnValue (problems);
+
+            return true;
+        }
+
         juce::String error;
         auto sandboxed = SandboxedPluginProcessor::create (description, sampleRate, blockSize, error);
 

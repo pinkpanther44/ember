@@ -42,7 +42,10 @@ namespace MantaDelayPresets
         {
             // **テンポに付いてこないほうが良いもの**（上の説明）
             { "Slapback", "Short",
-              { { sync, 0.0f }, { timeMs, 110.0f }, { feedback, 0.12f }, { mix, 0.25f },
+              // **`sync`は名前で修飾すること。** Linuxでは`<unistd.h>`の`::sync()`
+              // （ディスクを書き出すアレ）と衝突して、`ambiguous`で止まります——
+              // MSVCには無い関数なので、**Windowsでは気づけません**（8.264）
+              { { MantaDelayParams::sync, 0.0f }, { timeMs, 110.0f }, { feedback, 0.12f }, { mix, 0.25f },
                 { character, 2.0f }, { drive, 0.25f }, { tone, 0.45f } } },
 
             { "Dotted Eighth", "Rhythmic",
