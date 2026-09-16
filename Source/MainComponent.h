@@ -272,6 +272,11 @@ private:
         コードパッドの上段とトランスポートバーに同じ値が出ているため、
         片方で変えたらもう片方も追従させる必要がある（1.27）。
         コードトラックの有無でトランスポートバー側の押せる／押せないも決まる。 */
+    /** 8.268：再生カーソルが動いたら、フッターの表示を**その位置で効いている値**へ合わせる
+        （Phase 270）。**`transportBar.setPlayheadSeconds()`を直に呼ばないこと**——
+        呼び場所が9つあり、片方だけ更新を忘れる形の抜けを作らないため（1.27）。 */
+    void updateTransportForPlayhead (double seconds);
+
     void applyProjectKeyToViews();
 
     /** 選択中のクリップの範囲をループにする（仕様書5.9、Studio OneのShift+P相当）。 */

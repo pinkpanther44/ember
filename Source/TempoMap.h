@@ -119,17 +119,11 @@ struct TempoMap
     /** その拍でのテンポ（BPM）。 */
     double getTempoAtBeat (double beatPosition) const
     {
-        double bpm = juce::jmax (1.0, initialTempo);
+        // **探すのは1か所**（`getTempoChangeIndexAtBeat()`）。1.27：
+        // 同じ「どれが効いているか」を2通りに数えない
+        const int index = getTempoChangeIndexAtBeat (beatPosition);
 
-        for (const auto& change : tempoChanges)
-        {
-            if (change.beatPosition > beatPosition)
-                break;
-
-            bpm = juce::jmax (1.0, change.bpm);
-        }
-
-        return bpm;
+        return juce::jmax (1.0, index < 0 ? initialTempo : tempoChanges[(size_t) index].bpm);
     }
 
     /** 拍 -> 秒。**変化点までを1区間ずつ足していきます。** */
@@ -181,36 +175,67 @@ struct TempoMap
     //==========================================================================
     // 小節 <-> 拍（拍子）
 
+    //==========================================================================
+    // 8.268：**いま効いている変化点は、どれか**（Phase 270／本人の要望）
+    //
+    // フッターの数字が**再生カーソルの位置の値**を映すようになりました（8.268）。
+    // 映すだけなら上の`get…At…()`で足りますが、**その欄で編集もできる**ので、
+    // 「**どれを書き換えるのか**」を答えるものが要ります。
+    //
+    // > **見ている値と書き換わる値は、同じでなければなりません。**
+    // > 曲の途中の120を見ながら打ち込んだのに曲頭の145が変わる、というのが
+    // > いちばん質の悪い壊れ方です（1.32と同じ「番号がずれる」の仲間）。
+    //
+    // **-1は「変化点ではなく、曲頭の値」**という意味です。
+
+    /** その拍で効いているテンポの変化点の番号（`tempoChanges`の添字）。**-1なら曲頭**。 */
+    int getTempoChangeIndexAtBeat (double beatPosition) const
+    {
+        int index = -1;
+
+        for (size_t i = 0; i < tempoChanges.size(); ++i)
+        {
+            if (tempoChanges[i].beatPosition > beatPosition)
+                break;
+
+            index = (int) i;
+        }
+
+        return index;
+    }
+
+    /** その小節で効いている拍子の変化点の番号（`meterChanges`の添字）。**-1なら曲頭**。 */
+    int getMeterChangeIndexAtBar (int bar) const
+    {
+        int index = -1;
+
+        for (size_t i = 0; i < meterChanges.size(); ++i)
+        {
+            if (meterChanges[i].bar > bar)
+                break;
+
+            index = (int) i;
+        }
+
+        return index;
+    }
+
     /** その小節の拍数（拍子の分子）。 */
     int getBeatsPerBarAtBar (int bar) const
     {
-        int beats = juce::jmax (1, initialBeatsPerBar);
+        const int index = getMeterChangeIndexAtBar (bar);
 
-        for (const auto& change : meterChanges)
-        {
-            if (change.bar > bar)
-                break;
-
-            beats = juce::jmax (1, change.beatsPerBar);
-        }
-
-        return beats;
+        return juce::jmax (1, index < 0 ? initialBeatsPerBar
+                                        : meterChanges[(size_t) index].beatsPerBar);
     }
 
     /** その小節の拍子の分母。**小節の長さには効きません**が、表示と保存に要ります。 */
     int getDenominatorAtBar (int bar) const
     {
-        int denominator = juce::jmax (1, initialDenominator);
+        const int index = getMeterChangeIndexAtBar (bar);
 
-        for (const auto& change : meterChanges)
-        {
-            if (change.bar > bar)
-                break;
-
-            denominator = juce::jmax (1, change.denominator);
-        }
-
-        return denominator;
+        return juce::jmax (1, index < 0 ? initialDenominator
+                                        : meterChanges[(size_t) index].denominator);
     }
 
     /** 小節の頭が、曲の頭から何拍目か。 */

@@ -200,6 +200,58 @@ int main()
         expectInt ("変化点なしは頭のキー",   plain.getKeyAtBar (42).root, 5);
     }
 
+    // ------------------------------------------------------------------
+    // 8.268：**いま効いている変化点は、どれか**（Phase 270／本人の要望）
+    //
+    // フッターがカーソル位置の値を映すようになり、**その欄で編集もできます**。
+    // 「どれを書き換えるのか」を間違えると、**曲の途中を見ながら曲頭が変わる**
+    // という、いちばん見つけにくい壊れ方になります。番号で押さえておくところ。
+    {
+        std::printf ("\n[ いま効いている変化点 ]\n");
+
+        TempoMap map;
+        map.initialTempo = 145.0;
+        map.initialBeatsPerBar = 4;
+        map.initialDenominator = 4;
+
+        map.tempoChanges.push_back ({ 12.0, 120.0 });   // 4小節目（4/4なので12拍目）
+        map.meterChanges.push_back ({ 8, 3, 4 });       // 8小節目から3/4
+        map.sortAndDeduplicate();
+
+        // **-1は「変化点ではなく曲頭の値」**
+        expectInt ("0拍目は曲頭",             map.getTempoChangeIndexAtBeat (0.0), -1);
+        expectInt ("11.9拍目もまだ曲頭",      map.getTempoChangeIndexAtBeat (11.9), -1);
+        expectInt ("12拍目ちょうどは変化点",  map.getTempoChangeIndexAtBeat (12.0), 0);
+        expectInt ("100拍目も同じ変化点",     map.getTempoChangeIndexAtBeat (100.0), 0);
+
+        expectInt ("7小節目は曲頭の拍子",     map.getMeterChangeIndexAtBar (7), -1);
+        expectInt ("8小節目は変化点",         map.getMeterChangeIndexAtBar (8), 0);
+
+        // **番号と値が食い違わないこと。** 別々に数えていると、ここがずれます
+        expectNear ("11.9拍目のテンポ",       map.getTempoAtBeat (11.9), 145.0);
+        expectNear ("12拍目のテンポ",         map.getTempoAtBeat (12.0), 120.0);
+        expectInt ("7小節目の拍数",           map.getBeatsPerBarAtBar (7), 4);
+        expectInt ("8小節目の拍数",           map.getBeatsPerBarAtBar (8), 3);
+        expectInt ("8小節目の分母",           map.getDenominatorAtBar (8), 4);
+
+        KeyMap keys;
+        keys.initialKey = Scale { 0, false };
+        keys.changes.push_back ({ 4, Scale { 2, false } });   // 4小節目からD
+        keys.sortAndDeduplicate();
+
+        expectInt ("3小節目は曲頭のキー",     keys.getChangeIndexAtBar (3), -1);
+        expectInt ("4小節目は変化点",         keys.getChangeIndexAtBar (4), 0);
+        expectInt ("4小節目のキーはD",        keys.getKeyAtBar (4).root, 2);
+
+        // 変化点が1つも無ければ、どこを見ても曲頭
+        TempoMap plain;
+        expectInt ("変化点なしのテンポは曲頭", plain.getTempoChangeIndexAtBeat (999.0), -1);
+        expectInt ("変化点なしの拍子も曲頭",   plain.getMeterChangeIndexAtBar (999), -1);
+
+        KeyMap plainKeys;
+        expectInt ("変化点なしのキーも曲頭",   plainKeys.getChangeIndexAtBar (999), -1);
+    }
+
     std::printf ("\n%d件中 %d件が失敗\n", checks, failures);
 
     return failures > 0 ? 1 : 0;

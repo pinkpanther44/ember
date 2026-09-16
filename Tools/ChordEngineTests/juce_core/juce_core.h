@@ -22,6 +22,13 @@ namespace juce
         String() = default;
         String (const char* t) : s (t ? t : "") {}
         String (const std::string& t) : s (t) {}
+
+        // 8.268：**数からも作れること**（Phase 270）。`ChordModel.h`の`midiNoteName()`が
+        // `juce::String (octave)`を使っていて、**スタブに無いせいで
+        // `Run-TempoMapTests.ps1`が通らなくなっていました**（本体のビルドとは無関係なので、
+        // 走らせるまで気づけない類）。このファイルの冒頭の決まりどおり、ここへ足します
+        String (int v) : s (std::to_string (v)) {}
+        String (double v) : s (std::to_string (v)) {}
         String& operator+= (const String& o) { s += o.s; return *this; }
         const char* toRawUTF8() const { return s.c_str(); }
         bool operator== (const char* o) const { return s == std::string (o); }

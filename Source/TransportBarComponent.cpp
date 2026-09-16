@@ -304,8 +304,13 @@ void TransportBarComponent::setProjectKey (int root, bool minor, bool hasChordTr
 {
     const juce::ScopedValueSetter<bool> guard (isUpdatingFromModel, true);
 
-    keyRootBox.setSelectedId (juce::jlimit (0, 11, root) + 1, juce::dontSendNotification);
-    keyModeBox.setSelectedId (minor ? 2 : 1, juce::dontSendNotification);
+    // 8.268：**開いている最中は触らないこと**（Phase 270）。フッターは再生カーソルに
+    // 合わせて書き換わるので、選ぼうとして開いた一覧が**足元で変わります**
+    if (! keyRootBox.isPopupActive())
+        keyRootBox.setSelectedId (juce::jlimit (0, 11, root) + 1, juce::dontSendNotification);
+
+    if (! keyModeBox.isPopupActive())
+        keyModeBox.setSelectedId (minor ? 2 : 1, juce::dontSendNotification);
 
     // **コードトラックが無いときは押せなくする。** キーの置き場所が無いので、
     // 選んでも何も起きない（`ProjectModel::setProjectKey()`がfalseを返す）

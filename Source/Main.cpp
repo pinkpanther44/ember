@@ -5,6 +5,7 @@
 #include "AppColours.h"
 #include "MusicalTimeBench.h"   // 8.137：動作の重さの計測（Phase 175／8.1のE1）
 #include "SandboxSelfTest.h"    // 8.260：サンドボックスの往復を測る（Phase 268）
+#include "FooterValuesSelfTest.h" // 8.268：フッターの値と書き換え先（Phase 270）
 #include "SplashWindow.h"        // 8.151：起動画面（Phase 189／改善案⑰）
 #include "ProjectChooser.h"      // 8.151：プロジェクト選択画面（Phase 189／改善案⑰）
 #include "Utf8.h"
@@ -55,6 +56,13 @@ public:
         // 8.260：`--sandbox-selftest`なら、サンドボックスの往復を測ってすぐ終わる
         // （Phase 268／`SandboxSelfTest.h`）。**これもメインウィンドウを作りません**
         if (SandboxSelfTest::runIfRequested (commandLine))
+        {
+            quit();
+            return;
+        }
+
+        // 8.268：`--footer-selftest`も窓を出しません（Phase 270）
+        if (FooterValuesSelfTest::runIfRequested (commandLine))
         {
             quit();
             return;

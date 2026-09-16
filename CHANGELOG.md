@@ -35,6 +35,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- **The tempo, key and time signature at the bottom of the window now follow
+  the playhead.** If you change any of them partway through the song, the
+  fields showed the value at the start regardless of where you were. They now
+  show what is in force where the cursor is, and change as it passes each
+  marker. Typing in them edits that same value — the one you are looking at —
+  rather than the one at the start of the song, and the undo entry says which
+  bar it changed. The key above the chord pad follows the playhead too; the
+  pads themselves always did
+
 - The knob labels and readouts in **Java Rhino Bass** are now white with a
   dark edge. On the speckled background of that instrument, dark text
   disappeared into the bright half of the picture

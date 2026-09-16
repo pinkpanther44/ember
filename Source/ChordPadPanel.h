@@ -111,6 +111,8 @@ private:
     void valueTreeChildRemoved (juce::ValueTree&, juce::ValueTree& child, int) override;
 
     /** キー・ページ・Triad設定から候補グリッドを作り直し、矩形を計算する。 */
+    void applyKeyAtInsertPosition (const Scale& newKey);
+    void updateKeyBoxes();
     void rebuildGrid();
 
     /** 現在のサイズから、各パッドの矩形を計算する。 */

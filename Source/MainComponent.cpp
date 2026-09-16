@@ -117,7 +117,7 @@ MainComponent::MainComponent()
     {
         audioEngine.setPlayheadSeconds (startTimeSeconds);
         setPlayheadDisplay (startTimeSeconds);
-        transportBar.setPlayheadSeconds (startTimeSeconds);
+        updateTransportForPlayhead (startTimeSeconds);
 
         setEditorContent (EditorContent::chordPad);
         chordPadPanel.setInsertPosition (startTimeSeconds);
@@ -176,7 +176,7 @@ MainComponent::MainComponent()
 
         // 停止中はタイマーが回っていないので、表示は自分で合わせる（HANDOVER 1.28）
         setPlayheadDisplay (newPositionSeconds);
-        transportBar.setPlayheadSeconds (newPositionSeconds);
+        updateTransportForPlayhead (newPositionSeconds);
     };
 
     // 設計書2.3.5：コードトラックを選んだらコードパッドに切り替える（Phase 43）
@@ -358,7 +358,7 @@ MainComponent::MainComponent()
     {
         audioEngine.setPlayheadSeconds (0.0);
         setPlayheadDisplay (0.0);
-        transportBar.setPlayheadSeconds (0.0);
+        updateTransportForPlayhead (0.0);
     };
 
     // 仕様書5.9：ルーラーのクリックで動いた再生位置も、時間表示へ反映する（Phase 30）。
@@ -378,28 +378,49 @@ MainComponent::MainComponent()
     // ルーラーの小節線はテンポと拍子から計算しているが、**画面を描き直す指示は要らない**：
     // TimelineComponentはプロジェクトのルートを購読しているので（Phase 22a・1.15）、
     // プロパティが変わればそのまま追従する。
+    //
+    // 8.268：**見ている値を書き換えます**（Phase 270／本人の要望）。
+    //
+    // フッターは再生カーソルの位置の値を映すので、書き換える先も同じでなければ
+    // なりません——**曲の途中の120を見ながら打ち込んで、曲頭の145が変わる**のが
+    // いちばん質の悪い壊れ方です。`…AtTime()`が振り分けます
+    // （変化点が無ければ曲頭の値＝Phase 269までと同じ動き）。
+    //
+    // **取り消しの名前に小節を出すこと。** どこを書き換えたのか分からないと、
+    // 取り違えに後から気づけません
     transportBar.onTempoChanged = [this] (double newTempo)
     {
-        project.beginAction (utf8 ("テンポの変更"));
-        project.setTempo (newTempo, &project.getUndoManager());
+        const double position = audioEngine.getPlayheadSeconds();
+        const int bar = project.getValuesInForceAt (position).tempoBar;
+
+        project.beginAction (bar < 0 ? utf8 ("テンポの変更")
+                                      : utf8 ("テンポの変更（") + juce::String (bar + 1)
+                                          + utf8 ("小節目）"));
+
+        project.setTempoAtTime (position, newTempo, &project.getUndoManager());
         // Phase 141：メトロノームへの伝達はValueTreeで拾う（8.103）。ここで呼ばないこと
     };
 
     transportBar.onTimeSignatureChanged = [this] (juce::String newTimeSignature)
     {
-        project.beginAction (utf8 ("拍子の変更"));
+        const double position = audioEngine.getPlayheadSeconds();
+        const int bar = project.getValuesInForceAt (position).timeSignatureBar;
+
+        project.beginAction (bar < 0 ? utf8 ("拍子の変更")
+                                      : utf8 ("拍子の変更（") + juce::String (bar + 1)
+                                          + utf8 ("小節目）"));
 
         // 受け付けられなかった場合は、表示を現在の値へ戻す
         // （打ち間違いがそのまま残ると、直したつもりで直っていない状態になる）
-        if (! project.setTimeSignature (newTimeSignature, &project.getUndoManager()))
-            transportBar.setTempoAndTimeSignature (project.getTempo(), project.getTimeSignature());
+        if (! project.setTimeSignatureAtTime (position, newTimeSignature, &project.getUndoManager()))
+            updateTransportForPlayhead (position);
 
         // Phase 141：メトロノームへの伝達はValueTreeで拾う（8.103）。ここで呼ばないこと
     };
 
     // 仕様書5.11.1：プロジェクトのキー（Phase 63／8.1のC9）。
     // **入口はコードパッドの上段とここの2つ。** 値の実体はコードトラックにあるので、
-    // どちらで変えてもモデルは1つ（`ProjectModel::setProjectKey()`）。
+    // どちらで変えてもモデルは1つ（`ProjectModel::setProjectKeyAt…()`）。
     // 表示だけ両方へ配り直す（1.27）。
     transportBar.onProjectKeyChanged = [this] (int root, bool minor)
     {
@@ -407,9 +428,14 @@ MainComponent::MainComponent()
         key.root = root;
         key.minor = minor;
 
-        project.beginAction (utf8 ("キーの変更"));
+        const double position = audioEngine.getPlayheadSeconds();
+        const int bar = project.getValuesInForceAt (position).keyBar;
 
-        if (project.setProjectKey (key, &project.getUndoManager()))
+        project.beginAction (bar < 0 ? utf8 ("キーの変更")
+                                      : utf8 ("キーの変更（") + juce::String (bar + 1)
+                                          + utf8 ("小節目）"));
+
+        if (project.setProjectKeyAtTime (position, key, &project.getUndoManager()))
             applyProjectKeyToViews();
     };
 
@@ -437,7 +463,8 @@ MainComponent::MainComponent()
         showMetronomeSettingsMenu (screenBounds);
     };
 
-    transportBar.setTempoAndTimeSignature (project.getTempo(), project.getTimeSignature());
+    // 8.268：最初の表示も**カーソル位置の値**から（Phase 270）
+    updateTransportForPlayhead (audioEngine.getPlayheadSeconds());
     applyLoopSettings();   // 仕様書5.9：ループボタンの初期表示（Phase 48）
     applyProjectKeyToViews();   // 仕様書5.11.1：キーの初期表示（Phase 63／8.1のC9）
 
@@ -1261,7 +1288,7 @@ void MainComponent::recordButtonClicked()
 
         transportBar.setPlayingState (false);
         setPlayheadDisplay (audioEngine.getPlayheadSeconds());
-        transportBar.setPlayheadSeconds (audioEngine.getPlayheadSeconds());
+        updateTransportForPlayhead (audioEngine.getPlayheadSeconds());
 
         return;
     }
@@ -2042,7 +2069,7 @@ bool MainComponent::perform (const InvocationInfo& info)
         case CommandIds::returnToStart:
             audioEngine.setPlayheadSeconds (0.0);
             setPlayheadDisplay (0.0);
-            transportBar.setPlayheadSeconds (0.0);
+            updateTransportForPlayhead (0.0);
             return true;
 
         case CommandIds::toggleClick:       toggleMetronome();       return true;
@@ -2311,13 +2338,33 @@ void MainComponent::seekTo (double seconds)
     // **停止中はタイマーが回っていない**ので、表示は自分で合わせる（1.28）
     audioEngine.setPlayheadSeconds (seconds);
     setPlayheadDisplay (seconds);
-    transportBar.setPlayheadSeconds (seconds);
+    updateTransportForPlayhead (seconds);
     chordPadPanel.setInsertPosition (seconds);
+}
+
+
+//==============================================================================
+// 8.268：フッターは、**再生カーソルの位置で効いている値**を映す（Phase 270／本人の要望）
+
+void MainComponent::updateTransportForPlayhead (double seconds)
+{
+    transportBar.setPlayheadSeconds (seconds);
+
+    // **入口はここ1つ**（1.27）。`setPlayheadSeconds()`を直に呼ぶ場所が9つあり、
+    // そのうち何か所かで値の更新を忘れる、という形の抜けを作らないため
+    const auto values = project.getValuesInForceAt (seconds);
+
+    transportBar.setTempoAndTimeSignature (values.tempo, values.timeSignature);
+    transportBar.setProjectKey (values.key.root, values.key.minor,
+                                 project.findChordTrack().state.getParent().isValid());
 }
 
 void MainComponent::applyProjectKeyToViews()
 {
-    const auto key = project.getProjectKey();
+    // 8.268：**曲頭のキーではなく、カーソル位置のキー**（Phase 270）。
+    // ここが`getProjectKey()`のままだと、キーを変えた直後だけ曲頭の値が出て、
+    // カーソルを少し動かすと戻る——**一瞬だけ嘘をつく**形になります
+    const auto key = project.getProjectKeyAt (audioEngine.getPlayheadSeconds());
 
     // **コードトラックが無ければ押せなくする。** 選んでも何も起きないので
     // （`setProjectKey()`がfalseを返す）、押せるままだと壊れて見える
@@ -3265,7 +3312,7 @@ void MainComponent::snapPlayheadToBarForCountIn()
 
     // 動かした位置を画面にも出す（停止中なのでタイマーは回っていない。HANDOVER 1.28）
     setPlayheadDisplay (snapped);
-    transportBar.setPlayheadSeconds (snapped);
+    updateTransportForPlayhead (snapped);
 }
 
 int MainComponent::getCountInBars() const
@@ -3440,8 +3487,9 @@ void MainComponent::refreshAllViews (bool keepSelection)
     // プロジェクトを読み込むとルートのValueTreeが差し替わるので、購読も付け替える（Phase 37）
     updateProjectSubscription();
 
-    // 設計書2.2：読み込んだプロジェクトのテンポ・拍子を表示へ反映する（Phase 26）
-    transportBar.setTempoAndTimeSignature (project.getTempo(), project.getTimeSignature());
+    // 設計書2.2：読み込んだプロジェクトのテンポ・拍子を表示へ反映する（Phase 26）。
+    // 8.268：**カーソル位置の値**で出します（Phase 270）
+    updateTransportForPlayhead (audioEngine.getPlayheadSeconds());
     transportBar.setMasterVolumeDb (project.getMasterVolumeDb()); // 仕様書5.7（Phase 37）
 
     // 仕様書5.5・5.9：読み込んだプロジェクトの刻みを、**両方の入口へ**配る（Phase 55）
@@ -3461,7 +3509,7 @@ void MainComponent::refreshAllViews (bool keepSelection)
 
     // ArrangeView側が再生位置を0へ戻したときだけ、時間表示も揃える（Phase 30／34）
     if (! keepSelection)
-        transportBar.setPlayheadSeconds (0.0);
+        updateTransportForPlayhead (0.0);
 
     updateWindowTitle();
 }
@@ -3512,7 +3560,7 @@ void MainComponent::timerCallback()
     const double playheadSeconds = audioEngine.getPlayheadSeconds();
 
     setPlayheadDisplay (playheadSeconds);
-    transportBar.setPlayheadSeconds (playheadSeconds); // 仕様書5.9（Phase 30）
+    updateTransportForPlayhead (playheadSeconds); // 仕様書5.9（Phase 30）
 
     if (audioEngine.isRecording())
     {

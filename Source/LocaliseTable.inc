@@ -382,6 +382,10 @@
     { "画面とオーディオを準備しています...", "Preparing the interface and audio...", true },
 
     // MainComponent.cpp
+    { "テンポの変更（", "Change the tempo (bar ", false },
+    { "拍子の変更（", "Change the time signature (bar ", false },
+    { "キーの変更（", "Change the key (bar ", false },
+    { "小節目）", ")", false },
     { "取り込むオーディオファイルを選んでください", "Choose an audio file to import", false },
     { "録音待機の切り替え", "Toggle record arm", false },
     { "ループの入切", "Toggle loop", false },

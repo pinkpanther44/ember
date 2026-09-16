@@ -47,19 +47,10 @@ ChordPadPanel::ChordPadPanel (ProjectModel& projectToUse, SelectionState& select
     keyRootBox.setSelectedId (1, juce::dontSendNotification);
     keyRootBox.onChange = [this]
     {
-        auto track = getChordTrack();
-
-        if (! track.state.getParent().isValid())
-            return;
-
-        auto key = track.getChordKey();
+        auto key = project.getProjectKeyAt (getChordInsertPosition());
         key.root = keyRootBox.getSelectedId() - 1;
 
-        project.beginAction (utf8 ("キーの変更"));
-        track.setChordKey (key, &project.getUndoManager());
-
-        rebuildGrid();
-        repaint();
+        applyKeyAtInsertPosition (key);
     };
     addAndMakeVisible (keyRootBox);
 
@@ -68,19 +59,10 @@ ChordPadPanel::ChordPadPanel (ProjectModel& projectToUse, SelectionState& select
     keyModeBox.setSelectedId (1, juce::dontSendNotification);
     keyModeBox.onChange = [this]
     {
-        auto track = getChordTrack();
-
-        if (! track.state.getParent().isValid())
-            return;
-
-        auto key = track.getChordKey();
+        auto key = project.getProjectKeyAt (getChordInsertPosition());
         key.minor = (keyModeBox.getSelectedId() == 2);
 
-        project.beginAction (utf8 ("キーの変更"));
-        track.setChordKey (key, &project.getUndoManager());
-
-        rebuildGrid();
-        repaint();
+        applyKeyAtInsertPosition (key);
     };
     addAndMakeVisible (keyModeBox);
 
@@ -510,11 +492,7 @@ void ChordPadPanel::refreshFromModel()
     auto track = getChordTrack();
 
     if (track.state.getParent().isValid())
-    {
-        const auto key = track.getChordKey();
-        keyRootBox.setSelectedId (key.root + 1, juce::dontSendNotification);
-        keyModeBox.setSelectedId (key.minor ? 2 : 1, juce::dontSendNotification);
-    }
+        updateKeyBoxes();   // 8.268：挿入位置のキーを出す（曲頭のキーではない）
 
     refreshTargetTrackList();   // Phase 44：トラックが増減している可能性がある
     rebuildGrid();
@@ -530,6 +508,9 @@ void ChordPadPanel::setInsertPosition (double seconds)
         return;
 
     insertPositionSeconds = clamped;
+
+    // 8.268：**キーの変化点をまたぐと、欄の表示も変わります**（Phase 270）
+    updateKeyBoxes();
 
     // 直前のコードが変われば、パッドの色がすべて変わる
     rebuildGrid();
@@ -556,6 +537,45 @@ Track ChordPadPanel::getChordTrack() const
 double ChordPadPanel::getBarSeconds (double atTime) const
 {
     return project.getBarSecondsAt (atTime);
+}
+
+
+//==============================================================================
+// 8.268：**キーは、挿入位置のものを出して、そこを書き換える**（Phase 270／本人の要望）
+//
+// パッドの中身は**前から挿入位置のキーで作られていました**
+// （`project.getProjectKeyAt (getChordInsertPosition())`）。
+// **上の選択欄だけが曲頭のキーを出していて**、変化点をまたぐと
+// 「パッドはDメジャーなのに、欄はCメジャー」という食い違いが出ます。
+
+void ChordPadPanel::applyKeyAtInsertPosition (const Scale& newKey)
+{
+    const double position = getChordInsertPosition();
+    const int bar = project.getValuesInForceAt (position).keyBar;
+
+    // **どこを書き換えたか、取り消しの名前に残すこと**（フッターと同じ決まり）
+    project.beginAction (bar < 0 ? utf8 ("キーの変更")
+                                  : utf8 ("キーの変更（") + juce::String (bar + 1)
+                                      + utf8 ("小節目）"));
+
+    if (! project.setProjectKeyAtTime (position, newKey, &project.getUndoManager()))
+        return;   // コードトラックが無い
+
+    rebuildGrid();
+    repaint();
+}
+
+void ChordPadPanel::updateKeyBoxes()
+{
+    const auto key = project.getProjectKeyAt (getChordInsertPosition());
+
+    // **開いている最中は触らないこと。** 選ぼうとしている一覧が、
+    // 再生カーソルの移動で書き換わります
+    if (! keyRootBox.isPopupActive())
+        keyRootBox.setSelectedId (key.root + 1, juce::dontSendNotification);
+
+    if (! keyModeBox.isPopupActive())
+        keyModeBox.setSelectedId (key.minor ? 2 : 1, juce::dontSendNotification);
 }
 
 double ChordPadPanel::getChordInsertPosition() const

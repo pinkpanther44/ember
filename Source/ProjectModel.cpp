@@ -4214,6 +4214,94 @@ Scale ProjectModel::getProjectKeyAt (double timeSeconds) const
     return getKeyMap().getKeyAtBar (getBarIndexAt (timeSeconds));
 }
 
+//==============================================================================
+// 8.268：その位置で効いている値（Phase 270／本人の要望）
+
+ProjectModel::ValuesInForce ProjectModel::getValuesInForceAt (double timeSeconds) const
+{
+    const auto& tempoMap = getTempoMap();
+    const auto& keyMap = getKeyMap();
+
+    const int bar = getBarIndexAt (timeSeconds);
+    const double beat = getBeatPositionAt (timeSeconds);
+
+    ValuesInForce result;
+
+    // --- テンポ（位置は拍） ---
+    {
+        const int index = tempoMap.getTempoChangeIndexAtBeat (beat);
+
+        result.tempo = tempoMap.getTempoAtBeat (beat);
+
+        // **変化点は拍で置かれています。** 名前に出すのは小節のほうが読みやすいので、
+        // その拍が何小節目かに直します
+        result.tempoBar = index < 0
+            ? -1
+            : tempoMap.getBarPositionAtBeat (tempoMap.tempoChanges[(size_t) index].beatPosition).bar;
+    }
+
+    // --- 拍子（位置は小節） ---
+    {
+        const int index = tempoMap.getMeterChangeIndexAtBar (bar);
+
+        result.timeSignature = juce::String (tempoMap.getBeatsPerBarAtBar (bar))
+                                 + "/" + juce::String (tempoMap.getDenominatorAtBar (bar));
+
+        result.timeSignatureBar = index < 0 ? -1 : tempoMap.meterChanges[(size_t) index].bar;
+    }
+
+    // --- キー（位置は小節） ---
+    {
+        const int index = keyMap.getChangeIndexAtBar (bar);
+
+        result.key = keyMap.getKeyAtBar (bar);
+        result.keyBar = index < 0 ? -1 : keyMap.changes[(size_t) index].bar;
+    }
+
+    return result;
+}
+
+void ProjectModel::setTempoAtTime (double timeSeconds, double bpm, juce::UndoManager* undoManagerToUse)
+{
+    const auto& tempoMap = getTempoMap();
+    const int index = tempoMap.getTempoChangeIndexAtBeat (getBeatPositionAt (timeSeconds));
+
+    // **手前に変化点が無ければ、曲頭の値**（Phase 269までと同じ動き）
+    if (index < 0)
+    {
+        setTempo (bpm, undoManagerToUse);
+        return;
+    }
+
+    // **その変化点の拍をそのまま渡すこと。** カーソルの拍で置くと、
+    // **同じ値の変化点が2つ**になります（レーンに札が増える）
+    setTempoChange (tempoMap.tempoChanges[(size_t) index].beatPosition, bpm, undoManagerToUse);
+}
+
+bool ProjectModel::setTimeSignatureAtTime (double timeSeconds, const juce::String& newTimeSignature,
+                                            juce::UndoManager* undoManagerToUse)
+{
+    const auto& tempoMap = getTempoMap();
+    const int index = tempoMap.getMeterChangeIndexAtBar (getBarIndexAt (timeSeconds));
+
+    if (index < 0)
+        return setTimeSignature (newTimeSignature, undoManagerToUse);
+
+    return setTimeSignatureChange (tempoMap.meterChanges[(size_t) index].bar,
+                                    newTimeSignature, undoManagerToUse);
+}
+
+bool ProjectModel::setProjectKeyAtTime (double timeSeconds, const Scale& newKey,
+                                         juce::UndoManager* undoManagerToUse)
+{
+    const int index = getKeyMap().getChangeIndexAtBar (getBarIndexAt (timeSeconds));
+
+    if (index < 0)
+        return setProjectKey (newKey, undoManagerToUse);
+
+    return setKeyChange (getKeyMap().changes[(size_t) index].bar, newKey, undoManagerToUse);
+}
+
 /** KEYMAPノード。無ければ作る（古いプロジェクトには無い）。 */
 static juce::ValueTree getOrCreateKeyMapNode (juce::ValueTree& state, juce::UndoManager* undoManager)
 {

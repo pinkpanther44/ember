@@ -218,6 +218,8 @@ target_sources(PersonalDAW
         Source/SandboxedPluginEditor.cpp
         # 8.260：サンドボックスの往復を窓なしで測る（Phase 268）
         Source/SandboxSelfTest.cpp
+        # 8.268：フッターの値と書き換え先を窓なしで確かめる（Phase 270）
+        Source/FooterValuesSelfTest.cpp
         Source/PianoRollComponent.cpp
         Source/PianoRollView.cpp
         Source/PianoRollHeaderComponent.cpp

@@ -67,19 +67,30 @@ struct KeyMap
 
     bool isEmpty() const { return changes.empty(); }
 
+    /** その小節で効いているキーの変化点の番号（`changes`の添字）。**-1なら曲頭**。
+
+        8.268：フッターとコードパッドが**カーソル位置の値を編集する**ために要ります
+        （`TempoMap`の同名の関数と同じ考え方）。 */
+    int getChangeIndexAtBar (int bar) const
+    {
+        int index = -1;
+
+        for (size_t i = 0; i < changes.size(); ++i)
+        {
+            if (changes[i].bar > bar)
+                break;
+
+            index = (int) i;
+        }
+
+        return index;
+    }
+
     /** その小節で効いているキー。 */
     Scale getKeyAtBar (int bar) const
     {
-        Scale key = initialKey;
+        const int index = getChangeIndexAtBar (bar);
 
-        for (const auto& change : changes)
-        {
-            if (change.bar > bar)
-                break;
-
-            key = change.key;
-        }
-
-        return key;
+        return index < 0 ? initialKey : changes[(size_t) index].key;
     }
 };

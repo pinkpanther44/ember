@@ -1559,6 +1559,54 @@ public:
     void removeKeyChange (int bar, juce::UndoManager* undoManagerToUse);
 
     //==========================================================================
+    // 8.268：**その位置で効いている値**（Phase 270／本人の要望）
+    //
+    // 本人の要望：**「BPM・キー・拍子をレーンで変えたら、再生カーソルが
+    // 変化点を越えたときにフッターの表示も変わるようにしたい」**。
+    //
+    // 映すだけなら`getTempoMap()`等から引けますが、**フッターはその欄で編集もできます**。
+    // 表示だけカーソル位置にすると、**曲の途中の120を見ながら打ち込んだのに
+    // 曲頭の145が変わる**——見ているものと書き換わるものが食い違います。
+    //
+    // そこで**「映す」と「書き換える」を同じ1組にしました**：
+    //
+    // | | |
+    // |---|---|
+    // | 映す | `getValuesInForceAt()` |
+    // | 書き換える | `setTempoAtTime()`・`setTimeSignatureAtTime()`・`setProjectKeyAtTime()` |
+    //
+    // どちらも**「その位置で効いている変化点」**が相手です。変化点より手前なら
+    // 曲頭の値（`setTempo()`等）が相手になります——**今までと同じ動き**です。
+
+    /** その位置で効いている値と、**それがどこから来ているか**。 */
+    struct ValuesInForce
+    {
+        double tempo = 120.0;
+        juce::String timeSignature { "4/4" };
+        Scale key;
+
+        /** その値の出どころの小節（0始まり）。**-1なら曲頭の値**。
+
+            **取り消しの名前に使います**（「テンポの変更（5小節目）」）。
+            どこを書き換えたのかが後から分からないと、曲の途中の値を
+            直したつもりで曲頭を直していた、という取り違えに気づけません。 */
+        int tempoBar = -1, timeSignatureBar = -1, keyBar = -1;
+    };
+
+    ValuesInForce getValuesInForceAt (double timeSeconds) const;
+
+    /** その位置で効いているテンポを書き換える（変化点が無ければ曲頭の値）。 */
+    void setTempoAtTime (double timeSeconds, double bpm, juce::UndoManager* undoManagerToUse);
+
+    /** その位置で効いている拍子を書き換える。形が違えば false（`setTimeSignature()`と同じ判定）。 */
+    bool setTimeSignatureAtTime (double timeSeconds, const juce::String& newTimeSignature,
+                                  juce::UndoManager* undoManagerToUse);
+
+    /** その位置で効いているキーを書き換える。コードトラックが無ければ false。 */
+    bool setProjectKeyAtTime (double timeSeconds, const Scale& newKey,
+                               juce::UndoManager* undoManagerToUse);
+
+    //==========================================================================
     // 仕様書5.2.4：VCAトラック（Phase 12d-2）
 
     /** 仕様書5.2.4：あるトラックに効いているVCAの影響を、まとめて1つにして返す。
