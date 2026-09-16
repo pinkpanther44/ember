@@ -105,6 +105,7 @@ private:
     /** バンドの値と係数の写しを取り直す。**描く前と、マウスを受ける前に必要**
         （マウスの判定も、この写しの上で行うため）。 */
     void updateBandSnapshots();
+    void drawAboveNyquist (juce::Graphics& g) const;
     void drawHandles (juce::Graphics& g) const;
     void drawKeyboard (juce::Graphics& g) const;
 

@@ -284,6 +284,7 @@
     { "トラックがありません。アレンジ画面の「+ Track」で追加してください。", "No tracks. Add one with \"+ Track\" in the arrange view.", true },
 
     // EQCurveComponent.cpp
+    { "この上は鳴りません", "Nothing above here", true },
     { "形状", "Shape", false },
     { "スロープ", "Slope", false },
     { "ステレオ配置", "Stereo Placement", false },

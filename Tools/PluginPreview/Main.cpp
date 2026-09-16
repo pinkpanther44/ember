@@ -8,6 +8,7 @@
         PluginPreview.exe --snapshots [出力先]   … 7つの画面をPNGで撮る（ライト／ダーク）
         PluginPreview.exe --presets              … 工場プリセットのIDが全部あるか見る
         PluginPreview.exe --audio                … 音源3つのピッチ・減衰・大きさを測る
+        PluginPreview.exe --eq-band              … EQにバンドを1つ足して、1つだけか見る
         PluginPreview.exe --all                  … 上ぜんぶ
 
     出力先を省くと、exeの隣の`preview`フォルダへ出します。
@@ -47,6 +48,7 @@
 #include "Plugins/MantaFactoryPresets.h"
 
 #include "Plugins/MantaEQ/MantaEQProcessor.h"
+#include "Plugins/MantaEQ/EQFilterDesign.h"
 #include "Plugins/MantaEQ/MantaEQPresets.h"
 #include "Plugins/MantaComp/MantaCompProcessor.h"
 #include "Plugins/MantaComp/MantaCompPresets.h"
@@ -307,6 +309,184 @@ namespace
     }
 
     //==========================================================================
+    // 8.265：**バンドを1つ足したとき、本当に1つだけか**（Phase 269／本人の報告）
+    //
+    // 本人からの報告：**「追加したバンドの他に、高音に2か所バンドが増える」**
+    // （Ubuntu機のEmber EQ）。絵だけでは「バンドが増えた」のか
+    // 「線の描き方がおかしい」のか分かれないので、**数で見ます**。
+    //
+    // 見るのは2つ：
+    //
+    // | | |
+    // |---|---|
+    // | 有効なバンドの数 | `enableFreeBand()`は1つだけ立てるはず |
+    // | 高いところの応答 | 150Hzのベルなら、10kHzより上は**ほぼ0dB**のはず |
+    //
+    // **画面も1枚撮ります**（`manta_eq_one_band.png`）。
+    // WindowsとLinuxで並べれば、描き方の違いはそこで分かります。
+
+    void runEqBandCheck()
+    {
+        say ("--- one band in the EQ ---");
+
+        AppColours::setTheme (AppColours::Theme::Light);
+
+        MantaEQProcessor processor;
+        processor.prepareToPlay (48000.0, 512);
+
+        auto countEnabled = [&processor]
+        {
+            int enabled = 0;
+
+            for (int band = 0; band < MantaEQParams::numBands; ++band)
+                if (processor.getBandSettings (band).enabled)
+                    ++enabled;
+
+            return enabled;
+        };
+
+        if (countEnabled() != 0)
+            problem ("a fresh Manta EQ already has " + juce::String (countEnabled()) + " band(s) on");
+
+        // **画面のダブルクリックと同じ道**（`EQCurveComponent::mouseDoubleClick`）
+        const int created = processor.enableFreeBand (150.0f, -6.0f);
+
+        if (created < 0)
+        {
+            problem ("enableFreeBand() refused to make a band");
+            return;
+        }
+
+        const int enabled = countEnabled();
+
+        if (enabled == 1)
+            say ("  ok    adding one band turned on exactly one (band " + juce::String (created) + ")");
+        else
+            problem ("adding one band turned on " + juce::String (enabled) + " of them");
+
+        // **合計の応答**。画面のカーブと同じ足し方です
+        // （`EQCurveComponent::drawCurves`。1.27：数えるところを2つ持たない）
+        auto totalDbAt = [&processor] (double frequency)
+        {
+            double total = 0.0;
+
+            for (int band = 0; band < MantaEQParams::numBands; ++band)
+            {
+                const auto settings = processor.getBandSettings (band);
+
+                if (! settings.active)
+                    continue;
+
+                const auto sections = EQFilterDesign::designBand (settings, 48000.0);
+
+                if (sections.numSections == 0)
+                    continue;
+
+                total += juce::Decibels::gainToDecibels (
+                    EQFilterDesign::magnitudeAt (sections, frequency, 48000.0), -60.0);
+            }
+
+            return total;
+        };
+
+        juce::String line = "  (response:";
+        double worstHigh = 0.0;
+
+        for (const double frequency : { 50.0, 150.0, 500.0, 2000.0, 8000.0, 13000.0, 19000.0 })
+        {
+            const double db = totalDbAt (frequency);
+            line += " " + juce::String ((int) frequency) + "Hz=" + juce::String (db, 2);
+
+            if (frequency >= 8000.0)
+                worstHigh = juce::jmax (worstHigh, std::abs (db));
+        }
+
+        say (line + ")");
+
+        // 150Hzのベル1つなら、8kHzより上は動かないはず
+        if (worstHigh > 0.5)
+            problem ("the response above 8 kHz moved by " + juce::String (worstHigh, 2)
+                       + " dB - one bell at 150 Hz should leave it alone");
+        else
+            say ("  ok    nothing happens above 8 kHz (worst " + juce::String (worstHigh, 3) + " dB)");
+
+        // **低いレートだと、どう見えるか**（8.265）。
+        // ナイキストより上は、デジタルフィルタの応答が**折り返して**同じ形を繰り返します。
+        // カーブは20kHzまで描くので、レートが低いと**折り返しが画面に入ります**
+        for (const double rate : { 16000.0, 8000.0 })
+        {
+            MantaEQProcessor low;
+            low.prepareToPlay (rate, 512);
+            low.enableFreeBand (150.0f, -6.0f);
+
+            juce::String lowLine = "  (at " + juce::String ((int) rate) + " Hz:";
+
+            for (const double frequency : { 150.0, 6700.0, 8000.0, 13000.0, 15600.0, 19000.0 })
+            {
+                const auto settings = low.getBandSettings (0);
+                const auto sections = EQFilterDesign::designBand (settings, rate);
+                const double db = juce::Decibels::gainToDecibels (
+                    EQFilterDesign::magnitudeAt (sections, frequency, rate), -60.0);
+
+                lowLine += " " + juce::String ((int) frequency) + "Hz=" + juce::String (db, 2);
+            }
+
+            say (lowLine + ")");
+        }
+
+        // 目で見るための2枚（**低いレートのほうが肝心**。8.265）
+        auto shoot = [] (MantaEQProcessor& target, const juce::String& stem)
+        {
+            std::unique_ptr<juce::AudioProcessorEditor> ed (target.createEditor());
+
+            if (ed == nullptr)
+                return;
+
+            ed->setBounds (0, 0, ed->getWidth(), ed->getHeight());
+            ed->resized();
+
+            const auto image = ed->createComponentSnapshot (ed->getLocalBounds(), false);
+            const auto file = outputFolder.getChildFile (stem + ".png");
+
+            file.deleteFile();
+
+            juce::PNGImageFormat png;
+
+            if (auto stream = file.createOutputStream())
+                png.writeImageToStream (image, *stream);
+
+            say ("  (a picture of it: " + file.getFullPathName() + ")");
+        };
+
+        {
+            MantaEQProcessor low;
+            low.prepareToPlay (16000.0, 512);
+            low.enableFreeBand (150.0f, -6.0f);
+            shoot (low, "manta_eq_low_rate");
+        }
+
+        std::unique_ptr<juce::AudioProcessorEditor> editor (processor.createEditor());
+
+        if (editor != nullptr)
+        {
+            editor->setBounds (0, 0, editor->getWidth(), editor->getHeight());
+            editor->resized();
+
+            const auto image = editor->createComponentSnapshot (editor->getLocalBounds(), false);
+            const auto file = outputFolder.getChildFile ("manta_eq_one_band.png");
+
+            file.deleteFile();
+
+            juce::PNGImageFormat png;
+
+            if (auto stream = file.createOutputStream())
+                png.writeImageToStream (image, *stream);
+
+            say ("  (a picture of it: " + file.getFullPathName() + ")");
+        }
+    }
+
+    //==========================================================================
     void runSnapshots()
     {
         say ("--- snapshots ---");
@@ -437,6 +617,7 @@ public:
         const bool wantSnapshots = all || args.containsOption ("--snapshots");
         const bool wantPresets   = all || args.containsOption ("--presets");
         const bool wantAudio     = all || args.containsOption ("--audio");
+        const bool wantEqBand    = all || args.containsOption ("--eq-band");
 
         outputFolder = args.size() > 0 && args[args.size() - 1].isLongOption() == false
                          ? juce::File::getCurrentWorkingDirectory()
@@ -449,6 +630,7 @@ public:
         say ("PluginPreview -> " + outputFolder.getFullPathName());
 
         if (wantSnapshots) runSnapshots();
+        if (wantEqBand) runEqBandCheck();
         if (wantPresets)   runPresetCheck();
         if (wantAudio)     runAudioCheck();
 

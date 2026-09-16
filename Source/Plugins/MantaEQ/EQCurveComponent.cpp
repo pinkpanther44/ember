@@ -332,6 +332,7 @@ void EQCurveComponent::paint (juce::Graphics& g)
         drawSpectrum (g, postSpectrum, MantaTheme::spectrumPost(), false);
 
     drawCurves (g);
+    drawAboveNyquist (g);
     drawHandles (g);
 
     if (MantaEQUiState::getBool (uiState, MantaEQUiState::showKeyboard, false))
@@ -491,10 +492,31 @@ void EQCurveComponent::drawCurves (juce::Graphics& g)
     const int left = (int) area.getX();
     const int right = (int) area.getRight();
 
+    // 8.265：**ナイキストより上は描かないこと**（Phase 269／本人の報告）。
+    //
+    // デジタルフィルタの応答は**レートの半分で折り返して、同じ形を繰り返します**。
+    // カーブは20kHzまで描くので、**レートが低いと折り返しが画面に入ります**
+    // ——利用者からは「置いた覚えのないバンドが高音に2つ増えた」に見えます
+    // （実際にそう報告されました。Ubuntu機で低いレートで動いていたときのこと）。
+    //
+    // 実測（150Hzのベル1つ）：
+    //
+    // | レート | 画面に出る谷 |
+    // |---|---|
+    // | 48kHz | 150Hz だけ（折り返しは47850Hz＝画面の外） |
+    // | 16kHz | 150Hz と **15850Hz** |
+    // | 8kHz | 150Hz と **7850Hz**、**15850Hz** |
+    //
+    // **そこには音が存在しません。** 描くほうが嘘なので、止めます
+    const double nyquist = sampleRate * 0.5;
+
     // **2ピクセルおき**（このファイルの冒頭の「重さ」）
     for (int x = left; x <= right; x += 2)
     {
         const float frequency = xToFrequency ((float) x);
+
+        if ((double) frequency >= nyquist)
+            break;
         double stereoDb = 0.0;
         double midSideDb = 0.0;
 
@@ -677,6 +699,43 @@ EQCurveComponent::HandleButton EQCurveComponent::findHandleButtonAt (juce::Point
             return button;
 
     return HandleButton::none;
+}
+
+void EQCurveComponent::drawAboveNyquist (juce::Graphics& g) const
+{
+    // 8.265：**カーブが止まる理由を、見えるようにしておく**（Phase 269）。
+    //
+    // 止めるだけだと「線が途中で切れている」という別の不具合に見えます。
+    // **そこには音が存在しない**ので、その旨を面で示します。
+    const double sampleRate = processor.getSampleRateForDisplay();
+    const double nyquist = sampleRate * 0.5;
+
+    if (nyquist >= (double) MantaEQParams::maxFrequency)
+        return;   // 44.1kHz以上なら、そもそも画面の外（普通はこちら）
+
+    const auto area = getGraphArea();
+    const float x = frequencyToX ((float) nyquist);
+
+    if (x >= area.getRight())
+        return;
+
+    const auto beyond = area.withLeft (juce::jmax (area.getX(), x));
+
+    g.setColour (MantaTheme::graphBackground().contrasting (0.06f).withAlpha (0.55f));
+    g.fillRect (beyond);
+
+    g.setColour (MantaTheme::gridStrong());
+    g.drawVerticalLine ((int) x, area.getY(), area.getBottom());
+
+    // **数字を出すこと。** 「なぜここで止まるのか」は、レートを見れば分かります
+    if (beyond.getWidth() > 54.0f)
+    {
+        g.setColour (MantaTheme::textDim());
+        g.setFont (juce::Font (juce::FontOptions (10.0f)));
+        g.drawText (utf8 ("この上は鳴りません"),
+                     beyond.reduced (4.0f, 6.0f).removeFromTop (14.0f),
+                     juce::Justification::centredRight, false);
+    }
 }
 
 void EQCurveComponent::drawHandles (juce::Graphics& g) const
