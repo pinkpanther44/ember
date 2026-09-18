@@ -137,6 +137,10 @@ set(PERSONALDAW_EMBEDDED_ASSETS
     Resources/Icons/plugin_bypass.svg
     Resources/Icons/plugin_pin.svg
 
+    # 8.278：自動スクロールのボタン（Phase 275／本人が用意）。
+    # 元の名前：自動スクロール.svg（**ファイル名はASCII**）
+    Resources/Icons/auto_scroll.svg
+
     # 8.256：Racco Guitarの画面のまん中に敷く絵（Phase 264／本人が用意）。
     #
     # **1600x900のJPEGにしてあります**（元は1920x1080のPNGで1.8MB）。
@@ -265,6 +269,12 @@ target_sources(PersonalDAW
         # 8.151：起動画面とテンプレート（Phase 189／8.1のD8・改善案⑰）
         Source/SplashWindow.cpp
         Source/ProjectTemplates.cpp
+        # 8.284：ドラムマップのプリセット（Phase 277／仕様書10.7）
+        Source/DrumMapPresets.cpp
+        # 8.284：そのプリセットを窓なしで確かめる（Phase 277）
+        Source/DrumMapPresetSelfTest.cpp
+        # 8.286：プロジェクトの置き場所を窓なしで確かめる（Phase 279）
+        Source/StorageSelfTest.cpp
         Source/ProjectChooser.cpp
 
         # 9.5：**Manta Studio内部専用のプラグイン**（Phase 204）。

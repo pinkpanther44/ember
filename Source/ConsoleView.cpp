@@ -315,6 +315,22 @@ void ConsoleView::timerCallback()
     masterStrip.refreshLatencyDisplay();
 }
 
+void ConsoleView::applyRackAreaHeight (int newHeight)
+{
+    // 8.283：**覚えるのと配るのはここ1箇所**（Phase 276／本人の要望。`ConsoleLayout.h`）。
+    //
+    // ストリップに自分で覚えさせると、**トラックを足したときに新しい1本だけ既定の高さ**
+    // になります（1.27の形）。値は`AppSettings`（設計書2.5）。
+    ConsoleLayout::setRackAreaHeight (newHeight);
+
+    // **マスターも同じ高さにすること。** 隣に並んでいるので、
+    // ここだけ違うとメーターの行がずれます
+    for (auto* strip : strips)
+        strip->resized();
+
+    masterStrip.resized();
+}
+
 void ConsoleView::refreshAfterProjectChanged()
 {
     // プロジェクトを読み込むとルートのValueTreeが差し替わるので、購読も付け替える
@@ -378,6 +394,10 @@ void ConsoleView::rebuildStrips()
 
         auto* strip = strips.add (new ChannelStripComponent (track, project, audioEngine));
         strip->onMixerValueChanged = [this] { audioEngine.updateMixerSettings(); };
+
+        // 8.283：**どのストリップの境目を掴んでも、全部が同時に動く**（Phase 276／本人の要望）
+        strip->onRackAreaHeightDragged = [this] (int newHeight) { applyRackAreaHeight (newHeight); };
+
         stripContainer.addAndMakeVisible (strip);
     }
 

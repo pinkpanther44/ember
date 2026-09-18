@@ -4153,13 +4153,24 @@ void AudioEngine::openTrackInstrumentEditor (const juce::String& trackId)
         openEditorWindowFor (nodes->instrumentNode, nodes->instrumentEditorWindow);
 }
 
-juce::File AudioEngine::getRecordingsDirectory()
+juce::File AudioEngine::getRecordingsDirectory() const
 {
-    // 設計書2.3.8：Phase 57から**環境設定で置き場所を変えられる**（8.17）。
-    // 既定は`ドキュメント\PersonalDAW Recordings`で、それまでと同じ。
+    // 8.286：**プロジェクトのフォルダの中（`Rec`）へ**（Phase 279／本人の要望）。
+    //
+    // 曲に属するものは曲と一緒に運べるほうがよい、というのが本人の考えです
+    // （フォルダごと別のドライブへ移しても、中の並びがそのまま効きます）。
+    auto inProject = StorageLocations::getProjectFolder (project.getCurrentFile(),
+                                                         StorageLocations::ProjectFolder::recordings,
+                                                         false);
+
+    if (inProject != juce::File())
+        return inProject;
+
+    // まだ保存していないプロジェクト。設計書2.3.8の逃げ場（8.17）。
     //
     // **録音済みのファイルは移動しない。** クリップは録った場所をパスで
-    // 参照しているので（仕様書9章）、動かすと音が出なくなる。
+    // 参照しているので（仕様書9章）、動かすと音が出なくなる——
+    // **保存した後も、それまでに録ったものはここに残ります。**
     return StorageLocations::getFolder (StorageLocations::Kind::recordings);
 }
 

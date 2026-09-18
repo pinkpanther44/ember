@@ -7,6 +7,8 @@
 #include "SandboxSelfTest.h"    // 8.260：サンドボックスの往復を測る（Phase 268）
 #include "FooterValuesSelfTest.h" // 8.268：フッターの値と書き換え先（Phase 270）
 #include "SnapGridSelfTest.h"   // 8.271：刻み（3連符）の寄せ先（Phase 272）
+#include "DrumMapPresetSelfTest.h" // 8.284：ドラムマップのプリセット（Phase 277）
+#include "StorageSelfTest.h"   // 8.286：プロジェクトの置き場所（Phase 279）
 #include "SplashWindow.h"        // 8.151：起動画面（Phase 189／改善案⑰）
 #include "ProjectChooser.h"      // 8.151：プロジェクト選択画面（Phase 189／改善案⑰）
 #include "Utf8.h"
@@ -71,6 +73,20 @@ public:
 
         // 8.271：`--snap-selftest`も窓を出しません（Phase 272）
         if (SnapGridSelfTest::runIfRequested (commandLine))
+        {
+            quit();
+            return;
+        }
+
+        // 8.284：`--drummap-selftest`も窓を出しません（Phase 277）
+        if (DrumMapPresetSelfTest::runIfRequested (commandLine))
+        {
+            quit();
+            return;
+        }
+
+        // 8.286：`--storage-selftest`も窓を出しません（Phase 279）
+        if (StorageSelfTest::runIfRequested (commandLine))
         {
             quit();
             return;

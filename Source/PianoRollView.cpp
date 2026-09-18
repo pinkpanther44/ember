@@ -166,6 +166,29 @@ PianoRollView::PianoRollView (ProjectModel& projectToUse, AudioEngine& engineToU
     snapSelector.setSnapGrid (project.getSnapGrid());
     addAndMakeVisible (snapSelector);
 
+    //--------------------------------------------------------------------------
+    // 8.278：自動スクロール（Phase 275／本人の要望）。**アレンジ画面と同じ作り**
+
+    autoScrollButton.setButtonText (utf8 ("追従"));
+    autoScrollButton.setTooltip (utf8 ("自動スクロール：再生カーソルが画面の端まで来たら、"
+                                        "1画面ぶんめくります"));
+    autoScrollButton.setIconResource ("auto_scroll_svg");
+    autoScrollButton.setColour (juce::TextButton::buttonOnColourId, AppColours::purple);
+    autoScrollButton.setClickingTogglesState (false);
+
+    autoScrollButton.onClick = [this]
+    {
+        const bool wanted = ! pianoRoll.isAutoScrollEnabled();
+
+        if (onAutoScrollSelected != nullptr)
+            onAutoScrollSelected (wanted);
+        else
+            setAutoScroll (wanted);   // 繋がっていない場合の保険
+    };
+
+    addAndMakeVisible (autoScrollButton);
+    updateAutoScrollButton();
+
     // 仕様書5.3.4：グルーヴクオンタイズ（Phase 24／Phase 32でパネルへ畳んだ）。
     // **一式はgroovePanelの子にする。** パネルごとsetVisible()すれば中身も一緒に
     // 出入りするので、開閉のたびに4つ分の表示切り替えを書かずに済む。
@@ -343,6 +366,14 @@ PianoRollView::PianoRollView (ProjectModel& projectToUse, AudioEngine& engineToU
     };
     addAndMakeVisible (viewport);
 
+    // 8.282：**最初はC7を上端に出す**（Phase 275／本人の要望で音域を広げたため）。
+    //
+    // 鍵盤がMIDIの全域（C-1〜G9）になったので、**そのまま開くといちばん上はG9**です
+    // ——音の入っていない行が何十も並んだ状態から始まることになります。
+    // Phase 274までの眺め（上端がC7）へ合わせておけば、**開いた直後は今までどおり**で、
+    // 広げたぶんは上下にスクロールして使えます。
+    viewport.setViewPosition (0, pianoRoll.getYForPitchTop (PianoRollComponent::initialTopPitch));
+
     horizontalScrollBar.setRangeLimits ({ 0.0, 60.0 });
     horizontalScrollBar.addListener (this);
     addAndMakeVisible (horizontalScrollBar);
@@ -431,7 +462,10 @@ void PianoRollView::resized()
 
     // 下の`removeFromLeft`／`removeFromRight`の合計。**片方を変えたらここも直すこと**
     constexpr int leftGroupWidth  = 100 + 8 + 110 + 12 + 45 + 160 + 12 + 150 + 12 + 100;
-    constexpr int rightGroupWidth = 12 + SnapGridSelector::preferredWidth
+    // 8.278：**自動スクロールのぶんも数えること**（Phase 275）。
+    // 数え落とすと、足りないときに折り返さず、右端のボタンが幅0で消えます（8.184）
+    constexpr int rightGroupWidth = 8 + ToolbarLayout::toolButtonWidth
+                                     + 12 + SnapGridSelector::preferredWidth
                                      + 12 + ToolbarLayout::toolGroupWidth;
 
     const bool wrapToolbar = ToolbarLayout::needsWrap (area.getWidth(),
@@ -498,6 +532,11 @@ void PianoRollView::resized()
     secondRow.removeFromRight (12);
     snapSelector.setBounds (secondRow.removeFromRight (juce::jmin (SnapGridSelector::preferredWidth,
                                                                     secondRow.getWidth())));
+
+    // 8.278：自動スクロールは**刻みの左隣**（Phase 275／本人の指定。アレンジ画面と同じ並び）
+    secondRow.removeFromRight (8);
+    autoScrollButton.setBounds (secondRow.removeFromRight (juce::jmin (ToolbarLayout::toolButtonWidth,
+                                                                        secondRow.getWidth())));
 
     // 8.195：**知らせは下端に、出るときだけ**（Phase 232／改善案5の5）。
     //
@@ -654,6 +693,24 @@ void PianoRollView::visibilityChanged()
     // （`resized()`は大きさが変わったときしか来ないので、当てにできない）。
     updateHorizontalScrollBar();
     header.repaint();
+}
+
+void PianoRollView::setAutoScroll (bool shouldFollow)
+{
+    pianoRoll.setAutoScroll (shouldFollow);
+    updateAutoScrollButton();
+}
+
+void PianoRollView::updateAutoScrollButton()
+{
+    // ツールボタンと同じ見せ方（設計書2.6／アレンジ画面と同じ）
+    const bool on = pianoRoll.isAutoScrollEnabled();
+
+    autoScrollButton.setColour (juce::TextButton::buttonColourId,
+                                 on ? AppColours::purple : AppColours::background);
+    autoScrollButton.setColour (juce::TextButton::textColourOffId,
+                                 on ? juce::Colours::white : AppColours::textPrimary);
+    autoScrollButton.repaint();
 }
 
 void PianoRollView::setSnapGrid (SnapGrid grid)
@@ -861,11 +918,15 @@ void PianoRollView::updateDrumEditorMode()
     // マップが未割り当てなら無効なDrumMapが渡り、ピアノロール表示のままになる
     pianoRoll.setDrumMode (enabled, project.getDrumMapForTrack (track));
 
-    // 8.161：ドラム表示に**切り替わった瞬間だけ**、いちばん下まで送る（Phase 199）。
+    // 8.161：ドラム表示に**切り替わった瞬間だけ**、楽器の並んでいるところへ送る（Phase 199）。
     //
     // `pianoRoll.isDrumMode()`を見ること：マップが無いトラックでは
     // `enabled`が立っていてもピアノロール表示のままなので、
     // ボタンの状態で判断すると送る必要のない場所で送ってしまう。
+    //
+    // 8.285：**いちばん下ではありません**（Phase 278）。行が128本になったので、
+    // 下端はC-1——**何も無いところ**です。**マップのいちばん低い音が下に来る**ように送ります
+    // （GMのドラムはB0〜A5あたりに固まっているので、これで全部が視界に入ります）。
     //
     // **1フレーム遅らせる。** ここではまだ`resized()`が走っておらず、
     // 中身の高さが新しい行数に更新されていないことがある（送っても届かない）
@@ -875,7 +936,8 @@ void PianoRollView::updateDrumEditorMode()
         juce::MessageManager::callAsync ([safeThis = juce::Component::SafePointer<PianoRollView> (this)]
         {
             if (safeThis != nullptr && safeThis->pianoRoll.isDrumMode())
-                safeThis->viewport.setViewPositionProportionately (0.0, 1.0);
+                safeThis->viewport.setViewPosition (0, safeThis->pianoRoll.getDrumMapScrollY (
+                                                           safeThis->viewport.getMaximumVisibleHeight()));
         });
 
     drumModeWasEnabled = nowDrum;

@@ -321,10 +321,10 @@ void MasterStripComponent::resized()
     // 8.1のC14）。狭いときは折半して、スロットが1つも見えない状態を避ける
     if (rack != nullptr)
     {
-        const int faderRoom = juce::jmin (minimumFaderAreaHeight, area.getHeight() / 2);
-        const int roomForRack = juce::jmax (0, area.getHeight() - faderRoom);
+        // 8.283：**トラックのストリップと同じ高さ**（Phase 276／本人の要望）。
+        // マスターだけ違う高さだと、**隣に並んだメーターの行がずれます**（`ConsoleLayout.h`）
+        const int rackHeight = ConsoleLayout::getRackHeightFor (area.getHeight());
         const int wantedRackHeight = rack->getPreferredHeight (area.getWidth());
-        const int rackHeight = juce::jmin (wantedRackHeight, roomForRack);
 
         rackViewport.setBounds (area.removeFromTop (rackHeight));
 
@@ -332,7 +332,7 @@ void MasterStripComponent::resized()
         // スクロールしても下のスロットへ届かない（1.21）
         rack->setSize (rackViewport.getMaximumVisibleWidth(), wantedRackHeight);
 
-        area.removeFromTop (6);
+        area.removeFromTop (ConsoleLayout::resizerHeight);
     }
 
     volumeValueLabel.setBounds (area.removeFromBottom (16));

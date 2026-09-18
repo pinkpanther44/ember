@@ -5,6 +5,7 @@
 #include "LevelMeterComponent.h"
 #include "ValueEntrySlider.h"   // Phase 61：ダブルクリックでの数値入力（8.1のC2）
 #include "TrackRackComponent.h" // 8.69：マスターへのインサート（Phase 108/D6）
+#include "ConsoleLayout.h"      // 8.283：ラックの高さは全ストリップ共通（Phase 276）
 
 class AudioEngine;
 
@@ -93,8 +94,8 @@ private:
         （`ChannelStripComponent::rackViewport`と同じ作り。8.1のC14）。 */
     juce::Viewport rackViewport;
 
-    /** フェーダーとメーターに必ず残す高さ（チャンネルストリップと同じ値）。 */
-    static constexpr int minimumFaderAreaHeight = 130;
+    /** 8.283：フェーダーとメーターに必ず残す高さは`ConsoleLayout`にあります（Phase 276）。
+        **ここに書き写さないこと**——チャンネルと食い違うと、隣に並ぶメーターの行がずれます。 */
 
     /** ラックを今の`<MASTERBUS>`に合わせて作り直す。 */
     void rebuildRack();

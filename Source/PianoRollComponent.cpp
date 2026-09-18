@@ -3,6 +3,7 @@
 #include "GrooveQuantise.h" // 仕様書5.3.4：グルーヴの計算部分
 #include "EditClipboard.h"   // 仕様書6.2：カット／コピー／貼り付け（Phase 71）
 #include "NameEntry.h"       // 名前を入れるダイアログ（Phase 72で1つにまとめた）
+#include "DrumMapPresets.h"  // 8.284：ドラムマップのプリセット（Phase 277）
 #include "Utf8.h"
 #include <cmath>
 #include <limits>
@@ -221,6 +222,11 @@ void PianoRollComponent::setDrumMode (bool shouldUseDrumEditor, const DrumMap& m
     if (drumMap.state.isValid())
         drumMap.state.addListener (this);
 
+    // 8.284：**打ちかけの名前を残さない**（Phase 277）。行が別のものに変わるので、
+    // 開いたままにすると**別の行の名前を書き換えます**（覚えているのは音の番号なので
+    // 実害は出ませんが、宙に浮いた入力欄が残ります）
+    dismissDrumNameEditor();
+
     // 行の高さも並ぶ本数も変わるので、必要な高さを取り直す（1.21）
     activeNoteState = juce::ValueTree();
     dragMode = DragMode::None;
@@ -235,17 +241,26 @@ int PianoRollComponent::getRowHeight() const
 int PianoRollComponent::getNoteAreaHeight() const
 {
     if (drumMode)
-        return drumMap.getNumEntries() * drumRowHeight;
+        // 8.285：**128行**（Phase 278／本人の要望）。マップの行数ではありません
+        return (highestPitch - lowestPitch + 1) * drumRowHeight;
     return (highestPitch - lowestPitch + 1) * noteRowHeight;
 }
 
 int PianoRollComponent::getDrumRowForPitch (int pitch) const
 {
-    for (int i = 0; i < drumMap.getNumEntries(); ++i)
-        if (drumMap.getEntry (i).getMidiNote() == pitch)
-            return i;
+    // 8.285：**行と音は1対1**（Phase 278／本人の要望）。
+    //
+    // Phase 277まで、行は**ドラムマップに載っている音だけ**でした
+    // （行0＝マップの1つめ）。載っていない音は行を持たないので、
+    // **打ち込んであっても画面に出ませんでした**——「ドラムマップに無い音 N 個は
+    // 表示していません」という知らせを出していたのが、まさにそれです。
+    //
+    // 鍵盤側を全域にしたので（8.282）、こちらも**128行**にします。
+    // マップは「**その行に名前が付いているか**」を決めるだけのものになりました。
+    if (! juce::isPositiveAndBelow (pitch, highestPitch + 1))
+        return -1;
 
-    return -1;
+    return pitch;
 }
 
 // 8.161：**行の並びを裏返すのはここだけ**（Phase 199）。
@@ -257,52 +272,41 @@ int PianoRollComponent::getDrumRowForPitch (int pitch) const
 //
 // **並び自体は裏返しません。** マップの順番はミュートグループや保存済みの
 // プロジェクトに関わるので、触るのは**画面の向きだけ**にします。
+int PianoRollComponent::getDrumMapScrollY (int visibleHeight) const
+{
+    int lowestMapped = highestPitch;
+
+    for (int i = 0; i < drumMap.getNumEntries(); ++i)
+        lowestMapped = juce::jmin (lowestMapped, drumMap.getEntry (i).getMidiNote());
+
+    // その行の**下端**が、見えている範囲の下端に来る位置
+    const int bottomOfRow = getYForDrumRow (lowestMapped) + drumRowHeight;
+
+    return juce::jmax (0, bottomOfRow - juce::jmax (0, visibleHeight));
+}
+
 int PianoRollComponent::getYForDrumRow (int row) const
 {
-    return (drumMap.getNumEntries() - 1 - row) * drumRowHeight;
+    // 8.285：行＝音の番号（Phase 278）。**裏返しはここだけ**（上の8.161の説明）
+    return (highestPitch - juce::jlimit (lowestPitch, highestPitch, row)) * drumRowHeight;
 }
 
 int PianoRollComponent::getDrumRowAtY (int y) const
 {
-    const int numEntries = drumMap.getNumEntries();
-
-    if (numEntries == 0)
-        return -1;
-
     // 上から数えた行を求めてから裏返す。**先に丸めること**：
     // 裏返してから丸めると、境目が半行ぶんずれる
-    const int fromTop = juce::jlimit (0, numEntries - 1, y / drumRowHeight);
+    const int fromTop = juce::jlimit (0, highestPitch - lowestPitch, y / drumRowHeight);
 
-    return numEntries - 1 - fromTop;
-}
-
-int PianoRollComponent::countNotesOutsideDrumMap() const
-{
-    if (! drumMode || ! hasTrack())
-        return 0;
-
-    int count = 0;
-
-    forEachNote ([this, &count] (const juce::ValueTree& noteState)
-    {
-        if (getDrumRowForPitch (Note (noteState).getPitch()) < 0)
-            ++count;
-    });
-
-    return count;
+    return highestPitch - fromTop;
 }
 
 int PianoRollComponent::yToPitch (int y) const
 {
     if (drumMode)
     {
-        // 8.161：**下ほど低い音**（Phase 199）。裏返しは`getDrumRowAtY()`が持っている
-        const int row = getDrumRowAtY (y);
-
-        if (row < 0)
-            return lowestPitch;
-
-        return drumMap.getEntry (row).getMidiNote();
+        // 8.161：**下ほど低い音**（Phase 199）。裏返しは`getDrumRowAtY()`が持っている。
+        // 8.285：**行がそのまま音の番号**（Phase 278）
+        return getDrumRowAtY (y);
     }
 
     // 上へ行くほど高音になるよう反転させる
@@ -314,14 +318,11 @@ int PianoRollComponent::pitchToY (int pitch) const
 {
     if (drumMode)
     {
-        const int row = getDrumRowForPitch (pitch);
-
-        // マップに無い音は行を持たない。呼び出し側が描画・判定から外せるよう、
-        // 画面の外を指す値を返す（負の値にすると上端付近と紛らわしいため下へ逃がす）
-        if (row < 0)
-            return getNoteAreaHeight() + drumRowHeight;
-
-        return getYForDrumRow (row);
+        // 8.285：**どの音にも行があります**（Phase 278）。
+        // Phase 277まではマップに無い音を画面の外へ逃がしていました——
+        // つまり**打ち込んだ音が消えて見えた**ということで、
+        // そのために「N個は表示していません」という知らせを出していました
+        return getYForDrumRow (pitch);
     }
 
     return (highestPitch - pitch) * noteRowHeight;
@@ -1896,12 +1897,12 @@ bool PianoRollComponent::handleKeyboardClick (const juce::MouseEvent& e)
     if (e.x >= keyboardWidth || e.y >= getNoteAreaHeight())
         return false;
 
-    // ドラムモードでは行がドラムマップの並び順。マップの外はそもそも行が無い
+    // 8.285：**行は音の番号**（Phase 278）。マップの外の音にも行があります
     if (drumMode)
     {
         const int row = getDrumRowAtY (e.y);
 
-        if (! juce::isPositiveAndBelow (row, drumMap.getNumEntries()))
+        if (! juce::isPositiveAndBelow (row, highestPitch + 1))
             return false;
 
         if (e.mods.isPopupMenu())
@@ -1943,31 +1944,43 @@ bool PianoRollComponent::handleKeyboardClick (const juce::MouseEvent& e)
 
 void PianoRollComponent::showDrumRowMenu (int row, juce::Point<int> screenPosition)
 {
-    if (! juce::isPositiveAndBelow (row, drumMap.getNumEntries()))
+    if (! juce::isPositiveAndBelow (row, highestPitch + 1))
         return;
 
-    auto entry = drumMap.getEntry (row);
+    // 8.285：**マップに無い行もある**（Phase 278）。名前を付ける・ミュートする・
+    // グループへ入れるのどれかをしたときに、**その場で行をマップへ足します**
+    // （`getDrumMapEntryFor()`）。先に足してしまうと、**メニューを開いて閉じただけで
+    // マップが増えます**——プリセットにも入ってしまいます
+    auto entry = drumMap.findEntry (row);
+    const bool named = entry.state.isValid();
 
     // 仕様書5.3.2：楽器名・行ミュート・チョークグループ。
     // **行ミュートはPhase 69でここへ移しました**（それまでは見出しの左クリック）。
     // 左クリックは「その音のノートを選ぶ」になったので、置き場所がここしか無い（8.29）。
     juce::PopupMenu menu;
-    menu.addSectionHeader (entry.getPartName());
+    menu.addSectionHeader (named ? entry.getPartName() : midiNoteName (row));
     menu.addItem (10, utf8 ("楽器名を変更..."));
-    menu.addItem (11, utf8 ("この行をミュート"), true, entry.isMuted());
+    menu.addItem (11, utf8 ("この行をミュート"), true, named && entry.isMuted());
     menu.addSeparator();
+
+    // 8.284：**ドラムマップのプリセット**（Phase 277／本人の要望）。
+    // **行の話ではなくマップ全体の話**なので、区切りを入れて別の塊にしてあります
+    menu.addItem (12, utf8 ("楽器名のプリセット..."));
+    menu.addSeparator();
+    const int currentGroup = named ? entry.getMuteGroup() : 0;
+
     menu.addSectionHeader (utf8 ("チョークグループ"));
-    menu.addItem (1, utf8 ("グループなし"), true, entry.getMuteGroup() == 0);
+    menu.addItem (1, utf8 ("グループなし"), true, currentGroup == 0);
 
     for (int group = 1; group <= 4; ++group)
         menu.addItem (1 + group, utf8 ("グループ ") + juce::String (group),
-                       true, entry.getMuteGroup() == group);
+                       true, currentGroup == group);
 
     menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this)
                             .withTargetScreenArea ({ screenPosition.x, screenPosition.y, 1, 1 }),
-        [this, row] (int result)
+        [this, row, screenPosition] (int result)
         {
-            if (result <= 0 || ! juce::isPositiveAndBelow (row, drumMap.getNumEntries()))
+            if (result <= 0 || ! juce::isPositiveAndBelow (row, highestPitch + 1))
                 return;
 
             if (result == 10)
@@ -1976,24 +1989,138 @@ void PianoRollComponent::showDrumRowMenu (int row, juce::Point<int> screenPositi
                 return;
             }
 
-            auto targetEntry = drumMap.getEntry (row);
+            if (result == 12)
+            {
+                showDrumMapPresetMenu (screenPosition);   // 8.284（Phase 277）
+                return;
+            }
+
+            // 8.285：**ここで初めてマップへ足します**（Phase 278）。
+            // 区切りの前に足すと、Undoで名前だけ残ります
+            project.beginAction (result == 11 ? utf8 ("ドラム行のミュート切り替え")
+                                              : utf8 ("チョークグループの変更"));
+
+            auto targetEntry = getDrumMapEntryFor (row);
+
+            if (! targetEntry.state.isValid())
+                return;
 
             if (result == 11)
-            {
-                project.beginAction (utf8 ("ドラム行のミュート切り替え"));
                 targetEntry.setMuted (! targetEntry.isMuted(), &project.getUndoManager());
-            }
             else
-            {
-                project.beginAction (utf8 ("チョークグループの変更"));
                 targetEntry.setMuteGroup (result - 1, &project.getUndoManager());
-            }
 
             if (onModelChanged != nullptr)
                 onModelChanged();
 
             repaint();
         });
+}
+
+DrumMapEntry PianoRollComponent::getDrumMapEntryFor (int pitch)
+{
+    auto existing = drumMap.findEntry (pitch);
+
+    if (existing.state.isValid() || ! drumMap.state.isValid())
+        return existing;
+
+    if (! juce::isPositiveAndBelow (pitch, highestPitch + 1))
+        return DrumMapEntry (juce::ValueTree());
+
+    // **名前は音名を入れておく**（画面にそう出ていたものが、そのまま残る）
+    return drumMap.addEntry (pitch, midiNoteName (pitch), 0, &project.getUndoManager());
+}
+
+void PianoRollComponent::showDrumMapPresetMenu (juce::Point<int> screenPosition)
+{
+    if (! drumMap.state.isValid())
+        return;
+
+    const auto names = DrumMapPresets::getNames();
+
+    juce::PopupMenu menu;
+    menu.addSectionHeader (utf8 ("楽器名のプリセット"));
+    menu.addItem (1, utf8 ("いまの名前を保存..."));
+
+    if (names.isEmpty())
+    {
+        // **空でも「無い」と出すこと。** 何も出ないと、開いたのに閉じたように見えます
+        menu.addItem (-1, utf8 ("（保存したプリセットはありません）"), false);
+    }
+    else
+    {
+        menu.addSeparator();
+        menu.addSectionHeader (utf8 ("読み込む"));
+
+        for (int i = 0; i < names.size(); ++i)
+            menu.addItem (100 + i, names[i]);
+
+        juce::PopupMenu removeMenu;
+
+        for (int i = 0; i < names.size(); ++i)
+            removeMenu.addItem (200 + i, names[i]);
+
+        menu.addSeparator();
+        menu.addSubMenu (utf8 ("削除"), removeMenu);
+    }
+
+    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this)
+                            .withTargetScreenArea ({ screenPosition.x, screenPosition.y, 1, 1 }),
+        [this, names] (int result)
+        {
+            if (result <= 0)
+                return;
+
+            if (result == 1)
+            {
+                saveDrumMapPreset();
+                return;
+            }
+
+            if (result >= 200)
+            {
+                const int index = result - 200;
+
+                if (juce::isPositiveAndBelow (index, names.size()))
+                    DrumMapPresets::remove (names[index]);
+
+                return;
+            }
+
+            const int index = result - 100;
+
+            if (! juce::isPositiveAndBelow (index, names.size()))
+                return;
+
+            // **区切りはここで作る**（プリセット1枚ぶんが1回のUndoで戻る）
+            project.beginAction (utf8 ("楽器名のプリセットを読み込む"));
+
+            if (! DrumMapPresets::load (drumMap, names[index], &project.getUndoManager()))
+                return;   // 中身が同じだった／読めなかった
+
+            if (onModelChanged != nullptr)
+                onModelChanged();
+
+            repaint();
+        });
+}
+
+void PianoRollComponent::saveDrumMapPreset()
+{
+    // 名前の入力だけは**別ウィンドウのまま**にしてあります——
+    // その場編集は「もう出ている文字を直す」ための形で、
+    // ここには直す元の文字がありません（トラック名やパート名とは別の話）
+    NameEntry::show (utf8 ("プリセット名"), utf8 ("保存する名前を入力してください。"),
+                      drumMap.getName(),
+                      [this] (const juce::String& name)
+                      {
+                          if (name.trim().isEmpty())
+                              return;
+
+                          // **上書きの確認は出しません。** 同じ名前で保存し直すのは
+                          // 「直したものを覚え直す」操作なので、毎回訊くと邪魔になります
+                          DrumMapPresets::save (drumMap, name.trim());
+                      });
 }
 
 void PianoRollComponent::collectPitchesBetweenY (int y1, int y2, juce::SortedSet<int>& pitches) const
@@ -2005,8 +2132,10 @@ void PianoRollComponent::collectPitchesBetweenY (int y1, int y2, juce::SortedSet
     if (rowHeight <= 0)
         return;
 
-    // **行ごとに拾うこと。** ドラムモードでは行の並びが音程順ではないので、
-    // 「上の音程から下の音程まで」で範囲を作ると、間に関係のない音が混ざる
+    // **行ごとに拾うこと。** Phase 277まで、ドラムモードの行はマップの並び順で、
+    // 音程順ではありませんでした（8.285で128行にしたので、いまはどちらも音程順です）。
+    // **行の高さが2つある**（ノート12px／ドラム16px）ことに変わりはないので、
+    // 「上の音程から下の音程まで」ではなく行で数えるほうが素直なままです
     for (int y = top; y <= bottom; y += rowHeight)
         pitches.add (yToPitch (y));
 
@@ -2507,8 +2636,46 @@ void PianoRollComponent::setPlayheadSeconds (double timelineSeconds)
     const int oldX = timelineTimeToX (playheadSeconds);
     playheadSeconds = timelineSeconds;
 
+    followPlayhead();   // 8.278：追従（Phase 275）。**入っているときだけ動きます**
+
     if (timelineTimeToX (playheadSeconds) != oldX)
         repaint();
+}
+
+void PianoRollComponent::setAutoScroll (bool shouldFollow)
+{
+    if (autoScroll == shouldFollow)
+        return;
+
+    autoScroll = shouldFollow;
+
+    // **入れた瞬間に追いつくこと**（アレンジ画面と同じ）
+    followPlayhead();
+    repaint();
+}
+
+void PianoRollComponent::followPlayhead()
+{
+    if (! autoScroll)
+        return;
+
+    const double visibleSeconds = getVisibleSeconds();
+
+    if (visibleSeconds <= 0.0)
+        return;
+
+    // めくり方はアレンジ画面と同じ値にしてあります
+    // （画面を行き来したときに、同じところでめくるほうが読みやすい）
+    constexpr double turnMargin = 0.05;
+    constexpr double leadIn = 0.1;
+
+    const double left = scrollStartSeconds;
+    const double right = left + visibleSeconds;
+
+    if (playheadSeconds >= left && playheadSeconds <= right - visibleSeconds * turnMargin)
+        return;
+
+    setScrollStartSeconds (playheadSeconds - visibleSeconds * leadIn);
 }
 
 //==============================================================================
@@ -2822,25 +2989,97 @@ bool PianoRollComponent::pasteAt (double timelineSeconds)
 
 void PianoRollComponent::renameDrumPart (int row)
 {
-    if (! juce::isPositiveAndBelow (row, drumMap.getNumEntries()))
+    if (! juce::isPositiveAndBelow (row, highestPitch + 1))
         return;
 
-    NameEntry::show (utf8 ("楽器名"), utf8 ("この行の楽器名を入力してください。"),
-                      drumMap.getEntry (row).getPartName(),
-                      [this, row] (const juce::String& newName)
-                      {
-                          // 入力欄を開いているあいだにマップが変わっている可能性がある
-                          if (! juce::isPositiveAndBelow (row, drumMap.getNumEntries()))
-                              return;
+    // 開き直しは、いま開いているぶんを確定してから（8.61と同じ形）
+    if (drumNameEditor != nullptr)
+        commitDrumNameEditor();
 
-                          project.beginAction (utf8 ("楽器名の変更"));
-                          drumMap.getEntry (row).setPartName (newName, &project.getUndoManager());
+    // 8.285：**行はマップに無いこともあります**（Phase 278）。
+    // ここでは足しません——**打ち終わって確定したときだけ**足します
+    // （開いてEscapeを押しただけでマップが増えるのはおかしい）
+    auto entry = drumMap.findEntry (row);
 
-                          if (onModelChanged != nullptr)
-                              onModelChanged();
+    // **音の番号で覚えること**（行の番号ではない。宣言のコメント）
+    drumNameEditorNote = row;
 
-                          repaint();
-                      });
+    drumNameEditor = std::make_unique<juce::TextEditor>();
+
+    // 見出しの上に重ねるので、**地を塗ること**（半透明だと下の文字が透けて読めない）
+    drumNameEditor->setColour (juce::TextEditor::backgroundColourId, AppColours::background);
+    drumNameEditor->setColour (juce::TextEditor::textColourId, AppColours::textPrimary);
+    drumNameEditor->setColour (juce::TextEditor::outlineColourId, AppColours::purple);
+    drumNameEditor->setColour (juce::TextEditor::focusedOutlineColourId, AppColours::purple);
+    drumNameEditor->setColour (juce::TextEditor::highlightColourId, AppColours::purple.withAlpha (0.35f));
+
+    // **行と同じ小ささ**（見出しは9pt）。大きくすると、隣の行に被って見えます
+    drumNameEditor->setFont (juce::FontOptions (10.0f));
+    drumNameEditor->setMultiLine (false);
+    drumNameEditor->setReturnKeyStartsNewLine (false);
+    drumNameEditor->setSelectAllWhenFocused (true);
+    // 8.285：名前が無い行では**音名を入れておく**（画面にそう出ているもの。Phase 278）
+    drumNameEditor->setText (entry.state.isValid() ? entry.getPartName() : midiNoteName (row),
+                              juce::dontSendNotification);
+
+    // 見出しの矩形（左端から鍵盤の幅まで）に重ねる。
+    // **番号の欄（右端）には掛けない**——名前だけを打ち直したい
+    drumNameEditor->setBounds (0, getYForDrumRow (row), juce::jmax (40, keyboardWidth - 18),
+                                drumRowHeight);
+
+    drumNameEditor->onReturnKey = [this] { commitDrumNameEditor(); };
+    drumNameEditor->onEscapeKey = [this] { dismissDrumNameEditor(); };
+    drumNameEditor->onFocusLost = [this] { commitDrumNameEditor(); };
+
+    addAndMakeVisible (*drumNameEditor);
+    drumNameEditor->grabKeyboardFocus();
+}
+
+void PianoRollComponent::commitDrumNameEditor()
+{
+    if (drumNameEditor == nullptr)
+        return;
+
+    const auto newName = drumNameEditor->getText().trim();
+    const int midiNote = drumNameEditorNote;
+
+    dismissDrumNameEditor();
+
+    // **空欄は無視する**（名前の無い行が並ぶと、どれがどれか分からなくなる。8.61と同じ）
+    if (newName.isEmpty() || midiNote < 0)
+        return;
+
+    // 8.285：**ここで初めてマップへ足します**（Phase 278）。
+    // 区切りを先に作ってから足すこと——足してから区切ると、Undoで行だけ残ります
+    project.beginAction (utf8 ("楽器名の変更"));
+
+    auto entry = getDrumMapEntryFor (midiNote);
+
+    if (! entry.state.isValid() || entry.getPartName() == newName)
+        return;
+
+    entry.setPartName (newName, &project.getUndoManager());
+
+    if (onModelChanged != nullptr)
+        onModelChanged();
+
+    repaint();
+}
+
+void PianoRollComponent::dismissDrumNameEditor()
+{
+    if (drumNameEditor == nullptr)
+        return;
+
+    // **コールバックの中から直接deleteしない**（`ValueEntrySlider`・8.61と同じ形）
+    auto* editor = drumNameEditor.release();
+    editor->setVisible (false);
+
+    juce::MessageManager::callAsync ([editor] { delete editor; });
+
+    drumNameEditorNote = -1;
+    grabKeyboardFocus();   // ショートカットが効く状態へ戻す
+    repaint();
 }
 
 void PianoRollComponent::mouseDoubleClick (const juce::MouseEvent& e)
@@ -2849,20 +3088,24 @@ void PianoRollComponent::mouseDoubleClick (const juce::MouseEvent& e)
     // **判定の順番は`mouseDown()`と同じにすること**（アレンジ画面と同じ理由）。
 
     // 仕様書5.3.2：ドラム行の見出し → 楽器名を変える（Phase 68）。
-    // 1回目のmouseDownでミュートが切り替わっているので、**戻してから**入力欄を出す
-    // （ダブルクリックのつもりがミュートも切り替わっていた、という状態にしない）
+    // 8.285：**ミュートを戻す処理を外しました**（Phase 278で見つけた古い手当て）。
+    //
+    // ここには「1回目のmouseDownでミュートが切り替わっているので、戻してから
+    // 入力欄を出す」と書いてあり、そのとおり`setMuted()`を1回呼んでいました。
+    // **ところが、見出しの左クリックでミュートが切り替わるのはPhase 68までの話**です
+    // ——Phase 69で右クリックのメニューへ移り（そこにもそう書いてあります）、
+    // 左クリックは「その行のノートを選ぶ」になりました。
+    //
+    // つまりこの1行は、**戻す相手がいないのに切り替えていた**ことになります
+    // ——名前を直すつもりでダブルクリックすると、**その行が鳴らなくなる**。
+    // 名前を打ち込むほうに気を取られるので、気づきにくい壊れ方です。
     if (drumMode && e.x < keyboardWidth && e.y < getNoteAreaHeight()
          && ! getLaneBounds().contains (e.getPosition()))   // Phase 76：固定レーンが乗っている場所を除く
     {
         const int row = getDrumRowAtY (e.y);
 
-        if (! juce::isPositiveAndBelow (row, drumMap.getNumEntries()))
+        if (! juce::isPositiveAndBelow (row, highestPitch + 1))
             return;
-
-        auto entry = drumMap.getEntry (row);
-
-        project.beginAction (utf8 ("ドラム行のミュート切り替え"));
-        entry.setMuted (! entry.isMuted(), &project.getUndoManager());
 
         renameDrumPart (row);
         return;
@@ -4209,11 +4452,15 @@ void PianoRollComponent::paint (juce::Graphics& g)
     // 仕様書5.3.2：ドラムモードでは、鍵盤の代わりに名前付きの行を描く（Phase 25）
     if (drumMode)
     {
-        for (int row = 0; row < drumMap.getNumEntries(); ++row)
+        // 8.285：**128行すべて**（Phase 278／本人の要望）。
+        // マップは「その行に名前が付いているか」を決めるだけになりました
+        for (int row = lowestPitch; row <= highestPitch; ++row)
         {
-            auto entry = drumMap.getEntry (row);
+            auto entry = drumMap.findEntry (row);
+            const bool named = entry.state.isValid();
+
             const int y = getYForDrumRow (row);   // 8.161：下ほど低い音（Phase 199）
-            const bool isMuted = entry.isMuted();
+            const bool isMuted = named && entry.isMuted();
 
             // ミュート中の行は、グリッド側もまとめて暗くして「鳴らない」ことを示す。
             // 見出しだけ変えると、打ち込んだのに音が出ない理由が分かりにくい（1.9の考え方）。
@@ -4235,13 +4482,19 @@ void PianoRollComponent::paint (juce::Graphics& g)
             g.setColour (AppColours::border);
             g.drawRect (0, y, keyboardWidth, drumRowHeight);
 
-            g.setColour (isMuted ? AppColours::textSecondary : AppColours::textPrimary);
+            // 8.285：**名前の無い行は音名を薄く出す**（Phase 278）。
+            //
+            // 空にすると「行はあるのに何の行か分からない」ことになります。
+            // 音名なら、**マップに足すかどうかを決める手がかり**になります
+            // （そのまま打ち込めますし、右クリックで名前も付けられます）。
+            g.setColour (isMuted || ! named ? AppColours::textSecondary : AppColours::textPrimary);
             g.setFont (juce::FontOptions (9.0f));
-            g.drawText (entry.getPartName(), 3, y, keyboardWidth - 20, drumRowHeight,
+            g.drawText (named ? entry.getPartName() : midiNoteName (row),
+                         3, y, keyboardWidth - 20, drumRowHeight,
                          juce::Justification::centredLeft);
 
             // チョークグループは番号だけ右端に小さく出す（設定されている行のみ）
-            if (entry.getMuteGroup() > 0)
+            if (named && entry.getMuteGroup() > 0)
             {
                 g.setColour (AppColours::orange);
                 g.setFont (juce::FontOptions (9.0f, juce::Font::bold));
@@ -4492,23 +4745,11 @@ void PianoRollComponent::paint (juce::Graphics& g)
         drawNoteDragPreview (g);
     }
 
-    // 仕様書5.3.2：ドラムマップに無い音は行が無いので描かれない（Phase 25）。
-    // **黙って消すと「打ち込んだはずの音が消えた」ように見える**ため、
-    // 何音が隠れているかをその場で知らせる（1.9の「表示していない値」の考え方）。
-    if (drumMode)
-    {
-        const int hidden = countNotesOutsideDrumMap();
-
-        if (hidden > 0)
-        {
-            g.setColour (AppColours::orange);
-            g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
-            g.drawText (utf8 ("ドラムマップに無い音 ") + juce::String (hidden)
-                           + utf8 (" 個は表示していません（ピアノロール表示で編集できます）"),
-                         keyboardWidth + 6, getNoteAreaHeight() - 18, getWidth() - keyboardWidth - 12, 16,
-                         juce::Justification::centredLeft);
-        }
-    }
+    // 8.285：**「表示していません」の知らせは要らなくなりました**（Phase 278）。
+    //
+    // Phase 277まで、ドラム画面の行は**マップに載っている音だけ**だったので、
+    // 載っていない音は描かれず、何音隠れているかをその場で知らせていました
+    // （1.9の「表示していない値」）。**128行になったので、隠れる音がありません。**
 
     // 8.91：**「クリップの外のノート」という状態が無くなりました**（Phase 131）。
     // 伏せる理由も、数を知らせる必要も、まとめて消えています

@@ -15,6 +15,7 @@
 #include "BrowserPanel.h"
 #include "InspectorPanel.h"
 #include "ExportOptions.h"        // 8.80：書き出しの設定（Phase 120／D9・D10・D11）
+#include "StorageLocations.h"     // 8.286：プロジェクトのフォルダの中（Phase 279）
 #include "PanelResizerBar.h"
 #include "SelectionState.h"
 #include "AudioEngine.h"
@@ -267,6 +268,10 @@ private:
         ツールの配り方（`setEditTool`）と同じ形。 */
     void applySnapGrid (SnapGrid newGrid);
 
+    /** 8.278：自動スクロールを決めて、両方の画面へ配る（Phase 275／本人の要望）。
+        **アプリ設定へ覚えます**（曲の内容ではなく、作業のしかたなので）。 */
+    void applyAutoScroll (bool shouldFollow);
+
     /** 仕様書5.11.1：プロジェクトのキーを、**両方の入口の表示へ配る**（Phase 63／8.1のC9）。
 
         コードパッドの上段とトランスポートバーに同じ値が出ているため、
@@ -347,6 +352,13 @@ private:
     /** 保存する。完了後（またはキャンセル時）に onComplete(保存できたか) を呼ぶ。 */
     void saveProject (std::function<void (bool)> onComplete = nullptr);
     void saveProjectAs (std::function<void (bool)> onComplete = nullptr);
+
+    /** 8.286：書き出し先の始まりの場所（Phase 279／本人の要望）。
+
+        **プロジェクトのフォルダの中**（`Stems`／`Mixdown`）。
+        まだ保存していないプロジェクトでは、今までどおりドキュメントから始めます。
+        **ここではフォルダを作りません**（やめたときに空のフォルダが増えないよう）。 */
+    juce::File getExportFolder (StorageLocations::ProjectFolder kind) const;
 
     /** 仕様書5.10：マスター出力をWAVファイルへ書き出す。 */
     void exportMixdown();

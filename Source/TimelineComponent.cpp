@@ -859,7 +859,45 @@ void TimelineComponent::setPlayheadSeconds (double seconds)
         return;
 
     playheadSeconds = seconds;
+
+    followPlayhead();   // 8.278：追従（Phase 275）。**入っているときだけ動きます**
     repaint();
+}
+
+void TimelineComponent::setAutoScroll (bool shouldFollow)
+{
+    if (autoScroll == shouldFollow)
+        return;
+
+    autoScroll = shouldFollow;
+
+    // **入れた瞬間に追いつくこと。** 押してから次に音が出るまで何も起きないと、
+    // 効いているのかどうかが分かりません
+    followPlayhead();
+}
+
+void TimelineComponent::followPlayhead()
+{
+    if (! autoScroll || pixelsPerSecond <= 0.0)
+        return;
+
+    const double visibleSeconds = getTimelineArea().getWidth() / pixelsPerSecond;
+
+    if (visibleSeconds <= 0.0)
+        return;
+
+    // **端に着く手前でめくること。** ちょうど端に着いてからめくると、
+    // カーソルが画面の外に出た瞬間が見えます
+    constexpr double turnMargin = 0.05;   // 右端から5%
+    constexpr double leadIn = 0.1;        // めくった後、左から1割の位置に置く
+
+    const double left = scrollStartSeconds;
+    const double right = left + visibleSeconds;
+
+    if (playheadSeconds >= left && playheadSeconds <= right - visibleSeconds * turnMargin)
+        return;   // まだ見えている
+
+    setScrollStartSeconds (playheadSeconds - visibleSeconds * leadIn);
 }
 
 juce::Rectangle<int> TimelineComponent::getClipBounds (int trackIndex, int clipIndex) const
@@ -900,6 +938,27 @@ juce::Rectangle<int> TimelineComponent::getChordFlagBounds (int trackIndex, int 
 
     return chordFlagRect (getChordRegionBounds (trackIndex, regionIndex),
                            track.getChordRegion (regionIndex).getChord().getName());
+}
+
+bool TimelineComponent::hitTestChordRegionEdge (juce::Point<int> position, int& trackIndexOut,
+                                                 int& regionIndexOut) const
+{
+    int trackIndex = -1;
+    int regionIndex = -1;
+
+    if (! hitTestChordRegion (position, trackIndex, regionIndex))
+        return false;
+
+    // **掴みしろはクリップと同じ幅**（`edgeGrabMargin`）。別の数字にすると、
+    // 「クリップは掴めたのに旗の端は掴めない」という覚えにくさになります
+    const auto bounds = getChordRegionBounds (trackIndex, regionIndex);
+
+    if (position.x < bounds.getRight() - edgeGrabMargin)
+        return false;
+
+    trackIndexOut = trackIndex;
+    regionIndexOut = regionIndex;
+    return true;
 }
 
 bool TimelineComponent::hitTestChordFlag (juce::Point<int> position, int& trackIndexOut,
@@ -1058,10 +1117,10 @@ bool TimelineComponent::deleteSelectedChordRegions()
 
         deletedAnything = true;
 
-        // 8.128：**消したら並べ直す**（Phase 164／改善案13）。
-        // 手前の区間が、消えた旗のぶんまで伸びます——
-        // 呼ばないと、そこだけ「コードの無い隙間」が残ります
-        track.normaliseChordRegions (&project.getUndoManager());
+        // 8.279：**消したら重なりを直す**（Phase 275）。
+        // 8.128では手前の区間が消えた旗のぶんまで伸びていましたが、
+        // **いまはそこが隙間になります**（本人の選んだ形）
+        track.trimOverlappingChordRegions (&project.getUndoManager());
     }
 
     selectedChordRegions.clear();
@@ -1081,8 +1140,9 @@ void TimelineComponent::drawChordRegion (juce::Graphics& g, juce::Rectangle<int>
     // 8.128：**帯ではなく旗で表す**（Phase 164／改善案13）。
     //
     // 拍子・テンポ・キーのレーンと同じ「この旗から次の旗まで」という表し方に揃えました。
-    // **長さを掴んで伸縮する操作は無くなりました**——次の旗までが自動的に長さです
-    // （`Track::normaliseChordRegions()`）。
+    // 8.279：**長さは掴んで変えられます**（Phase 275/本人の要望）。
+    // 端を掴めば伸縮、短くしたぶんは隙間として残ります
+    // （`Track::trimOverlappingChordRegions()`）。
     //
     // **行の高さは変えていません**（本人の指定）。いまの大きさが見やすいとのことなので、
     // 旗を上端に置いて、下は区間の切れ目が読める薄い塗りにしてあります。
@@ -3385,13 +3445,23 @@ bool TimelineComponent::isChordDragItem (const juce::ValueTree& regionState) con
 }
 
 void TimelineComponent::removeChordRegionAtBeats (Track& track, double beats,
-                                                   juce::UndoManager* undoManager)
+                                                   juce::UndoManager* undoManager,
+                                                   bool skipDraggedRegions)
 {
     // **拍で比べること。** 秒で比べると、テンポの変化点の向こうで
     // 「同じ位置」の判定が甘くなったり厳しくなったりします（8.139）
     for (int r = track.getNumChordRegions(); --r >= 0;)
     {
         auto region = track.getChordRegion (r);
+
+        // 8.280：**動かしているぶんを消さないことがある**（Phase 275）。
+        //
+        // | | |
+        // |---|---|
+        // | **動かす**とき | 飛び先に自分がいるのは当たり前。消すと**動かした旗が消えます** |
+        // | **複製**するとき | 元はその場に残るので、**落とし先の1本として消す対象** |
+        if (skipDraggedRegions && isChordDragItem (region.state))
+            continue;
 
         // 8.277：**許容は1e-6拍では足りません**（Phase 274）。カーソルから入った旗は
         // 4e-6拍ずれていることがあります（`samePositionBeats`の説明）
@@ -3422,24 +3492,17 @@ void TimelineComponent::updateChordDrag (const juce::MouseEvent& e)
         return project.snapTime (seconds);
     };
 
-    // 8.128：**動かせるのは隣の旗と旗のあいだ**（Phase 164／改善案13）。
+    // 8.281：**隣の旗を跨げます**（Phase 275／本人の要望）。
     //
-    // Phase 163までは「前の区間の終わり」を下限にしていました。旗にしたことで
-    // **区間は隙間なく並ぶ**ので、「前の区間の終わり」＝自分の始まりになり、
-    // **左へ1pxも動かせなくなります**。見るのは隣の**旗の位置**です。
+    // Phase 274までは、隣の旗の手前1拍で止めていました（8.128）。
+    // **長さが「次の旗まで」で自動だったあいだは、跨ぐと意味が壊れた**ためです
+    // ——跨いだ瞬間に前後の長さが入れ替わり、掴んでいるものが別の区間に見えます。
     //
-    // **隣は時刻で探すこと。** 区間の並び順は時刻順とは限りません（足した順に入る）。
-    // 番号の隣を見ると、飛び越したところで止まらなくなります
+    // 8.279で**長さを自分で持つ**ようになったので、その心配がなくなりました。
+    // 跨いだ先で重なったぶんは`trimOverlappingChordRegions()`が縮め、
+    // ちょうど同じ位置へ落ちたものは`removeChordRegionAtBeats()`が片付けます。
     //
-    // 8.273：**動かすぶん全部について見ます**（Phase 272）。
-    //
-    // 掴んだ1本だけを見て止めると、**一緒に動いている他の旗が隣を追い越します**。
-    // 隣といっても、**一緒に動いている旗は隣ではありません**（同じ量だけ動くので
-    // 追い越しようがない）。見るのは「動かないほうの旗」だけです。
-    //
-    // **複製のときは止めません**（元の旗はその場に残り、同じ位置に落ちたものは
-    // `removeChordRegionAtBeats()`が片付けます）。止めると、**旗が詰まっている
-    // ところでは1つ隣までしか複製できなくなります**——すぐ下の場合分けを参照。
+    // **止めるのは曲の頭だけ**です。
 
     const double wantedDelta = (double) (e.x - chordDragStartMousePosition.x) / pixelsPerSecond;
 
@@ -3447,65 +3510,35 @@ void TimelineComponent::updateChordDrag (const juce::MouseEvent& e)
     // 掴んだ旗が目盛りの上に乗れば、他も掴んだときの間隔のまま乗ります
     const double snappedStart = snap (chordDragOriginalStart + wantedDelta);
 
-    const double wantedSnappedDelta = snappedStart - chordDragOriginalStart;
+    double delta = snappedStart - chordDragOriginalStart;
 
-    // **上限と下限を別々に集めてから、最後に1回だけ収めること。**
-    // 旗ごとにその場で丸めると、**後ろの旗の上限が、前の旗の下限を押し戻します**
-    // （2本目で右へ、3本目で左へ、と引っ張り合って値が定まらない）
-    double lowestDelta = -std::numeric_limits<double>::max();
-    double highestDelta = std::numeric_limits<double>::max();
-
+    // **いちばん手前の旗が0より前へ行かないこと。**
+    // 1本でも負の位置へ行くと、そこだけ0で止まって間隔が崩れます
     for (const auto& item : chordDragItems)
+        delta = juce::jmax (delta, -item.originalStart);
+
+    // 8.279：**右端を掴んだら長さを変える**（Phase 275／本人の要望）。
+    //
+    // **左端は用意していません。** 左端は旗そのもの＝コードの始まりなので、
+    // そこを掴むのは「動かす」です（ピアノロールの帯は左端も掴めますが、
+    // あちらには旗という見せ方が無いので、掴みどころが端しかありません）。
+    if (chordDragMode == ChordDragMode::trimRight)
     {
-        // **複製のときは、曲の頭より前へ行かないことだけ見ます。**
-        //
-        // 移動と同じに止めると、**旗が詰まっているところでは1つ隣までしか複製できません**
-        // （進行の途中は、たいてい隙間なく旗が並んでいます）。
-        // 落とし先に旗があっても、**後から来たほうが残る**と決めてあるので
-        // （`removeChordRegionAtBeats()`）、止める理由がありません。
-        if (chordDragIsCopy)
-        {
-            lowestDelta = juce::jmax (lowestDelta, -item.originalStart);
-            continue;
-        }
+        const double end = snap (chordDragOriginalStart + chordDragOriginalLength + wantedDelta);
 
-        double previousStart = 0.0;
-        double nextStart = std::numeric_limits<double>::max();
+        chordDragDelta = 0.0;
+        chordDragPreviewStart = chordDragOriginalStart;
+        chordDragPreviewLength = juce::jmax (minimumLength, end - chordDragOriginalStart);
 
-        for (int r = 0; r < track.getNumChordRegions(); ++r)
-        {
-            auto other = track.getChordRegion (r);
-
-            // **一緒に動くものは隣に数えない**（同じ量だけ動く）
-            if (isChordDragItem (other.state))
-                continue;
-
-            const double otherStart = other.getStartTime();
-
-            if (otherStart < item.originalStart - 1.0e-6)
-                previousStart = juce::jmax (previousStart, otherStart);
-            else if (otherStart > item.originalStart + 1.0e-6)
-                nextStart = juce::jmin (nextStart, otherStart);
-        }
-
-        const double lowest = (previousStart > 0.0) ? previousStart + minimumLength : 0.0;
-
-        lowestDelta = juce::jmax (lowestDelta, lowest - item.originalStart);
-
-        if (nextStart < std::numeric_limits<double>::max())
-            highestDelta = juce::jmin (highestDelta, (nextStart - minimumLength) - item.originalStart);
+        repaint();
+        return;
     }
-
-    // **下限のほうが上のときは下限を採る**（隣どうしの旗をまとめて掴んだときに起こる）。
-    // `jlimit`へ逆さの範囲を渡すと`jassert`で止まります
-    const double delta = juce::jlimit (lowestDelta, juce::jmax (lowestDelta, highestDelta),
-                                        wantedSnappedDelta);
 
     chordDragDelta = delta;
     chordDragPreviewStart = juce::jmax (0.0, chordDragOriginalStart + delta);
 
     // 長さは掴んだときのまま持ち回す（描画の予告に使うだけ）。
-    // **本当の長さは離した後に`normaliseChordRegions()`が決めます**
+    // **重なったぶんは離した後に`trimOverlappingChordRegions()`が縮めます**
     chordDragPreviewLength = chordDragOriginalLength;
 
     repaint();
@@ -3521,6 +3554,38 @@ void TimelineComponent::commitChordDrag()
     // 掴んだだけで動かしていないなら、Undoに空のステップを積まない
     const bool moved = ! juce::approximatelyEqual (chordDragPreviewStart, chordDragOriginalStart)
                     || ! juce::approximatelyEqual (chordDragPreviewLength, chordDragOriginalLength);
+
+    // 8.279：**長さを変えたぶんは、掴んだ1本だけ**（Phase 275／本人の要望）。
+    // まとめて伸縮はしません——旗の長さは「そこから鳴るコードの持続」なので、
+    // 選んでいる全部が同じだけ伸びると、拍の意味が揃わなくなります
+    if (chordDragMode == ChordDragMode::trimRight)
+    {
+        if (moved && juce::isPositiveAndBelow (chordDragRegionIndex, track.getNumChordRegions()))
+        {
+            auto& undoManager = project.getUndoManager();
+            auto region = track.getChordRegion (chordDragRegionIndex);
+
+            project.beginAction (utf8 ("コード区間の長さ変更"));
+            track.setChordRegionTime (region, chordDragPreviewStart, chordDragPreviewLength,
+                                       &undoManager);
+
+            // **伸ばしたときは、次の旗の手前で止まります**（重なりは作らない）
+            track.trimOverlappingChordRegions (&undoManager);
+        }
+
+        chordDragMode = ChordDragMode::none;
+        chordDragTrackIndex = -1;
+        chordDragRegionIndex = -1;
+        chordDragIsCopy = false;
+        chordDragDelta = 0.0;
+        chordDragItems.clear();
+
+        if (onModelChanged != nullptr)
+            onModelChanged();
+
+        repaint();
+        return;
+    }
 
     if (moved && ! chordDragItems.empty())
     {
@@ -3553,6 +3618,13 @@ void TimelineComponent::commitChordDrag()
                     continue;
 
                 track.setChordRegionTime (region, newStart, region.getLength(), &undoManager);
+
+                // 8.280：**跨いだ先にちょうど旗があれば、そちらを退かす**（Phase 275）。
+                // 重なることは無いようにする、という本人の指定です
+                // （**動かしているぶんは消さない**——第4引数）
+                removeChordRegionAtBeats (track, project.getBeatPositionAt (newStart),
+                                           &undoManager, true);
+
                 newSelection.push_back (region.state);
                 continue;
             }
@@ -3572,9 +3644,9 @@ void TimelineComponent::commitChordDrag()
             newSelection.push_back (added.state);
         }
 
-        // 8.128：**動かしたら並べ直す**（Phase 164／改善案13）。
-        // 動いた旗の前後が、そのぶん伸び縮みします
-        track.normaliseChordRegions (&undoManager);
+        // 8.279：**動かしたら重なりを直す**（Phase 275）。
+        // 右へ動かせば手前に隙間ができ、左へ動かせば手前の区間が縮みます
+        track.trimOverlappingChordRegions (&undoManager);
 
         // 8.273：**複製したら、選択は複製したほうへ移る**（Phase 272）。
         // クリップの複製と同じで、「いま作ったもの」を続けて動かせます
@@ -3616,29 +3688,30 @@ void TimelineComponent::addChordRegionAt (int trackIndex, int x)
     // **長さは「置く場所の小節」で測る**（8.98／Phase 138）——曲の頭の小節ではない
     const double secondsPerBar = project.getBarSecondsAt (startTime);
 
-    // 8.128：**同じ位置に旗が既にあるときだけ断る**（Phase 164／改善案13）。
-    //
-    // Phase 163までは「1小節ぶんが既存の区間と重なるなら置かない」でした。
-    // 旗にしたことで区間は隙間なく並ぶので、**その判定だとどこにも置けません**
-    // （曲じゅうがどれかの区間の中）。旗は好きなところに立てられるべきで、
-    // 長さは後から`normaliseChordRegions()`が決めます
-    for (int r = 0; r < track.getNumChordRegions(); ++r)
-        // 8.277：**同じ位置の許容は1ミリ秒**（Phase 274）。1e-6秒だと、
-        // カーソルから入った旗（1.5マイクロ秒ずれ）の上にもう1本立ちます
-        if (std::abs (track.getChordRegion (r).getStartTime() - startTime) < samePositionSeconds)
-            return;
-
     const auto key = project.getProjectKeyAt (startTime);
     Chord chord;
     chord.root = key.degreeRoot (0);
     chord.type = key.diatonicSeventh (0);
 
     project.beginAction (utf8 ("コード区間の追加"));
+
+    // 8.280：**同じ位置に旗があれば、古いほうを消して置き直す**（Phase 275／本人の指定）。
+    //
+    // Phase 274までは**何も起きませんでした**（`return`していた）。
+    // 押したのに何も起きないのは、いちばんたちの悪い形です——
+    // 「旗が重なることは無いようにしよう」という本人の指定に、
+    // **置き換え**で応えます（後から置いたほうが残る。貼り付けと同じ決まり）。
+    //
+    // 8.277：**同じ位置の許容は1ミリ秒**（Phase 274）。1e-6秒だと、
+    // カーソルから入った旗（1.5マイクロ秒ずれ）の上にもう1本立ちます
+    removeChordRegionAtBeats (track, project.getBeatPositionAt (startTime),
+                               &project.getUndoManager());
+
     track.addChordRegion (chord, startTime, secondsPerBar, &project.getUndoManager());
 
-    // 8.128：**置いたら並べ直す**（Phase 164／改善案13）。
+    // 8.279：**置いたら重なりを直す**（Phase 275）。
     // 手前の区間が、新しい旗の手前までに縮みます
-    track.normaliseChordRegions (&project.getUndoManager());
+    track.trimOverlappingChordRegions (&project.getUndoManager());
 
     if (onModelChanged != nullptr)
         onModelChanged();
@@ -4275,8 +4348,14 @@ void TimelineComponent::drawChordRegionsForTrack (juce::Graphics& g, int trackIn
             if (chordDragIsCopy)
                 drawChordRegion (g, getChordRegionBounds (trackIndex, r), region);
 
-            const int x = timeToX (region.getStartTime() + chordDragDelta);
-            const int width = juce::jmax (4, (int) (region.getLength() * pixelsPerSecond));
+            // 8.279：**伸縮のときは長さのほうが動きます**（Phase 275）。
+            // 位置と長さで動くものが違うので、ここで分けること——
+            // 分けないと、伸ばしているのに予告が元の長さのままになります
+            const bool resizing = (chordDragMode == ChordDragMode::trimRight);
+
+            const int x = timeToX (region.getStartTime() + (resizing ? 0.0 : chordDragDelta));
+            const int width = juce::jmax (4, (int) ((resizing ? chordDragPreviewLength
+                                                             : region.getLength()) * pixelsPerSecond));
 
             drawChordRegion (g, { x, getTrackRowY (trackIndex) + 4, width, getTrackAreaHeight (trackIndex) - 8 },
                               region);
@@ -5411,17 +5490,23 @@ void TimelineComponent::mouseDown (const juce::MouseEvent& e)
                                              && hitTestChordRegion (e.getPosition(), chordTrackIndex, regionIndex)
                                              && getChordFlagBounds (chordTrackIndex, regionIndex).isEmpty();
 
-        if (grabbedFlag || grabbedFlaglessRegion)
+        // 8.279：**区間の右端を掴んだら、長さを変える**（Phase 275／本人の要望）。
+        //
+        // Phase 274までは伸縮そのものがありませんでした（8.128）——
+        // 長さが「次の旗まで」で自動だったので、**動かした長さがすぐ上書きされた**ためです。
+        // 長さを自分で持つようになったので（8.279）、掴めるようにします。
+        //
+        // **旗より先に見ること。** 区間が短いと旗と右端が重なるので、
+        // 後に置くと右端が掴めなくなります（短い区間ほど伸ばしたい）。
+        const bool grabbedRightEdge = ! e.mods.isPopupMenu() && ! grabbedFlag && ! grabbedFlaglessRegion
+                                        && hitTestChordRegionEdge (e.getPosition(), chordTrackIndex, regionIndex);
+
+        if (grabbedFlag || grabbedFlaglessRegion || grabbedRightEdge)
         {
             auto track = project.getTrack (chordTrackIndex);
             auto region = track.getChordRegion (regionIndex);
 
-            // 8.128：**伸縮は無くなりました**（Phase 164／改善案13）。
-            //
-            // 旗で表すことにしたので、長さは「次の旗まで」で決まります。
-            // 端を掴ませると、**動かした長さが次の旗で上書きされる**ことになり、
-            // 「掴めるのに何も起きない」という一番たちの悪い形になります
-            chordDragMode = ChordDragMode::move;
+            chordDragMode = grabbedRightEdge ? ChordDragMode::trimRight : ChordDragMode::move;
 
             chordDragTrackIndex = chordTrackIndex;
             chordDragRegionIndex = regionIndex;
@@ -6284,7 +6369,7 @@ bool TimelineComponent::pasteChordRegionsAt (double timeSeconds)
 
         // 8.139：**長さも拍で**（Phase 177）。切り離されたツリーに`getLength()`（秒）を
         // 訊くと、テンポの表へ辿り着けず既定の120BPMで答えます（`MusicalTime.h`）。
-        // 長さは後で`normaliseChordRegions()`が「次の旗まで」に揃え直します
+        // 長さは後で`trimOverlappingChordRegions()`が「次の旗まで」に揃え直します
         auto added = track.addChordRegionBeats (region.getChord(), beats,
                                                  region.getLengthBeats(), &undoManager);
         pasted.push_back (added.state);
@@ -6293,7 +6378,7 @@ bool TimelineComponent::pasteChordRegionsAt (double timeSeconds)
     if (pasted.empty())
         return false;
 
-    track.normaliseChordRegions (&undoManager);
+    track.trimOverlappingChordRegions (&undoManager);
 
     // **貼ったものを選んでおく。** 続けて動かしたり消したりできます（クリップと同じ）
     selectedChordRegions = pasted;
@@ -8756,7 +8841,7 @@ void TimelineComponent::applyRangeMoveToChordTrack (Track& track, double fromSec
     }
 
     // **最後に並べ直す。** 旗が増えた／動いたので、前後の長さがずれています
-    track.normaliseChordRegions (&undoManager);
+    track.trimOverlappingChordRegions (&undoManager);
 }
 
 void TimelineComponent::moveOrCopyRangeAllTracks (double fromSeconds, double toSeconds,
@@ -8873,7 +8958,7 @@ void TimelineComponent::deleteRangeAllTracks (double fromSeconds, double toSecon
                 track.removeChordRegion (region, &undoManager);
         }
 
-        track.normaliseChordRegions (&undoManager);
+        track.trimOverlappingChordRegions (&undoManager);
     }
 
     // 8.127：**マーカーも一緒に消す**（Phase 163／本人の要望）。
@@ -9191,7 +9276,7 @@ bool TimelineComponent::pasteRangeAllTracks (double timeSeconds)
         else if (item.state.hasType (IDs::CHORDREGION) && track.getType() == TrackType::Chord)
         {
             // 8.136：コード区間（Phase 174／本人の報告）。
-            // **長さもそのまま渡す**——後で`normaliseChordRegions()`が
+            // **長さもそのまま渡す**——後で`trimOverlappingChordRegions()`が
             // 「次の旗まで」に揃え直します（8.128）
             // 8.139：**位置も長さも拍で**（Phase 177）。切り離されたツリーなので、
             // `getLength()`（秒）を訊くと既定の120BPMで答えます（`MusicalTime.h`）
@@ -9236,7 +9321,7 @@ bool TimelineComponent::pasteRangeAllTracks (double timeSeconds)
         // 8.136：**貼り付けた旗の前後を並べ直す**（Phase 174）。
         // 呼ばないと、旗と旗のあいだに「コードの無い隙間」が残ります（8.128）
         else if (track.getType() == TrackType::Chord)
-            track.normaliseChordRegions (&undoManager);
+            track.trimOverlappingChordRegions (&undoManager);
     }
 
     // **貼り付けたところを選んでおく**（続けて動かしたいことが多い）

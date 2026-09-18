@@ -72,6 +72,28 @@ public:
     /** 再生位置（秒）を設定し、プレイヘッド（縦線）の表示位置を更新する。 */
     void setPlayheadSeconds (double seconds);
 
+    //==========================================================================
+    /** 8.278：**再生カーソルに追従して横スクロールする**（Phase 275／本人の要望）。
+
+        ### めくり方
+
+        **端まで来たら1画面ぶんめくります**（少しずつ流し続けません）。
+        カーソルが画面の外へ出たとき、**画面の左から1割のところ**へ来るように送ります。
+
+        流し続ける形にすると、**再生中ずっと絵が動き続ける**ことになり、
+        止まっているノートを読むのが難しくなります。めくりなら、
+        次の1画面ぶんは絵が止まったままです。
+
+        **巻き戻し・ループの折り返しでも同じ**です（カーソルが手前へ飛べば手前へめくる）。
+
+        ### 誰が値を持つか
+
+        **`MainComponent`です**（刻みと同じ。1.27）。アレンジとピアノロールの
+        両方にボタンがあるので、ここで覚えると**2つが食い違います**。 */
+    void setAutoScroll (bool shouldFollow);
+
+    bool isAutoScrollEnabled() const { return autoScroll; }
+
     /** 選択状態を解除する（プロジェクトの入れ替え時など）。 */
     void clearSelection();
 
@@ -1053,7 +1075,7 @@ private:
                                       double deltaSeconds, bool copy);
 
     /** 8.128：1つのコードトラックぶんの移動／複製（Phase 164／本人の要望）。
-        **区切りは作りません**。最後に`normaliseChordRegions()`を通します。 */
+        **区切りは作りません**。最後に`trimOverlappingChordRegions()`を通します。 */
     void applyRangeMoveToChordTrack (Track& track, double fromSeconds, double toSeconds,
                                       double deltaSeconds, bool copy);
 
@@ -1168,6 +1190,13 @@ private:
     /** 8.128：**旗（コード名の札）だけ**の矩形（Phase 164／改善案13）。
         空なら「区間からはみ出すので札を描かない」という意味。 */
     juce::Rectangle<int> getChordFlagBounds (int trackIndex, int regionIndex) const;
+
+    /** 8.279：座標が**区間の右端**（掴んで伸縮できるところ）か（Phase 275／本人の要望）。
+
+        **右端だけです。** 左端は旗そのもの＝コードの始まりなので、
+        そこを掴むのは「動かす」になります。 */
+    bool hitTestChordRegionEdge (juce::Point<int> position, int& trackIndexOut,
+                                  int& regionIndexOut) const;
 
     /** 8.128：座標が**旗の上**か（Phase 164／改善案13）。
 
@@ -2173,12 +2202,16 @@ private:
         たいてい1本しか無く、捨てると「押したのに何も起きない」になるため）。 */
     bool pasteChordRegionsAt (double timeSeconds);
 
-    /** そのトラックの、その位置にある旗を消す（貼り付け・複製の落とし先の掃除）。
+    /** そのトラックの、その位置にある旗を消す（置く・貼る・複製する前の掃除）。
 
-        **同じ位置に旗を2本立てない**ため。`addChordRegionAt()`が
-        同じ位置への追加を断っているのと同じ決まりで、
-        こちらは**後から来たほうを残します**（貼った結果が見えないと困る）。 */
-    void removeChordRegionAtBeats (Track& track, double beats, juce::UndoManager* undoManager);
+        **同じ位置に旗を2本立てない**ため（8.280／本人の指定
+        「コード旗が重なることは無いようにしよう」）。**後から来たほうが残ります。**
+
+        `skipDraggedRegions`は**動かしているぶんを消さない**という指定です——
+        旗を動かした先に自分がいるのは当たり前なので、見ないと自分が消えます。
+        **複製のときはfalse**（元はその場に残るので、落とし先の1本として扱う）。 */
+    void removeChordRegionAtBeats (Track& track, double beats, juce::UndoManager* undoManager,
+                                    bool skipDraggedRegions = false);
 
     double dragPreviewStartTime = 0.0;
     double dragPreviewLength = 0.0;
@@ -2188,6 +2221,13 @@ private:
     int dragPreviewTrackIndex = -1;
 
     double playheadSeconds = 0.0;
+
+    /** 8.278：再生カーソルに追従するか（Phase 275）。**既定は入**（本人の指定）。 */
+    bool autoScroll = true;
+
+    /** カーソルが画面の外にいたら、見える位置までめくる。 */
+    void followPlayhead();
+
 
     // 表示状態（ズーム・スクロール）
     double pixelsPerSecond = defaultPixelsPerSecond;

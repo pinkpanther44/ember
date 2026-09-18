@@ -197,6 +197,19 @@ ChannelStripComponent::ChannelStripComponent (const Track& trackToControl, Proje
     rackViewport.setScrollBarThickness (8);
     addAndMakeVisible (rackViewport);
 
+    // 8.283：ラックの高さを変える境目（Phase 276／本人の要望）。
+    // **決めるのはConsoleView**（全ストリップへ同時に効かせるため）
+    rackResizer.setTooltip (utf8 ("ドラッグすると、ラックの高さが変わります\n"
+                                   "（すべてのストリップに同じ高さが効きます）"));
+
+    rackResizer.onHeightDragged = [this] (int newHeight)
+    {
+        if (onRackAreaHeightDragged != nullptr)
+            onRackAreaHeightDragged (newHeight);
+    };
+
+    addAndMakeVisible (rackResizer);
+
     // 設計書2.3.2：VCAトラックはフェーダー以外の要素を持たない簡易表示にする。
     // 音声を通さないため、パンとメーターはどちらも意味を持たない。
     if (isVca)
@@ -535,10 +548,15 @@ void ChannelStripComponent::resized()
     // **狭いときは折半する。** 「フェーダーぶんを必ず引く」だけにすると、
     // ストリップが低いときにラックの取り分が0になり、スロットが1つも見えなくなる
     // （下部パネルを縮めたときに起きる）
-    const int faderRoom = juce::jmin (minimumFaderAreaHeight, area.getHeight() / 2);
-    const int roomForRack = juce::jmax (0, area.getHeight() - faderRoom);
+    // 8.283：**高さは中身で決めません**（Phase 276／本人の要望）。
+    //
+    // Phase 275まで、ラックの高さは`jmin(欲しい高さ, 残り)`でした。つまり
+    // **インサートの数でストリップごとに違う高さ**になり、そのぶん
+    // フェーダーとメーターの高さも揃いませんでした（`ConsoleLayout.h`）。
+    //
+    // いまは**全ストリップ共通の1つの数字**で、入り切らないぶんはスクロールです。
+    const int rackHeight = ConsoleLayout::getRackHeightFor (area.getHeight());
     const int wantedRackHeight = rack.getPreferredHeight (area.getWidth());
-    const int rackHeight = juce::jmin (wantedRackHeight, roomForRack);
 
     rackViewport.setBounds (area.removeFromTop (rackHeight));
 
@@ -547,7 +565,9 @@ void ChannelStripComponent::resized()
     // 縦スクロールバーが出るぶん、幅はビューポートに聞く
     rack.setSize (rackViewport.getMaximumVisibleWidth(), wantedRackHeight);
 
-    area.removeFromTop (6);
+    // 8.283：境目は**掴んで動かせます**（Phase 276）。ここで場所を取るので、
+    // 下のフェーダーは`minimumFaderAreaHeight`を割りません（`getRackHeightFor()`）
+    rackResizer.setBounds (area.removeFromTop (ConsoleLayout::resizerHeight));
     volumeValueLabel.setBounds (area.removeFromBottom (16));
 
     // フェーダーとメーターを横に並べる（メーターは右側）。

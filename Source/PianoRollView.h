@@ -100,6 +100,15 @@ public:
     /** 表示をモデルの値へ合わせる（もう片方の入口で変えられたときにも呼ぶこと）。 */
     void setSnapGrid (SnapGrid grid);
 
+    //==========================================================================
+    // 8.278：自動スクロール（Phase 275／本人の要望）。**刻みとまったく同じ扱い**
+
+    /** ボタンが押されたときに呼ばれる。**値を決めるのはMainComponent。** */
+    std::function<void (bool)> onAutoScrollSelected;
+
+    /** 表示と中身を、決まった値へ合わせる（もう片方の画面で変えられたときにも呼ぶ）。 */
+    void setAutoScroll (bool shouldFollow);
+
     /** 仕様書5.1：プロジェクトを読み込み/新規作成した後に、表示を作り直す。 */
     void refreshAfterProjectChanged (bool keepSelection = false);
 
@@ -303,6 +312,12 @@ private:
         **クオンタイズの`gridBox`とは別物。** どちらも「1/16」のような表示になるので、
         部品側に「Snap」の見出しを付けてある（`SnapGridSelector`の説明を参照）。 */
     SnapGridSelector snapSelector;
+
+    /** 8.278：**自動スクロール**（Phase 275／本人の要望）。**刻みの左隣**、
+        ツールボタンと同じ大きさ・色（アレンジ画面と同じ並び）。 */
+    IconAssets::SvgButton autoScrollButton;
+
+    void updateAutoScrollButton();
 
     // 仕様書5.3.4：グルーヴクオンタイズ（Phase 24）。
     //

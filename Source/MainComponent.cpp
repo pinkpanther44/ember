@@ -47,6 +47,9 @@ namespace
     const juce::String metronomeEnabledKey    { "metronomeEnabled" };
     const juce::String metronomeGainKey       { "metronomeGainPercent" }; // 0〜100（intで持つため）
     const juce::String countInBarsKey         { "countInBars" };
+
+    /** 8.278：自動スクロール（Phase 275）。**既定は入**（本人の指定）。 */
+    const juce::String autoScrollKey          { "autoScrollFollowsPlayhead" };
 }
 
 MainComponent::MainComponent()
@@ -447,6 +450,15 @@ MainComponent::MainComponent()
     // 片方だけを更新すると、もう片方のコンボボックスに古い値が残る。
     arrangeView.onSnapGridSelected  = [this] (SnapGrid newGrid) { applySnapGrid (newGrid); };
     pianoRollView.onSnapGridSelected = [this] (SnapGrid newGrid) { applySnapGrid (newGrid); };
+
+    // 8.278：自動スクロール（Phase 275／本人の要望）。**刻みとまったく同じ形**。
+    //
+    // **プロジェクトではなくアプリ設定へ入れます**（メトロノームと同じ考え方）——
+    // 「いまどう作業したいか」であって、曲の内容ではないため。**既定は入**（本人の指定）
+    arrangeView.onAutoScrollSelected  = [this] (bool follow) { applyAutoScroll (follow); };
+    pianoRollView.onAutoScrollSelected = [this] (bool follow) { applyAutoScroll (follow); };
+
+    applyAutoScroll (AppSettings::getInt (autoScrollKey, 1) != 0);
 
     // メトロノーム（Phase 38）。プロジェクトではなくアプリ全体の設定にしてある
     // （「今このセッションで拍が欲しいか」であって、曲の内容ではないため）。
@@ -1289,6 +1301,40 @@ void MainComponent::recordButtonClicked()
         transportBar.setPlayingState (false);
         setPlayheadDisplay (audioEngine.getPlayheadSeconds());
         updateTransportForPlayhead (audioEngine.getPlayheadSeconds());
+
+        return;
+    }
+
+    // 8.286：**録音の前に、保存していないなら保存を促す**（Phase 279／本人の選択）。
+    //
+    // 録音したWAVは**プロジェクトのフォルダの中**（`Rec`）へ入ります。
+    // まだ保存していないと、そのフォルダがありません——
+    // 共通の場所へ逃がすこともできますが、本人が選んだのは**先に保存する**ほうです
+    // （曲に属するものが、曲と離れたところに散らばらない）。
+    //
+    // **保存できたら、そのまま録音へ進みます**（もう一度押させない）。
+    // キャンセルされたら何もしません——**黙って共通の場所へ録らないこと**。
+    if (project.getCurrentFile() == juce::File())
+    {
+        juce::NativeMessageBox::showAsync (
+            juce::MessageBoxOptions()
+                .withIconType (juce::MessageBoxIconType::QuestionIcon)
+                .withTitle (utf8 ("先にプロジェクトを保存してください"))
+                .withMessage (utf8 ("録音した音声は、プロジェクトのフォルダの中（Rec）へ保存されます。\n"
+                                     "保存先を決めてから録音を始めます。"))
+                .withButton (utf8 ("保存..."))
+                .withButton (utf8 ("キャンセル")),
+            [this] (int result)
+            {
+                if (result != 1)
+                    return;
+
+                saveProjectAs ([this] (bool saved)
+                {
+                    if (saved)
+                        recordButtonClicked();   // 保存できたので、改めて録音を始める
+                });
+            });
 
         return;
     }
@@ -2387,6 +2433,15 @@ void MainComponent::applySnapGrid (SnapGrid newGrid)
     pianoRollView.setSnapGrid (newGrid);
 }
 
+void MainComponent::applyAutoScroll (bool shouldFollow)
+{
+    AppSettings::setInt (autoScrollKey, shouldFollow ? 1 : 0);
+
+    // **両方の入口へ配る**（刻みと同じ。1.27）
+    arrangeView.setAutoScroll (shouldFollow);
+    pianoRollView.setAutoScroll (shouldFollow);
+}
+
 void MainComponent::applyLoopSettings()
 {
     // **モデルが正で、エンジンはその写し。** 値を変えた側がここを通すことで、
@@ -3064,6 +3119,10 @@ void MainComponent::saveProjectAs (std::function<void (bool)> onComplete)
             if (! file.hasFileExtension (ProjectModel::getFileExtension()))
                 file = file.withFileExtension (ProjectModel::getFileExtension());
 
+            // 8.286：**プロジェクトの置き場所の直下なら、その曲のフォルダを作って中へ**
+            // （Phase 279／本人の要望）。別の場所を選んだときはそのままです
+            file = StorageLocations::makeProjectFileInOwnFolder (file);
+
             // ファイル名をプロジェクト名として採用する（タイトル表示と一致させるため）。
             // 保存の前に設定しないと、この変更がファイルへ書き込まれない。
             // ここだけはUndoManagerを渡さない（保存操作をUndoで巻き戻せても意味が無く、
@@ -3103,6 +3162,22 @@ void MainComponent::saveProjectAs (std::function<void (bool)> onComplete)
         });
 }
 
+juce::File MainComponent::getExportFolder (StorageLocations::ProjectFolder kind) const
+{
+    // 8.286：書き出し先は**プロジェクトのフォルダの中**（Phase 279／本人の要望）。
+    //
+    // **ここでは作りません**（`createIfNeeded`はfalse）。書き出しをやめたときに
+    // 空のフォルダが増えるのは、押した覚えのない結果です——
+    // 実際に作るのは、選び終わって書き出すとき（ファイル選択の中でOSが作ります）。
+    auto inProject = StorageLocations::getProjectFolder (project.getCurrentFile(), kind, false);
+
+    if (inProject != juce::File())
+        return inProject;
+
+    // まだ保存していないプロジェクト。今までどおりドキュメントから始める
+    return juce::File::getSpecialLocation (juce::File::userDocumentsDirectory);
+}
+
 void MainComponent::exportMixdown()
 {
     // 書き出し中は再生を止める（デバイスのコールバックを外すため、鳴らしたままにできない）
@@ -3120,7 +3195,8 @@ void MainComponent::exportMixdown()
             // ここで"wav"と書き写すと、MP3を選んでも`.wav`が出ます（8.2）
             const auto extension = options.getFileExtension();
 
-            auto initialFile = juce::File::getSpecialLocation (juce::File::userDocumentsDirectory)
+            // 8.286：**プロジェクトのフォルダの中（`Mixdown`）から始める**（Phase 279）
+            auto initialFile = getExportFolder (StorageLocations::ProjectFolder::mixdown)
                                    .getChildFile (project.getName() + extension);
 
             fileChooser = std::make_unique<juce::FileChooser> (utf8 ("ミックスダウンの書き出し先"),
@@ -3214,9 +3290,10 @@ void MainComponent::exportStems()
     ExportOptionsDialog::show (true, getLoopRangeSecondsForExport(), lastExportOptions,
         [this] (const ExportOptions& options)
         {
+            // 8.286：**プロジェクトのフォルダの中（`Stems`）から始める**（Phase 279）
             fileChooser = std::make_unique<juce::FileChooser> (
                               utf8 ("ステムの書き出し先フォルダ"),
-                              juce::File::getSpecialLocation (juce::File::userDocumentsDirectory));
+                              getExportFolder (StorageLocations::ProjectFolder::stems));
 
             fileChooser->launchAsync (juce::FileBrowserComponent::openMode
                                         | juce::FileBrowserComponent::canSelectDirectories,

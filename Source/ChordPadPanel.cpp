@@ -1605,11 +1605,12 @@ void ChordPadPanel::insertChord (const Chord& chord)
     // 小節の頭に出る**ので、置いた場所と結果が食い違って見えます。
     //
     // **アレンジ画面の追加（`TimelineComponent::addChordRegionAt()`）と同じ決まり**に
-    // 揃えました（1.27）——旗は好きなところに立てられ、**長さは
-    // `normaliseChordRegions()`が「次の旗まで」に決めます**。
+    // 揃えました（1.27）——旗は好きなところに立てられ、**重なったぶんは
+    // `trimOverlappingChordRegions()`が縮めます**（8.279で「次の旗まで伸ばす」をやめました）。
     //
     // 差し替えになるのは、**頭ちょうどに旗があるとき**だけです
     // （＝「この旗のコードを変えたい」と読める唯一の場合）。
+    // **旗が2本になることはありません**（8.280／本人の指定）。
     auto existing = track.findChordRegionAt (startTime);
 
     const bool onFlag = existing.state.isValid()
@@ -1632,11 +1633,11 @@ void ChordPadPanel::insertChord (const Chord& chord)
     {
         auto added = track.addChordRegion (chord, startTime, barSeconds, &project.getUndoManager());
 
-        // 8.128：**立てたら並べ直す**（Phase 164）。手前の旗が、新しい旗の手前まで縮みます。
+        // 8.279：**立てたら重なりを直す**（Phase 275）。手前の旗が、新しい旗の手前まで縮みます。
         // **呼ばないと、旗と旗が重なったまま残ります**
-        track.normaliseChordRegions (&project.getUndoManager());
+        track.trimOverlappingChordRegions (&project.getUndoManager());
 
-        // 進む先は**並べ直した後の長さ**。次の旗があればそこまで、無ければ1小節ぶん
+        // 進む先は**縮めた後の長さ**。次の旗があればそこまで、無ければ1小節ぶん
         if (added.state.isValid())
             length = added.getLength();
     }

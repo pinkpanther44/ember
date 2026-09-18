@@ -28,6 +28,7 @@
     | `browser_file.svg` | Browser内ファイルアイコン.svg |
     | `plugin_bypass.svg` | バイパスボタン.svg（Phase 210） |
     | `plugin_pin.svg` | 画面固定ボタン.svg（Phase 210） |
+    | `auto_scroll.svg` | 自動スクロール.svg（Phase 275／8.278） |
 
     ### 色は塗り替える
 

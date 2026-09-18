@@ -6,6 +6,8 @@
 // **入れるのは.cppだけ**——ProjectModel.hへ入れると、データモデル層が
 // juce_audio_formatsを引き込みます（MidiCCMessage.hと同じ理由。設計書1.1）
 #include "AudioTransform.h"
+// 8.286：保存の控えは、プロジェクトのフォルダの中の`Backup`へ（Phase 279）
+#include "StorageLocations.h"
 
 #include <algorithm> // 仕様書5.3.2：チョークグループの並べ替え
 #include <cmath>
@@ -1686,7 +1688,7 @@ ChordRegion Track::findChordRegionAt (double timeSeconds) const
     return ChordRegion (juce::ValueTree());
 }
 
-void Track::normaliseChordRegions (juce::UndoManager* undoManager)
+void Track::trimOverlappingChordRegions (juce::UndoManager* undoManager)
 {
     const int numRegions = getNumChordRegions();
 
@@ -1718,12 +1720,17 @@ void Track::normaliseChordRegions (juce::UndoManager* undoManager)
         if (nextStart < 0.0)
             continue;
 
+        // 8.279：**縮めるだけ**（Phase 275）。Phase 274までは`wanted`をそのまま書いて
+        // 「次の旗まで」に**伸ばしても**いました。いまは**重なっているときだけ**縮めます
+        // ——短くしたぶんは隙間として残るのが、本人の選んだ形です
         const double wanted = nextStart - start;
+
+        if (region.getLengthBeats() <= wanted + 1.0e-9)
+            continue;
 
         // **同じ値なら書かないこと。** ValueTreeへの書き込みは購読側の
         // 描き直しを呼ぶので、変わっていないものまで書くと毎回全部描き直します
-        if (! juce::approximatelyEqual (region.getLengthBeats(), wanted))
-            region.setLengthBeats (wanted, undoManager);
+        region.setLengthBeats (wanted, undoManager);
     }
 }
 
@@ -5912,9 +5919,22 @@ bool ProjectModel::saveToFile (const juce::File& file)
 {
     // 仕様書5.1：上書き保存の前に、直前の内容をバックアップとして退避する。
     // 保存操作そのものが失敗した場合や、誤った内容で上書きしてしまった場合の保険。
+    //
+    // 8.286：**`Backup`フォルダの中へ入れます**（Phase 279／本人の要望）。
+    // Phase 278までは`曲.em1.bak`としてファイルの隣に置いていました——
+    // プロジェクトごとにフォルダを作るようにしたので、**控えはその中の`Backup`へ**。
+    //
+    // **フォルダが作れなければ、今までどおり隣へ置きます。**
+    // 控えが取れないより、置き場所が違うほうがましです
     if (file.existsAsFile())
     {
-        auto backupFile = file.getSiblingFile (file.getFileName() + ".bak");
+        auto folder = StorageLocations::getProjectFolder (file, StorageLocations::ProjectFolder::backups,
+                                                           true);
+
+        auto backupFile = (folder != juce::File() && folder.isDirectory())
+                              ? folder.getChildFile (file.getFileName() + ".bak")
+                              : file.getSiblingFile (file.getFileName() + ".bak");
+
         backupFile.deleteFile();
         file.copyFileTo (backupFile); // 失敗しても保存自体は続行する（保険が無いだけ）
     }
@@ -6306,8 +6326,17 @@ namespace
         版が上がっても、**古い控えが上書きされません**。 */
     juce::File getFormatBackupFile (const juce::File& file, int leavingVersion)
     {
-        return file.getSiblingFile (file.getFileName()
-                                     + ".v" + juce::String (leavingVersion) + "-backup");
+        const auto name = file.getFileName() + ".v" + juce::String (leavingVersion) + "-backup";
+
+        // 8.286：**保存の控えと同じ`Backup`フォルダへ**（Phase 279）。
+        // 控えが2種類あるのに置き場所が違うと、探すときに2箇所見ることになります
+        auto folder = StorageLocations::getProjectFolder (file,
+                                                           StorageLocations::ProjectFolder::backups, true);
+
+        if (folder != juce::File() && folder.isDirectory())
+            return folder.getChildFile (name);
+
+        return file.getSiblingFile (name);
     }
 }
 

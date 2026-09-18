@@ -5,6 +5,7 @@
 #include "LevelMeterComponent.h"
 #include "ValueEntrySlider.h"   // Phase 61：ダブルクリックでの数値入力（8.1のC2）
 #include "TrackRackComponent.h"
+#include "ConsoleLayout.h"   // 8.283：ラックの高さは全ストリップ共通（Phase 276）
 
 class AudioEngine;
 
@@ -37,6 +38,12 @@ public:
 
     /** 音量・パン・ミュート／ソロが操作されたときに呼ばれる（エンジンへの反映用）。 */
     std::function<void()> onMixerValueChanged;
+
+    /** 8.283：境目をドラッグしたときに呼ばれる（Phase 276／本人の要望）。
+
+        **受けるのは`ConsoleView`**です——覚えるのと、**全ストリップへ配る**のは
+        あちらの仕事。ここで自分の高さだけ変えると、**掴んだ1本だけが変わります**。 */
+    std::function<void (int)> onRackAreaHeightDragged;
 
     /** 仕様書5.7：メーターに表示するレベルを外から与える（ConsoleViewがタイマーで更新する）。 */
     void setLevels (float leftLevel, float rightLevel) { meter.setLevels (leftLevel, rightLevel); }
@@ -164,9 +171,12 @@ private:
         縦がさらに限られるため、ここを直さないと使えません。 */
     juce::Viewport rackViewport;
 
-    /** フェーダーとメーターに必ず残す高さ。**ここを下回らせない**のが目的なので、
-        「メーターの目盛りが読める最小」から決めてある。 */
-    static constexpr int minimumFaderAreaHeight = 130;
+    /** 8.283：ラックとフェーダーの境目（Phase 276／本人の要望）。
+        **掴んで動かすと、全ストリップのラックの高さが同時に変わります。** */
+    ConsoleLayout::RackResizer rackResizer;
+
+    /** フェーダーとメーターに必ず残す高さは`ConsoleLayout::minimumFaderAreaHeight`。
+        **ここに書き写さないこと**——マスターと食い違うと、行が揃いません（8.283）。 */
 
     //==========================================================================
     /** VCAトラックのストリップか。設計書2.3.2にならい、フェーダー・ミュート・ソロ以外

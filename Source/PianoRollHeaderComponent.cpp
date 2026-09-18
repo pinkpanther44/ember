@@ -642,6 +642,14 @@ void PianoRollHeaderComponent::mouseUp (const juce::MouseEvent&)
                     // 並びが崩れ、「直前のコード」が別のコードになる（8.5）
                     chordTrack.setChordRegionTime (region, chordPreviewStart, chordPreviewLength,
                                                     &project.getUndoManager());
+
+                    // 8.279：**重なったぶんは縮める**（Phase 275／アレンジ画面と同じ決まり）。
+                    //
+                    // Phase 274まで、こちらは呼んでいませんでした——あちらが
+                    // 「次の旗まで伸ばす」で毎回揃え直していたので、**重なりは
+                    // アレンジ画面を触った瞬間に消えていた**からです。
+                    // 伸ばす動きをやめたいま、**重なりは残り続けます**（1.27）
+                    chordTrack.trimOverlappingChordRegions (&project.getUndoManager());
                     break;
                 }
             }

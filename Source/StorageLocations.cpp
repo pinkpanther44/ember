@@ -117,12 +117,80 @@ namespace StorageLocations
         return {};
     }
 
+    //==========================================================================
+    // 8.286：1プロジェクトにつき1フォルダ（Phase 279／本人の要望。ヘッダの説明）
+
+    juce::String getProjectFolderName (ProjectFolder kind)
+    {
+        switch (kind)
+        {
+            case ProjectFolder::backups:    return "Backup";
+            case ProjectFolder::recordings: return "Rec";
+            case ProjectFolder::stems:      return "Stems";
+            case ProjectFolder::mixdown:    return "Mixdown";
+        }
+
+        return {};
+    }
+
+    juce::File getProjectFolder (const juce::File& projectFile, ProjectFolder kind,
+                                  bool createIfNeeded)
+    {
+        // **まだ保存していないプロジェクトには、フォルダがありません。**
+        // ここで既定へ逃がさないこと——逃がすと、呼び出し側は
+        // 「プロジェクトの中なのか、共通の場所なのか」を見分けられなくなります
+        if (projectFile == juce::File())
+            return {};
+
+        auto folder = projectFile.getParentDirectory().getChildFile (getProjectFolderName (kind));
+
+        if (createIfNeeded)
+            folder.createDirectory();
+
+        return folder;
+    }
+
+    juce::File makeProjectFileInOwnFolder (const juce::File& chosenFile)
+    {
+        return makeProjectFileInOwnFolder (chosenFile, getFolder (Kind::projects));
+    }
+
+    juce::File makeProjectFileInOwnFolder (const juce::File& chosenFile, const juce::File& root)
+    {
+        if (chosenFile == juce::File())
+            return chosenFile;
+
+        // **根の直下を選んだときだけ**（ヘッダの説明）
+        if (chosenFile.getParentDirectory() != root)
+            return chosenFile;
+
+        const auto name = chosenFile.getFileNameWithoutExtension();
+
+        if (name.isEmpty())
+            return chosenFile;
+
+        auto folder = root.getChildFile (name);
+
+        // **作れなければ、選ばれた場所のまま保存すること。** ここで諦めると、
+        // 「保存を押したのに何も起きない」になります（フォルダは飾りで、保存が本体）
+        if (! folder.createDirectory().wasOk())
+            return chosenFile;
+
+        return folder.getChildFile (chosenFile.getFileName());
+    }
+
     juce::String getDescription (Kind kind)
     {
         switch (kind)
         {
             case Kind::projects:
-                return utf8 ("「開く」「名前を付けて保存」で最初に開くフォルダです。");
+                // 8.286：**中身が変わりました**（Phase 279）
+                // **画面に出る文なので、強調の記号は入れないこと**（そのまま文字として出ます）
+                return utf8 ("プロジェクトの置き場所です。ここに保存すると、"
+                              "プロジェクトごとにフォルダを作り、その中に"
+                              "プロジェクトファイルと、Backup／Rec／Stems／Mixdown を置きます。"
+                              "別の場所を選んで保存したときは、そのファイルのあるフォルダが"
+                              "そのプロジェクトの置き場所になります。");
 
             case Kind::backups:
                 // 8.175：**フォルダ名を文に埋め込まないこと**（Phase 216）。
@@ -134,7 +202,13 @@ namespace StorageLocations
                         + juce::String (" %APPDATA%\\") + Branding::dataFolderName;
 
             case Kind::recordings:
-                return utf8 ("録音した音声ファイル（WAV）の置き場所です。"
+                // 8.286：**録音はプロジェクトのフォルダへ入るようになりました**（Phase 279）。
+                // ここは「まだ保存していないプロジェクト」の逃げ場としてだけ残っています
+                // ——とはいえ、未保存では録音の前に保存を促すので（本人の選択）、
+                // 実際にここへ落ちるのは、そのプロジェクトのフォルダが作れないときだけです
+                return utf8 ("録音した音声ファイル（WAV）は、"
+                              "プロジェクトのフォルダの中（Rec）へ入ります。"
+                              "ここは、その置き場所が使えないときの逃げ場です。"
                               "クリップは録った場所をパスで参照するので、"
                               "変更しても、録音済みのファイルは移動しません。");
 

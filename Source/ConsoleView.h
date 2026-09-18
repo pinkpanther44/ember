@@ -97,6 +97,10 @@ private:
     /** トラック構成に合わせてチャンネルストリップを作り直す。 */
     void rebuildStrips();
 
+    /** 8.283：ラックの高さを覚えて、**全ストリップ（マスターも）へ配る**
+        （Phase 276／本人の要望。`ConsoleLayout.h`）。 */
+    void applyRackAreaHeight (int newHeight);
+
     /** 仕様書5.7：メーター表示を更新する（およそ30fps）。 */
     void timerCallback() override;
 

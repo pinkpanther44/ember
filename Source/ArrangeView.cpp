@@ -138,6 +138,29 @@ ArrangeView::ArrangeView (ProjectModel& projectToUse, AudioEngine& audioEngineTo
     snapSelector.setSnapGrid (project.getSnapGrid());
     addAndMakeVisible (snapSelector);
 
+    //--------------------------------------------------------------------------
+    // 8.278：自動スクロール（Phase 275／本人の要望）。**刻みとまったく同じ扱い**
+
+    autoScrollButton.setButtonText (utf8 ("追従"));
+    autoScrollButton.setTooltip (utf8 ("自動スクロール：再生カーソルが画面の端まで来たら、"
+                                        "1画面ぶんめくります"));
+    autoScrollButton.setIconResource ("auto_scroll_svg");
+    autoScrollButton.setColour (juce::TextButton::buttonOnColourId, AppColours::purple);
+    autoScrollButton.setClickingTogglesState (false);   // 見た目はツールと同じ作りにする
+
+    autoScrollButton.onClick = [this]
+    {
+        const bool wanted = ! timeline.isAutoScrollEnabled();
+
+        if (onAutoScrollSelected != nullptr)
+            onAutoScrollSelected (wanted);
+        else
+            setAutoScroll (wanted);   // 繋がっていない場合の保険
+    };
+
+    addAndMakeVisible (autoScrollButton);
+    updateAutoScrollButton();
+
     // デバイスを切り替えたら、入力の有無とデバイス名表示を更新する
     audioEngine.onAudioDeviceChanged = [this] { refreshInputState(); };
 
@@ -661,6 +684,12 @@ void ArrangeView::resized()
     snapSelector.setBounds (inputRow.removeFromRight (juce::jmin (SnapGridSelector::preferredWidth,
                                                                    inputRow.getWidth()))
                                      .reduced (0, 2));
+    inputRow.removeFromRight (8);
+
+    // 8.278：自動スクロールは**刻みの左隣**（Phase 275／本人の指定）。
+    // **ツールボタンと同じ大きさ**（`ToolbarLayout::toolButtonWidth`）
+    autoScrollButton.setBounds (inputRow.removeFromRight (juce::jmin (ToolbarLayout::toolButtonWidth,
+                                                                       inputRow.getWidth())));
     inputRow.removeFromRight (12);
 
     inputMeter.setBounds (inputRow.removeFromLeft (110).reduced (0, 3));
@@ -959,6 +988,24 @@ void ArrangeView::setEditTool (EditTool tool)
 EditTool ArrangeView::getEditTool() const
 {
     return timeline.getEditTool();
+}
+
+void ArrangeView::setAutoScroll (bool shouldFollow)
+{
+    timeline.setAutoScroll (shouldFollow);
+    updateAutoScrollButton();
+}
+
+void ArrangeView::updateAutoScrollButton()
+{
+    // ツールボタンと同じ見せ方（設計書2.6）。**`updateToolButtons()`と同じ形にすること**
+    const bool on = timeline.isAutoScrollEnabled();
+
+    autoScrollButton.setColour (juce::TextButton::buttonColourId,
+                                 on ? AppColours::purple : AppColours::background);
+    autoScrollButton.setColour (juce::TextButton::textColourOffId,
+                                 on ? juce::Colours::white : AppColours::textPrimary);
+    autoScrollButton.repaint();
 }
 
 void ArrangeView::setSnapGrid (SnapGrid grid)

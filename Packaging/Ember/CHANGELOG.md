@@ -27,6 +27,23 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   selection. A copy dropped where a flag already stands replaces it, rather
   than leaving two flags in the same place
 
+- **The view can follow the playhead.** A button beside the snap setting, in
+  both the arrangement and the piano roll, turns it on; it starts on. Rather
+  than scrolling continuously, the view turns the page: when the playhead
+  reaches the edge it jumps forward so the playhead sits a tenth of the way in,
+  and the next screenful then stays still while you read it. Rewinding and
+  looping turn the page back the same way
+
+- **Drum rows can be renamed in place**, by double-clicking the name, instead of
+  through a separate window
+
+- **Part names can be saved as presets and loaded again**, from the right-click
+  menu on any drum row. A preset holds the note numbers, the part names and the
+  choke groups — not which rows are muted, since that is what you are working on
+  rather than what the kit is. Loading one renames the rows it covers and adds
+  any it has that your map does not; it never removes a row, because a row that
+  goes away takes its notes off the screen with it
+
 ### Changed
 
 - **Chord flags are now picked up by the flag itself**, not by the whole band
@@ -50,7 +67,51 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   single dark colour with no outline, as they are in Racco Guitar. Nothing
   about the sound has changed
 
+
+- **Chord regions can be given a length of their own**, by dragging their right
+  edge. Until now the length was always "up to the next flag" and could not be
+  set; the trade is that a chord can now stop before the next one begins, and
+  the gap has no chord in it. Deleting a flag therefore leaves a gap where it
+  was, instead of the chord before it stretching to fill the space. The left
+  edge still moves the flag, since that is where the chord begins
+
+- **A chord flag dropped on top of another replaces it**, rather than nothing
+  happening. Flags can also be dragged past their neighbours now
+
+- **The piano roll shows every key**, from C-1 to G9, rather than the five
+  octaves that could be played. What you see when you open it is unchanged —
+  C7 is still at the top — and the rest is there when you scroll to it
+
+- **The drum editor shows all 128 rows too.** The drum map now decides which
+  rows have names rather than which rows exist, so notes outside it are visible
+  and editable in place. Rows without a name show the note name instead. The
+  note that used to say how many notes were hidden is gone, because none are.
+  A row joins the map when you name it, mute it or put it in a choke group
+
+- **Every channel strip in the console is now cut to the same height.** The
+  rack of inserts and sends took as much room as its contents wanted, so a
+  track with four plugins had a shorter fader and meter than a track with one,
+  and the meters no longer lined up to be read against each other. The rack is
+  now one height shared by every strip, including the master; drag the line
+  below it to change them all at once, and anything that does not fit scrolls
+  as it did before. **The fader and meter are never squeezed below a readable
+  size** — the rack gives way first, since the rack can scroll and a meter
+  cannot
+
+- **A project now keeps everything in a folder of its own.** Saving into the
+  projects folder creates `<the project's name>/` and puts the project file
+  inside it, along with `Backup` (the copy kept from the previous save), `Rec`
+  (recordings), `Stems` and `Mixdown`. A project saved anywhere else treats the
+  folder it is in as its own, so **nothing you have already saved moves or
+  breaks**. Recording asks you to save first, so that the audio has a folder to
+  go to. The preferences now name two folders instead of four: where projects
+  go, and where templates go
+
 ### Fixed
+
+- **Renaming a drum row no longer silences it.** Double-clicking the name
+  toggled the row's mute as well, left over from when a single click on the
+  name was what muted a row
 
 - **Dragging the end of a note now resizes every note you have selected.**
   Moving them and changing their velocity already worked on the whole

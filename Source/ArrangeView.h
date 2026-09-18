@@ -206,6 +206,15 @@ public:
     /** 表示をモデルの値へ合わせる（もう片方の入口で変えられたときにも呼ぶこと）。 */
     void setSnapGrid (SnapGrid grid);
 
+    //==========================================================================
+    // 8.278：自動スクロール（Phase 275／本人の要望）。**刻みとまったく同じ扱い**
+
+    /** ボタンが押されたときに呼ばれる。**値を決めるのはMainComponent。** */
+    std::function<void (bool)> onAutoScrollSelected;
+
+    /** 表示と中身を、決まった値へ合わせる（もう片方の画面で変えられたときにも呼ぶ）。 */
+    void setAutoScroll (bool shouldFollow);
+
     void selectAllClips();
     void clearClipSelection();
 
@@ -372,6 +381,14 @@ private:
 
     /** ツールボタンの見た目を、いまのツールに合わせる。 */
     void updateToolButtons();
+
+    /** 8.278：**自動スクロール**（Phase 275／本人の要望）。**刻みの左隣**、
+        ツールボタンと同じ大きさ・色で置いています（本人の指定）。
+
+        値を持っているのは`MainComponent`です（ピアノロールにも同じボタンがあるため。1.27）。 */
+    IconAssets::SvgButton autoScrollButton;
+
+    void updateAutoScrollButton();
 
     /** 仕様書5.5・5.9：編集の刻み（Phase 55）。ツールの左隣に置く。 */
     SnapGridSelector snapSelector;

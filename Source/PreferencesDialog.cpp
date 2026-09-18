@@ -10,12 +10,18 @@ namespace
     const char* const categoryNames[] = { "General", "Audio", "Appearance", "Shortcuts", "Plugins" };
     constexpr int numCategories = (int) (sizeof (categoryNames) / sizeof (categoryNames[0]));
 
-    /** 設計書2.3.8：Generalに並べる保存先（Phase 57）。**enumの並びと対**。 */
+    /** 設計書2.3.8：Generalに並べる保存先（Phase 57）。**enumの並びと対**。
+
+        8.286：**2つに減りました**（Phase 279／本人の要望
+        「指定できるフォルダを1つにするのはどうだろう」）。
+
+        録音とバックアップは、**プロジェクトのフォルダの中**（`Rec`／`Backup`）へ
+        入るようになったので、別々に指定する意味がなくなりました（`StorageLocations.h`）。
+        **設定そのものは残してあります**——プロジェクトのフォルダが使えないときの
+        逃げ場として読まれます。テンプレートは本人の指定で今までどおりです。 */
     constexpr StorageLocations::Kind folderKinds[] =
     {
         StorageLocations::Kind::projects,
-        StorageLocations::Kind::backups,
-        StorageLocations::Kind::recordings,
         StorageLocations::Kind::templates
     };
 

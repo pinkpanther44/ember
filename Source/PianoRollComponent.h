@@ -262,6 +262,13 @@ public:
         `timelineTimeToX()`を通します（8.28）。 */
     void setPlayheadSeconds (double timelineSeconds);
 
+    /** 8.278：**再生カーソルに追従して横スクロールする**（Phase 275／本人の要望）。
+        めくり方も、値を持つ場所も**アレンジ画面と同じ**です
+        （`TimelineComponent::setAutoScroll()`の説明）。 */
+    void setAutoScroll (bool shouldFollow);
+
+    bool isAutoScrollEnabled() const { return autoScroll; }
+
     /** ビューポートで見えている縦の範囲を教える（Phase 76／8.36）。
 
         **下部のレーンを固定表示にするために要ります。** ここが分からないと、
@@ -325,6 +332,29 @@ public:
         Viewportの中身として使われるため、**自分で自分の大きさを決める**
         （ビュー側が固定値でsetSizeすると、行数が変わっても表示領域が合わない）。 */
     int getRequiredHeight() const;
+
+    /** 8.282：**最初に画面のいちばん上へ出す音**（Phase 275／`PianoRollView`が使う）。
+
+        Phase 274まではここが音域の上限（C7）でした。**その見え方を変えないため**、
+        広げたぶんは上下へ「余白」として付き、開いた直後の眺めは今までどおりです。 */
+    static constexpr int initialTopPitch = 96;   // C7
+
+    /** 8.285：ドラム表示にしたときに、**楽器の並んでいるところが見える**スクロール位置
+        （Phase 278／本人の要望で128行にしたため）。
+
+        行が128本になったので、**下端（C-1）には何もありません**。
+        マップのいちばん低い音が、見えている範囲の下に来るように返します。 */
+    int getDrumMapScrollY (int visibleHeight) const;
+
+    /** 8.282：その音の行の**上端のY**（Phase 275）。
+
+        **ドラム表示かどうかに関わらず、ピアノロールの並びで答えます**——
+        使うのは「最初にどこまでスクロールしておくか」を決めるところだけで、
+        そこは表示の切り替えより前に決まるためです。 */
+    static int getYForPitchTop (int pitch)
+    {
+        return (highestPitch - juce::jlimit (lowestPitch, highestPitch, pitch)) * noteRowHeight;
+    }
 
     //==========================================================================
     // 8.1のG5／D4：下部のレーン（Phase 75／8.35）
@@ -724,8 +754,44 @@ private:
     void paintVelocityAt (juce::Point<int> position);
 
     /** 仕様書5.3.2：ドラム行のパート名を変える（Phase 68）。
-        見出しのダブルクリックと右クリックメニューの両方から呼ぶ。 */
+        見出しのダブルクリックと右クリックメニューの両方から呼ぶ。
+
+        8.284：**その場で打てるようになりました**（Phase 277／本人の要望）。
+        Phase 276までは別ウィンドウ（`NameEntry`）でした——
+        トラック名をその場編集にしたとき（8.61）と同じ理由で、
+        名前を1つ直すのにダイアログが開いて閉じるのは重い。 */
     void renameDrumPart (int row);
+
+    //==========================================================================
+    // 8.284：ドラム行名の**その場編集**（Phase 277／本人の要望）。
+    //
+    // 作りは`TimelineComponent`のトラック名（8.61）と同じです。**違うのは覚え方**：
+    // あちらはトラックのIDで覚えますが、ドラムの行にIDはありません。
+    // **音の番号で覚えます**——行の番号で覚えると、打っているあいだに
+    // マップへ行が足されたときに別の行の名前を書き換えます（1.32と同じ話）。
+
+    std::unique_ptr<juce::TextEditor> drumNameEditor;
+    int drumNameEditorNote = -1;
+
+    void commitDrumNameEditor();
+    void dismissDrumNameEditor();
+
+    /** 8.284：ドラムマップのプリセット（Phase 277）。行の右クリックメニューから。 */
+    void showDrumMapPresetMenu (juce::Point<int> screenPosition);
+    void saveDrumMapPreset();
+
+    /** 8.285：その音の行を**マップから引く。無ければ足す**（Phase 278／本人の要望）。
+
+        行が128本になったので、**マップに載っていない行**が普通にあります。
+        名前を付ける・ミュートする・グループへ入れる——
+        **マップに覚えることをしたときだけ**、その場で足します。
+
+        **先に足さないこと。** メニューを開いただけ・行を眺めただけでマップが増えると、
+        プリセットにも入っていきます（8.284の保存は「いまのマップ」を書き出すため）。
+
+        **区切り（beginAction）は呼び出し側で作っておくこと**——
+        ここで足すのも1つのUndoに含めたいためです。 */
+    DrumMapEntry getDrumMapEntryFor (int pitch);
 
     /** 8.29の表：CCの点の右クリックメニュー（Phase 70）。
 
@@ -754,8 +820,6 @@ private:
     /** **タイムライン上の時刻**へ貼り付ける（Phase 126で3つとも基準が揃った）。 */
     bool pasteAutomationPointsAt (double timelineSeconds);
 
-    /** ドラムマップに載っていないノートの数（伏せられていることを知らせるために数える）。 */
-    int countNotesOutsideDrumMap() const;
 
     //==========================================================================
     // 8.91：MIDIはトラックが直接持つ（Phase 131）
@@ -821,8 +885,28 @@ private:
     void valueTreeParentChanged (juce::ValueTree&) override;
 
     static constexpr int noteRowHeight = 12;
-    static constexpr int lowestPitch = 36;   // C2
-    static constexpr int highestPitch = 96;  // C7
+    //==========================================================================
+    /** 8.282：**鍵盤はMIDIの全域を出します**（Phase 275／本人の要望）。
+
+        本人の言葉：「鳴らない鍵盤(C2以下など)を表示させることは可能？
+        ノート編集中に丁度いい高さにスクロールしたい場面もあり、表示できると嬉しい」
+
+        Phase 274まではC2〜C7（36〜96）の**61行だけ**でした。音源が鳴らす範囲に
+        合わせた値でしたが、**画面の端が音域の端**なので、
+        「もう少し下へ寄せて見たい」ができませんでした。
+
+        **`Voicing::lowestPitch`と揃える必要はもうありません。**
+        あちらは**作る音の範囲**で、こちらは**見せる範囲**です。
+        揃えるべきなのは「作った音が必ず見える」ことなので、
+        **見せる範囲が広いぶんには問題ありません**（`ChordEngine.h`にも書いてあります）。
+
+        最初に出す位置は`PianoRollView`が決めます（`initialTopPitch`）——
+        全域をそのまま出すと、**いちばん上（G9）から始まって空の行が並びます**。 */
+    static constexpr int lowestPitch = 0;     // C-1（MIDIの下限）
+    static constexpr int highestPitch = 127;  // G9（MIDIの上限）
+
+    // `initialTopPitch`は**公開側**にあります（`PianoRollView`が最初のスクロール位置に使う）
+
     static constexpr int resizeGrabMargin = 5;
 
     // 8.237／Phase 253：**棒は細く、掴みしろは広く。**
@@ -877,6 +961,12 @@ private:
     static constexpr double zoomStepFactor = 1.25;
 
     double pixelsPerSecond = defaultPixelsPerSecond;
+
+    /** 8.278：再生カーソルに追従するか（Phase 275）。**既定は入**（本人の指定）。 */
+    bool autoScroll = true;
+
+    /** カーソルが画面の外にいたら、見える位置までめくる。 */
+    void followPlayhead();
 
     /** 画面の左端に来ている**タイムライン上の時刻**（秒。Phase 126で基準が変わった）。
 
