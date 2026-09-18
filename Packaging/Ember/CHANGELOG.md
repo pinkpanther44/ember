@@ -50,8 +50,35 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   single dark colour with no outline, as they are in Racco Guitar. Nothing
   about the sound has changed
 
----
+### Fixed
 
+- **Dragging the end of a note now resizes every note you have selected.**
+  Moving them and changing their velocity already worked on the whole
+  selection; the length was the one thing that still only applied to the note
+  under the pointer. They stretch by the same amount rather than all becoming
+  the same length, so a phrase of mixed note values keeps its shape, and the
+  preview shows what will happen before you let go. Dragging the left-hand end
+  works the same way
+
+- **In the drum editor, clicking a note no longer picks the one before it.**
+  Drum notes are drawn as a marker with no tail, but the area you could click
+  was still as wide as the note was long — so a note left over from a coarser
+  grid covered the markers after it, and the one underneath was the one that
+  got selected. Nothing on screen showed the overlap. The clickable area is now
+  the marker you can see, notes entered in the drum editor are no longer longer
+  than a sixteenth, and where two notes do overlap the one drawn on top is the
+  one you get
+
+- **Copying a marker section no longer leaves out the first thing in it.** The
+  chord at the start of the section, and the first note of the part written
+  from it, were being treated as though they fell outside. Anything placed at
+  the playhead sits on a whole sample rather than exactly on the beat — about
+  one and a half millionths of a second early at 167bpm — and the test for
+  "inside the section" was a millionth of a second tighter than that. Copy,
+  cut, delete and move all share one test now, so they always act on the same
+  notes
+
+---
 
 ## [0.5.0] - 2026-09-17
 

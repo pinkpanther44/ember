@@ -680,7 +680,9 @@ void PianoRollComponent::applyRangeSelection()
         // 見た目の3pxで囲わせると、囲ったつもりで外れる。
         // **縦は棒のまま**（`getVelocityBarGrabBounds()`はレーンいっぱいなので使わない）：
         // 空いている上のほうを囲っただけで選ばれると、囲い直しができない
-        if (getNoteBounds (note).intersects (rangeSelectBounds)
+        // 8.276：**囲う側も、掴める範囲で見る**（Phase 274）。ドラムでは▶の四角です——
+        // 長さの矩形で見ると、**枠に入っていない▶まで選ばれます**
+        if (getNoteHitBounds (note).intersects (rangeSelectBounds)
              || getVelocityBarBounds (note).expanded (velocityBarGrabMargin, 0)
                   .intersects (rangeSelectBounds))
             selectedNotes.push_back (noteState);
@@ -844,6 +846,48 @@ void PianoRollComponent::moveOtherSelectedNotesByDrag()
         note.setStartTime (juce::jmax (0.0, note.getStartTime() + deltaTime), &project.getUndoManager());
         note.setPitch (juce::jlimit (lowestPitch, highestPitch, note.getPitch() + deltaPitch),
                         &project.getUndoManager());
+    }
+}
+
+void PianoRollComponent::resizeOtherSelectedNotesByDrag()
+{
+    pruneNoteSelection();
+
+    if (! hasActiveNote())
+        return;
+
+    // **差分で配ること**（同じ長さにしない。宣言のコメント）
+    const double deltaLength = dragPreviewLength - dragOriginalLength;
+    const double deltaStart = dragPreviewStartTime - dragOriginalStartTime;
+
+    if (juce::approximatelyEqual (deltaLength, 0.0) && juce::approximatelyEqual (deltaStart, 0.0))
+        return;
+
+    const auto draggedState = activeNoteState;
+    auto& undoManager = project.getUndoManager();
+
+    for (const auto& noteState : selectedNotes)
+    {
+        if (noteState == draggedState || ! noteState.getParent().isValid())
+            continue;
+
+        Note note { juce::ValueTree (noteState) };
+
+        if (dragMode == DragMode::ResizeLeft)
+        {
+            // **終わりは動かさない。** 始まりを動かした結果が長さになります
+            const double end = note.getStartTime() + note.getLength();
+            const double start = juce::jlimit (0.0, end - minNoteLength,
+                                                note.getStartTime() + deltaStart);
+
+            note.setStartTime (start, &undoManager);
+            note.setLength (end - start, &undoManager);
+            continue;
+        }
+
+        // **最短より短くしないこと。** 短いノートが混ざっていると、
+        // 縮める側のドラッグで**消えたように見えるノート**ができます
+        note.setLength (juce::jmax (minNoteLength, note.getLength() + deltaLength), &undoManager);
     }
 }
 
@@ -1132,6 +1176,20 @@ juce::Rectangle<int> PianoRollComponent::getNoteBounds (const Note& note) const
     return getNoteBoundsFor (getNoteTimelineStart (note.state), note.getPitch(), note.getLength());
 }
 
+juce::Rectangle<int> PianoRollComponent::getNoteHitBounds (const Note& note) const
+{
+    const auto bounds = getNoteBounds (note);
+
+    if (! drumMode)
+        return bounds;
+
+    // 8.276：**▶の四角**（Phase 274）。`drawDrumNote()`は行の高さを一辺にして
+    // `bounds.getX()`から三角を描くので、掴める範囲もそれに合わせます。
+    // **2つの数字を別々に持たないこと**——片方だけ変えると、
+    // 描いてある場所と掴める場所がずれます（見た目で確かめようがなくなる）
+    return bounds.withWidth (bounds.getHeight());
+}
+
 juce::Rectangle<int> PianoRollComponent::getNoteBoundsFor (double timelineStartTime, int pitch,
                                                             double length) const
 {
@@ -1225,9 +1283,44 @@ void PianoRollComponent::drawNoteDragPreview (juce::Graphics& g) const
         // Phase 253：ペンで置いている最中は上下もするので、読み取りだけ出す
         // （動くのは置いた1つだけなので、下のまとめて動かす分は要らない）
         if (dragStartedFromPencil)
+        {
             drawDragReadout (g);
+            return;
+        }
 
-        return; // 長さを変えているのは掴んだ1つだけ
+        // 8.275：**まとめて伸び縮みするぶんも描く**（Phase 274／本人の要望）。
+        //
+        // **離すまで分からない、を残さないこと。** 実際に変わるのは選んだ全部なのに
+        // 掴んだ1つだけが伸びて見えると、離した瞬間に他も動いて驚きます
+        // （移動のほうは、Phase 52からこうなっていました）。
+        //
+        // 配るのは`resizeOtherSelectedNotesByDrag()`と**同じ差分**です——
+        // 片方だけ変えると、予告と結果が食い違います
+        const double deltaLength = dragPreviewLength - dragOriginalLength;
+        const double deltaStart = dragPreviewStartTime - dragOriginalStartTime;
+
+        for (const auto& noteState : selectedNotes)
+        {
+            if (noteState == draggedState || ! noteState.getParent().isValid())
+                continue;
+
+            Note note { juce::ValueTree (noteState) };
+            const double start = getNoteTimelineStart (noteState);
+
+            if (dragMode == DragMode::ResizeLeft)
+            {
+                const double end = start + note.getLength();
+                const double newStart = juce::jlimit (0.0, end - minNoteLength, start + deltaStart);
+
+                drawPreview (getNoteBoundsFor (newStart, note.getPitch(), end - newStart));
+                continue;
+            }
+
+            drawPreview (getNoteBoundsFor (start, note.getPitch(),
+                                            juce::jmax (minNoteLength, note.getLength() + deltaLength)));
+        }
+
+        return;
     }
 
     // Phase 52：選択中のノートは掴んだものと同じ量だけ動く。
@@ -1311,9 +1404,18 @@ juce::ValueTree PianoRollComponent::findNoteAt (juce::Point<int> position) const
     // 見えているのに触れないノートを作らないため
     juce::ValueTree found;
 
+    // 8.276：**重なっていたら、上に描いてあるほうを掴む**（Phase 274／本人の報告）。
+    //
+    // Phase 273までは**先に見つかったほう**でした。`paint()`はここと同じ順で描くので、
+    // 先に見つかるのは**下に隠れているほう**です——
+    // つまり、重なったところでは**見えていないノートが選ばれていました**。
+    //
+    // 上書きしていくだけで「最後に描かれたもの＝いちばん上」になります。
+    // ドラムの▶の重なりは`getNoteHitBounds()`で減りますが、
+    // **そもそも重なったときにどちらを拾うか**は、別に決めておくべきことです
     forEachNote ([this, position, &found] (const juce::ValueTree& noteState)
     {
-        if (! found.isValid() && getNoteBounds (Note (noteState)).contains (position))
+        if (getNoteHitBounds (Note (noteState)).contains (position))
             found = noteState;
     });
 
@@ -1945,7 +2047,23 @@ void PianoRollComponent::addNoteAt (int x, int y)
     // **長さも目盛り1つぶんにする**（Phase 54）。コード区間と違い、
     // ノートは「マス1つを埋める」のが打ち込みの単位。フリーのときは既定値。
     const double snapSeconds = project.getSnapSecondsAt (startTime);
-    const double noteLength = (snapSeconds > 0.0) ? snapSeconds : defaultNoteLength;
+    double noteLength = (snapSeconds > 0.0) ? snapSeconds : defaultNoteLength;
+
+    // 8.276：**ドラムは短く置く**（Phase 274／本人の指摘）。
+    //
+    // ドラムの音は**叩いたら減衰するだけ**で、長さは音に出ません（8.121）。
+    // それでも目盛りぶんの長さで置いていたので、**1/4で置いた1音が1拍**あり、
+    // あとから1/16で並べると**前の音が次の音に覆いかぶさります**。
+    // 画面には▶しか出ないので（8.121）、**重なっていること自体が見えません**。
+    //
+    // 掴める範囲のほうも直してありますが（`getNoteHitBounds()`）、
+    // **そもそも長い音を置かない**ほうが素直です——
+    // ピアノロールへ切り替えたときの見た目も、本人の言うとおり長すぎました。
+    //
+    // **目盛りより長くしないこと**（1/32で置いたら1/32）。
+    // 16分より細かい目盛りでは、目盛りぶんのままにします
+    if (drumMode)
+        noteLength = juce::jmin (noteLength, project.getBeatSecondsAt (startTime) * 0.25);
 
     project.beginAction (utf8 ("ノートの追加"));
 
@@ -3953,6 +4071,14 @@ void PianoRollComponent::mouseUp (const juce::MouseEvent& e)
                     project.beginAction (utf8 ("ノートの長さ変更"));
 
                 note.setLength (dragPreviewLength, &undoManager);
+
+                // 8.275：**選んでいるノートも同じだけ伸び縮みする**（Phase 274／本人の要望）。
+                // 移動（Phase 52）とベロシティ（Phase 127）はそうなっていて、
+                // **長さだけが掴んだ1つのままでした**。
+                // **区切りを作った後に呼ぶこと**（`moveOtherSelectedNotesByDrag()`と同じ）
+                if (selectedNotes.size() > 1)
+                    resizeOtherSelectedNotesByDrag();
+
                 changed = true;
             }
         }
@@ -3966,6 +4092,12 @@ void PianoRollComponent::mouseUp (const juce::MouseEvent& e)
                 // 伸縮では持ち主を移さない（**始まりだけが動くので、掴んでいる感覚と合わせる**）
                 setNoteTimelineStart (activeNoteState, dragPreviewStartTime, &undoManager);
                 note.setLength (dragPreviewLength, &undoManager);
+
+                // 8.275：**左端でもまとめて**（Phase 274）。右端だけ直すと、
+                // 「どちらの端を掴んだか」で振る舞いが変わります
+                if (selectedNotes.size() > 1)
+                    resizeOtherSelectedNotesByDrag();
+
                 changed = true;
             }
         }

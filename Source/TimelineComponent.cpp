@@ -11,6 +11,20 @@
 
 namespace
 {
+    //==========================================================================
+    // 8.277：**「同じ位置」と言える近さは`MusicalTime.h`に1つだけ**（Phase 274／本人の報告）
+    //
+    // 旗で選んだ区間をコピーすると、**コードトラックの先頭と、MIDIトラックの1音目が
+    // コピーされない**——本人の報告です。許容が`1.0e-6`秒では**わずかに足りず**、
+    // カーソルから入ったもの（サンプル単位なので4.2e-6拍ずれる）が範囲の外になっていました。
+    //
+    // **値も判定も`MusicalTime.h`にあります**（コードパッド側も同じものを使うため）。
+    // ここに書き写さないこと——**コピーと削除で許容が違うと、カットが別のものを消します。**
+
+    using MusicalTime::isWithinRange;
+    using MusicalTime::samePositionBeats;
+    using MusicalTime::samePositionSeconds;
+
     /** 8.128：コード区間の**旗（コード名の札）**の矩形（Phase 164／改善案13）。
 
         **描くのと当たり判定で同じものを使うこと。** 別々に計算すると、
@@ -3379,7 +3393,9 @@ void TimelineComponent::removeChordRegionAtBeats (Track& track, double beats,
     {
         auto region = track.getChordRegion (r);
 
-        if (std::abs (region.getStartBeats() - beats) < 1.0e-6)
+        // 8.277：**許容は1e-6拍では足りません**（Phase 274）。カーソルから入った旗は
+        // 4e-6拍ずれていることがあります（`samePositionBeats`の説明）
+        if (std::abs (region.getStartBeats() - beats) < samePositionBeats)
             track.removeChordRegion (region, undoManager);
     }
 }
@@ -3607,7 +3623,9 @@ void TimelineComponent::addChordRegionAt (int trackIndex, int x)
     // （曲じゅうがどれかの区間の中）。旗は好きなところに立てられるべきで、
     // 長さは後から`normaliseChordRegions()`が決めます
     for (int r = 0; r < track.getNumChordRegions(); ++r)
-        if (std::abs (track.getChordRegion (r).getStartTime() - startTime) < 1.0e-6)
+        // 8.277：**同じ位置の許容は1ミリ秒**（Phase 274）。1e-6秒だと、
+        // カーソルから入った旗（1.5マイクロ秒ずれ）の上にもう1本立ちます
+        if (std::abs (track.getChordRegion (r).getStartTime() - startTime) < samePositionSeconds)
             return;
 
     const auto key = project.getProjectKeyAt (startTime);
@@ -8656,7 +8674,7 @@ void TimelineComponent::applyRangeMoveToAudioTrack (Track& track, double fromSec
     {
         auto clip = track.getClip (c);
 
-        if (clip.getStartTime() >= fromSeconds - 1.0e-6 && clip.getStartTime() < toSeconds - 1.0e-6)
+        if (isWithinRange (clip.getStartTime(), fromSeconds, toSeconds))
             clips.push_back (clip.state);
     }
 
@@ -8694,7 +8712,7 @@ void TimelineComponent::moveOrCopyMarkersInRange (double fromSeconds, double toS
     {
         auto marker = project.getMarker (m);
 
-        if (marker.getTime() >= fromSeconds - 1.0e-6 && marker.getTime() < toSeconds - 1.0e-6)
+        if (isWithinRange (marker.getTime(), fromSeconds, toSeconds))
             markers.push_back (marker.state);
     }
 
@@ -8722,7 +8740,7 @@ void TimelineComponent::applyRangeMoveToChordTrack (Track& track, double fromSec
     {
         auto region = track.getChordRegion (r);
 
-        if (region.getStartTime() >= fromSeconds - 1.0e-6 && region.getStartTime() < toSeconds - 1.0e-6)
+        if (isWithinRange (region.getStartTime(), fromSeconds, toSeconds))
             regions.push_back (region.state);
     }
 
@@ -8810,7 +8828,7 @@ void TimelineComponent::deleteRangeAllTracks (double fromSeconds, double toSecon
             {
                 auto note = track.getNote (n);
 
-                if (note.getStartTime() >= fromSeconds - 1.0e-6 && note.getStartTime() < toSeconds - 1.0e-6)
+                if (isWithinRange (note.getStartTime(), fromSeconds, toSeconds))
                     track.removeNote (note, &undoManager);
             }
 
@@ -8818,7 +8836,7 @@ void TimelineComponent::deleteRangeAllTracks (double fromSeconds, double toSecon
             {
                 auto event = track.getCCEvent (c);
 
-                if (event.getTime() >= fromSeconds - 1.0e-6 && event.getTime() < toSeconds - 1.0e-6)
+                if (isWithinRange (event.getTime(), fromSeconds, toSeconds))
                     track.removeCCEvent (event, &undoManager);
             }
         }
@@ -8832,7 +8850,7 @@ void TimelineComponent::deleteRangeAllTracks (double fromSeconds, double toSecon
             {
                 auto clip = track.getClip (c);
 
-                if (clip.getStartTime() >= fromSeconds - 1.0e-6 && clip.getStartTime() < toSeconds - 1.0e-6)
+                if (isWithinRange (clip.getStartTime(), fromSeconds, toSeconds))
                     track.removeClip (clip, &undoManager);
             }
         }
@@ -8851,7 +8869,7 @@ void TimelineComponent::deleteRangeAllTracks (double fromSeconds, double toSecon
         {
             auto region = track.getChordRegion (r);
 
-            if (region.getStartTime() >= fromSeconds - 1.0e-6 && region.getStartTime() < toSeconds - 1.0e-6)
+            if (isWithinRange (region.getStartTime(), fromSeconds, toSeconds))
                 track.removeChordRegion (region, &undoManager);
         }
 
@@ -8867,7 +8885,7 @@ void TimelineComponent::deleteRangeAllTracks (double fromSeconds, double toSecon
     {
         auto marker = project.getMarker (m);
 
-        if (marker.getTime() >= fromSeconds - 1.0e-6 && marker.getTime() < toSeconds - 1.0e-6)
+        if (isWithinRange (marker.getTime(), fromSeconds, toSeconds))
             project.removeMarker (marker, &undoManager);
     }
 
@@ -8894,7 +8912,7 @@ void TimelineComponent::applyRangeMoveToMidiTrack (Track& track, Track& target,
     {
         auto note = track.getNote (n);
 
-        if (note.getStartTime() >= fromSeconds - 1.0e-6 && note.getStartTime() < toSeconds - 1.0e-6)
+        if (isWithinRange (note.getStartTime(), fromSeconds, toSeconds))
             notes.push_back (note.state);
     }
 
@@ -8902,7 +8920,7 @@ void TimelineComponent::applyRangeMoveToMidiTrack (Track& track, Track& target,
     {
         auto event = track.getCCEvent (c);
 
-        if (event.getTime() >= fromSeconds - 1.0e-6 && event.getTime() < toSeconds - 1.0e-6)
+        if (isWithinRange (event.getTime(), fromSeconds, toSeconds))
             ccEvents.push_back (event.state);
     }
 
@@ -8970,8 +8988,7 @@ bool TimelineComponent::copyRangeAllTracks (bool alsoDelete)
             {
                 auto note = track.getNote (n);
 
-                if (note.getStartTime() < timeRangeStart - 1.0e-6
-                     || note.getStartTime() >= timeRangeEnd - 1.0e-6)
+                if (! isWithinRange (note.getStartTime(), timeRangeStart, timeRangeEnd))
                     continue;
 
                 EditClipboard::Item item;
@@ -8986,8 +9003,7 @@ bool TimelineComponent::copyRangeAllTracks (bool alsoDelete)
             {
                 auto event = track.getCCEvent (c);
 
-                if (event.getTime() < timeRangeStart - 1.0e-6
-                     || event.getTime() >= timeRangeEnd - 1.0e-6)
+                if (! isWithinRange (event.getTime(), timeRangeStart, timeRangeEnd))
                     continue;
 
                 EditClipboard::Item item;
@@ -9055,8 +9071,7 @@ bool TimelineComponent::copyRangeAllTracks (bool alsoDelete)
         {
             auto region = track.getChordRegion (r);
 
-            if (region.getStartTime() < timeRangeStart - 1.0e-6
-                 || region.getStartTime() >= timeRangeEnd - 1.0e-6)
+            if (! isWithinRange (region.getStartTime(), timeRangeStart, timeRangeEnd))
                 continue;
 
             EditClipboard::Item item;
@@ -9076,7 +9091,7 @@ bool TimelineComponent::copyRangeAllTracks (bool alsoDelete)
     {
         auto marker = project.getMarker (m);
 
-        if (marker.getTime() < timeRangeStart - 1.0e-6 || marker.getTime() >= timeRangeEnd - 1.0e-6)
+        if (! isWithinRange (marker.getTime(), timeRangeStart, timeRangeEnd))
             continue;
 
         EditClipboard::Item item;
@@ -9270,7 +9285,7 @@ bool TimelineComponent::copyTimeRange (bool alsoDelete)
     {
         auto note = track.getNote (n);
 
-        if (note.getStartTime() < timeRangeStart - 1.0e-6 || note.getStartTime() >= timeRangeEnd - 1.0e-6)
+        if (! isWithinRange (note.getStartTime(), timeRangeStart, timeRangeEnd))
             continue;
 
         EditClipboard::Item item;
@@ -9284,7 +9299,7 @@ bool TimelineComponent::copyTimeRange (bool alsoDelete)
     {
         auto event = track.getCCEvent (c);
 
-        if (event.getTime() < timeRangeStart - 1.0e-6 || event.getTime() >= timeRangeEnd - 1.0e-6)
+        if (! isWithinRange (event.getTime(), timeRangeStart, timeRangeEnd))
             continue;
 
         EditClipboard::Item item;
@@ -9469,7 +9484,7 @@ void TimelineComponent::deleteNotesInRange (int trackIndex, double fromSeconds, 
     {
         auto note = track.getNote (n);
 
-        if (note.getStartTime() >= fromSeconds - 1.0e-6 && note.getStartTime() < toSeconds - 1.0e-6)
+        if (isWithinRange (note.getStartTime(), fromSeconds, toSeconds))
             track.removeNote (note, &undoManager);
     }
 
@@ -9502,7 +9517,7 @@ void TimelineComponent::clearTimeRangeIfEmpty()
     {
         auto note = track.getNote (n);
 
-        if (note.getStartTime() >= timeRangeStart - 1.0e-6 && note.getStartTime() < timeRangeEnd - 1.0e-6)
+        if (isWithinRange (note.getStartTime(), timeRangeStart, timeRangeEnd))
             return;   // まだ中身がある
     }
 
@@ -9523,7 +9538,7 @@ void TimelineComponent::transposeNotesInRange (int trackIndex, double fromSecond
     {
         auto note = track.getNote (n);
 
-        if (note.getStartTime() < fromSeconds - 1.0e-6 || note.getStartTime() >= toSeconds - 1.0e-6)
+        if (! isWithinRange (note.getStartTime(), fromSeconds, toSeconds))
             continue;
 
         const int moved = note.getPitch() + semitones;
@@ -9544,7 +9559,7 @@ void TimelineComponent::transposeNotesInRange (int trackIndex, double fromSecond
     {
         auto note = track.getNote (n);
 
-        if (note.getStartTime() < fromSeconds - 1.0e-6 || note.getStartTime() >= toSeconds - 1.0e-6)
+        if (! isWithinRange (note.getStartTime(), fromSeconds, toSeconds))
             continue;
 
         note.setPitch (note.getPitch() + semitones, &undoManager);

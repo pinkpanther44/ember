@@ -1,6 +1,7 @@
 #include "SnapGridSelfTest.h"
 
 #include "ProjectModel.h"
+#include "MusicalTime.h"   // 8.277：位置の比べ方（Phase 274）
 #include "SnapGrid.h"
 
 #include <juce_events/juce_events.h>
@@ -159,6 +160,59 @@ namespace SnapGridSelfTest
 
             checkNear (beats, std::floor (beats + 0.5),
                         "snapped " + juce::String (seconds, 3) + "s sits on a whole number of triplets");
+        }
+
+        //----------------------------------------------------------------------
+        // ⑤ 8.277：**範囲の縁**（Phase 274／本人の報告）。
+        //
+        // 刻みの話と同じ「位置をどう比べるか」なので、ここで一緒に見ています。
+        // 数字は**本人のプロジェクトから取った実測値**です——
+        // マーカーが8.0拍、その位置のコード区間と1音目が7.999995833333333拍。
+
+        say ("--- the edge of a range (real numbers from a project)");
+
+        {
+            ProjectModel song;
+            song.setTempo (167.0, nullptr);
+            song.setTimeSignature ("4/4", nullptr);
+
+            const double markerSeconds = song.getTimeForBeatPosition (8.0);
+
+            // **カーソルから入ったものは、サンプル単位のぶんだけ手前にいます**
+            const double placedSeconds = song.getTimeForBeatPosition (7.999995833333333);
+            const double gap = markerSeconds - placedSeconds;
+
+            check (gap > 1.0e-6 && gap < 1.0e-5,
+                    "the gap is bigger than the old 1e-6 tolerance but still microscopic  ("
+                      + juce::String (gap * 1.0e6, 3) + " us)");
+
+            // **これが直したかったこと**
+            check (MusicalTime::isWithinRange (placedSeconds, markerSeconds, markerSeconds + 8.0),
+                    "something placed from the playhead counts as inside the range");
+
+            check (! MusicalTime::isWithinRange (markerSeconds - 0.5, markerSeconds, markerSeconds + 8.0),
+                    "...but half a second early is still outside");
+
+            // **終わりは含まない**（次の区間のものを二重に数えない）
+            check (! MusicalTime::isWithinRange (markerSeconds + 8.0, markerSeconds, markerSeconds + 8.0),
+                    "the end of the range belongs to the next one, not this one");
+
+            check (MusicalTime::isWithinRange (markerSeconds, markerSeconds, markerSeconds + 8.0),
+                    "the start of the range belongs to it");
+
+            // **隣り合う2つの区間で、どちらにも入らない／両方に入るものが出ないこと。**
+            // コピーと削除が同じ判定を通る以上、ここが破れるとカットが取りこぼします
+            const double edge = markerSeconds + 8.0;
+
+            for (const double offset : { -0.002, -0.0005, 0.0, 0.0005, 0.002 })
+            {
+                const double at = edge + offset;
+                const int count = (MusicalTime::isWithinRange (at, markerSeconds, edge) ? 1 : 0)
+                                + (MusicalTime::isWithinRange (at, edge, edge + 8.0) ? 1 : 0);
+
+                check (count == 1, "a point " + juce::String (offset * 1000.0, 1)
+                                     + "ms from the join lands in exactly one of the two ranges");
+            }
         }
 
         //----------------------------------------------------------------------

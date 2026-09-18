@@ -1092,7 +1092,7 @@ void ChordPadPanel::writeChordToTrack (const Chord& chord, double startSeconds, 
     {
         auto note = targetTrack.getNote (n);
 
-        if (note.getStartTime() >= contentStart - 1.0e-6 && note.getStartTime() < contentEnd - 1.0e-6)
+        if (MusicalTime::isWithinRange (note.getStartTime(), contentStart, contentEnd))
             targetTrack.removeNote (note, &project.getUndoManager());
     }
 
@@ -1214,7 +1214,7 @@ void ChordPadPanel::writeNotesToTrack()
     {
         auto note = targetTrack.getNote (n);
 
-        if (note.getStartTime() >= clipStart - 1.0e-6 && note.getStartTime() < clipEnd - 1.0e-6)
+        if (MusicalTime::isWithinRange (note.getStartTime(), clipStart, clipEnd))
             targetTrack.removeNote (note, &project.getUndoManager());
     }
 
@@ -1613,7 +1613,7 @@ void ChordPadPanel::insertChord (const Chord& chord)
     auto existing = track.findChordRegionAt (startTime);
 
     const bool onFlag = existing.state.isValid()
-                         && std::abs (existing.getStartTime() - startTime) < 1.0e-6;
+                         && std::abs (existing.getStartTime() - startTime) < MusicalTime::samePositionSeconds;
 
     // HANDOVER 8.5：パッドは連打する操作なので、1回ごとに区切らないと
     // 積み上げた進行が丸ごと1ステップのUndoになってしまう
