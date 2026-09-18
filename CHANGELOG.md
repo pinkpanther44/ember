@@ -6,6 +6,53 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- **Triplets in the snap setting.** The list of divisions is unchanged; next to
+  it there is now a **"3"** button that splits whichever note value you have
+  chosen into three. Everything that snaps follows it — notes, clips, the
+  chord lane, the loop, markers and the playhead — and the grid lines in the
+  piano roll are drawn where the new division falls. The button is greyed out
+  on "Bar" and "Free": a bar split into three no longer lands on the bar lines,
+  and "Free" has no division to split. Choosing a different note value keeps
+  the triplet on, so moving between 1/8 and 1/16 triplets takes one click
+
+- **Chord flags can be selected several at a time.** Drag a box around them
+  with the Select tool, or Ctrl-click to add and remove them one by one. Once
+  selected they can be copied, cut and pasted at the playhead, deleted
+  together in a single undo step, and **duplicated by holding Ctrl while you
+  drag them** — the same way clips have always worked. Escape clears the
+  selection. A copy dropped where a flag already stands replaces it, rather
+  than leaving two flags in the same place
+
+### Changed
+
+- **Chord flags are now picked up by the flag itself**, not by the whole band
+  beneath it. The bands sit edge to edge along the whole song, so while they
+  could be grabbed anywhere there was nowhere on the chord track left to start
+  a selection box. Pressing the band now starts a box, exactly as it does on an
+  empty part of any other track; double-clicking it still adds a chord there.
+  Flags too narrow for their name to be drawn can still be grabbed by the band,
+  since otherwise there would be nothing to take hold of
+
+- **The chord pad writes to the track you have selected.** Choosing a MIDI
+  track, or a clip on one, now switches the pad's destination to match, so the
+  chords you play go where you were just working. The menu is still there and
+  still works if you would rather pick without leaving the screen. Selecting an
+  audio or chord track leaves the destination alone — chords cannot be written
+  to either, and you are usually sitting on the chord track while you enter them
+
+- **Java Rhino Bass has a new backdrop**, a pale one in place of the dark
+  green. The knob names and values were hard to read against the old image even
+  after they were given a dark outline to lift them; they are now drawn in a
+  single dark colour with no outline, as they are in Racco Guitar. Nothing
+  about the sound has changed
+
+---
+
+
 ## [0.5.0] - 2026-09-17
 
 ### Added

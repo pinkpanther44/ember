@@ -146,9 +146,11 @@ set(PERSONALDAW_EMBEDDED_ASSETS
 
     # 8.257：Java Rhino Bassの画面のまん中に敷く絵（Phase 265／本人が用意）。
     #
-    # こちらは**ラメの粒**が全面にあるので、同じ1600x900でも**469KB**あります
-    # （ギターのほうは滑らかな階調だけで85KB）。粒が絵の見どころなので、
-    # ここを削ると別の絵になります——**品質82まで**にとどめてあります
+    # 8.274：**淡い絵へ差し替えました**（Phase 273／本人の指定。文字が見づらいため）。
+    # ラメの粒が無くなったぶんJPEGがよく効くので、**品質92でも168KB**です
+    # （前の絵は粒を残すために品質82で469KBありました）。
+    # **滑らかな階調だけの絵は、品質を落とすと縞が出ます**——ギター（85KB）と同じ性質で、
+    # 小さくするより縞を出さないほうを採っています
     Resources/Plugins/java_rhino_bass_field.jpg
 
     # 8.151：起動画面に出すアプリのアイコン（Phase 189／改善案⑰）。
@@ -220,6 +222,8 @@ target_sources(PersonalDAW
         Source/SandboxSelfTest.cpp
         # 8.268：フッターの値と書き換え先を窓なしで確かめる（Phase 270）
         Source/FooterValuesSelfTest.cpp
+        # 8.271：刻み（3連符を含む）の寄せ先を窓なしで確かめる（Phase 272）
+        Source/SnapGridSelfTest.cpp
         Source/PianoRollComponent.cpp
         Source/PianoRollView.cpp
         Source/PianoRollHeaderComponent.cpp

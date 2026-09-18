@@ -119,7 +119,9 @@ ChordPadPanel::ChordPadPanel (ProjectModel& projectToUse, SelectionState& select
     }
 
     targetTrackBox.setTextWhenNoChoicesAvailable (utf8 ("MIDIトラックなし"));
-    targetTrackBox.setTooltip (utf8 ("書き込み先のMIDIトラック"));
+    // 8.272：**選んだトラックにも追従します**（Phase 272）。ここで選び直すこともできる
+    targetTrackBox.setTooltip (utf8 ("書き込み先のMIDIトラック\n"
+                                      "（MIDIトラックを選ぶと、ここも一緒に切り替わります）"));
 
     // 仕様書5.11.3のVoicing。ピアノは転回形、ギターはロー／ハイコード
     voicingBox.addItem (utf8 ("Piano 基本形"), 1);
@@ -385,7 +387,8 @@ ChordPadPanel::~ChordPadPanel()
 
 void ChordPadPanel::changeListenerCallback (juce::ChangeBroadcaster*)
 {
-    // 選択が別のコードトラックへ移ると、対象のキーも変わる
+    // 選択が別のコードトラックへ移ると、対象のキーも変わる。
+    // 8.272：**書き込み先も選んだトラックへ移ります**（`followSelectedTrack()`。Phase 272）
     refreshFromModel();
 }
 
@@ -495,6 +498,8 @@ void ChordPadPanel::refreshFromModel()
         updateKeyBoxes();   // 8.268：挿入位置のキーを出す（曲頭のキーではない）
 
     refreshTargetTrackList();   // Phase 44：トラックが増減している可能性がある
+    followSelectedTrack();      // 8.272：選んでいるトラックへ合わせる（Phase 272）
+
     rebuildGrid();
     updateHeaderText();
     repaint();
@@ -912,6 +917,32 @@ void ChordPadPanel::refreshTargetTrackList()
 
     // 書き込み先が無いのにボタンだけ押せると、押しても何も起きない理由が分からない
     writeButton.setEnabled (firstMidiTrackId > 0);
+}
+
+void ChordPadPanel::followSelectedTrack()
+{
+    const auto selectedTrackId = selection.getTrackId();
+
+    if (selectedTrackId.isEmpty())
+        return;
+
+    for (int t = 0; t < project.getNumTracks(); ++t)
+    {
+        auto track = project.getTrack (t);
+
+        if (track.getId() != selectedTrackId)
+            continue;
+
+        // **MIDIでなければ、いまの書き込み先のまま。** オーディオやコードのトラックを
+        // 選んだだけで書き込み先が消えると、コードパッドが使えなくなります
+        // （コードトラックを選ぶのは、まさにコードを入れているときです）
+        if (track.getType() != TrackType::Midi)
+            return;
+
+        // **番号ではなくIDで探してから番号にする**（項目のIDはトラック番号+1。1.32）
+        targetTrackBox.setSelectedId (t + 1, juce::dontSendNotification);
+        return;
+    }
 }
 
 ChordPerformance ChordPadPanel::getPerformance() const

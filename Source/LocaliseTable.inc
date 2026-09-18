@@ -229,10 +229,9 @@
     { "-∞ dB", "-inf dB", false },
 
     // ChordPadPanel.cpp
-    { "キーの変更", "Change key", false },
     { "直前", "Previous", false },
     { "MIDIトラックなし", "No MIDI track", false },
-    { "書き込み先のMIDIトラック", "Destination MIDI track", false },
+    { "書き込み先のMIDIトラック\n（MIDIトラックを選ぶと、ここも一緒に切り替わります）", "Destination MIDI track\n(selecting a MIDI track switches this too)", true },
     { "Piano 基本形", "Piano root position", false },
     { "Piano 第1転回", "Piano 1st inversion", false },
     { "Piano 第2転回", "Piano 2nd inversion", false },
@@ -263,6 +262,9 @@
     { "分数コードのベース音", "Bass note for slash chords", false },
     { "組み立てたコードを挿入位置へ入れます（左の枠を直接クリックしても同じ。右クリックで試聴）", "Puts the chord you built at the insert position (clicking the box on the left does the same. Right-click to audition)", true },
     { "+ コードトラックを作る", "+ Create a chord track", true },
+    { "キーの変更", "Change key", false },
+    { "キーの変更（", "Change the key (bar ", false },
+    { "小節目）", ")", false },
     { "再生位置にコードがありません", "No chord at the playhead", true },
     { "Writeで「", "Write \"", false },
     { "」を", "\" ", false },
@@ -358,10 +360,15 @@
     { "トラックカラーの変更", "Change track colour", false },
 
     // JavaRhinoBassEditor.cpp
+    { "コントロールにカーソルを合わせると、ここに説明が出ます", "Hover a control and what it does appears here", true },
     { "いまの奏法と、その減衰のかたち。MuteとGhostはSustainに関係なく短く切れます", "The current style and the shape of its decay. Mute and Ghost cut off short whatever Sustain says", true },
+    { "このプラグインから出る音量", "The level this plugin sends out", true },
     { "2つのピックアップの混ぜ具合。真ん中で両方フル（ジャズベの定番。中域がへこみます）", "How the two pickups are mixed. In the middle both are full up - the Jazz Bass sound, with a scooped middle", true },
+    { "つまみと奏法を、最初の状態へ戻します", "Puts the knobs and the articulation back to how they started", true },
     { "押さえたまま次を弾いたときに、弾き直さず音程だけ変えます（切ると全部弾き直しになります）", "Holding one key and playing the next changes the pitch without plucking again (switch it off and every note is plucked)", true },
+    { "鍵盤のキースイッチと同じ切り替えです（音は鳴りません）", "The same switch as the key switches on the keyboard (these make no sound)", true },
     { "音色の明るさ。基音の6〜96倍のところで切ります（どの音程でも倍音の構成がそろいます）", "Tone brightness. It cuts at 6 to 96 times the fundamental, so the harmonics line up at every pitch", true },
+    { "弦が鳴り続ける秒数。どの音程でも同じ秒数だけ鳴ります", "How long the string keeps ringing, in seconds - the same length at every pitch", true },
     { "弾く位置。ブリッジ寄り（小さい値）ほど硬い音になります", "Where the string is plucked. Nearer the bridge (a smaller value) is a harder sound", true },
     { "パッシブトーン。出口で高い側を削ります（800Hz〜12kHz）", "The passive tone control. It trims the high side at the output (800 Hz to 12 kHz)", true },
     { "指やピックの硬さ。励起の明るさの基準になります", "How hard the finger or pick is. It sets the brightness the pluck starts from", true },
@@ -376,21 +383,19 @@
     { "保存", "Save", false },
 
     // Main.cpp
-    { "プロジェクトを読み込んでいます...", "Loading the project...", true },
-    { "画面を開いています...", "Opening the window...", true },
     { "起動しています...", "Starting up...", true },
     { "画面とオーディオを準備しています...", "Preparing the interface and audio...", true },
+    { "プロジェクトを読み込んでいます...", "Loading the project...", true },
+    { "画面を開いています...", "Opening the window...", true },
 
     // MainComponent.cpp
-    { "テンポの変更（", "Change the tempo (bar ", false },
-    { "拍子の変更（", "Change the time signature (bar ", false },
-    { "キーの変更（", "Change the key (bar ", false },
-    { "小節目）", ")", false },
     { "取り込むオーディオファイルを選んでください", "Choose an audio file to import", false },
     { "録音待機の切り替え", "Toggle record arm", false },
     { "ループの入切", "Toggle loop", false },
     { "テンポの変更", "Change tempo", false },
+    { "テンポの変更（", "Change the tempo (bar ", false },
     { "拍子の変更", "Change time signature", false },
+    { "拍子の変更（", "Change the time signature (bar ", false },
     { "マスター音量の変更", "Change master volume", false },
     { "オーディオデバイスの初期化に失敗しました: ", "Could not initialise the audio device: ", true },
     { "自動保存しました (", "Auto-saved (", true },
@@ -858,13 +863,6 @@
     { "サンドボックスプロセスが応答しません（タイムアウト）", "The sandbox process is not responding (timed out)", true },
     { "サンドボックス内でのロードに失敗しました", "Loading inside the sandbox failed", true },
 
-    // SandboxedPluginEditor.cpp
-    { "プラグインの画面を開いています…", "Opening the plugin's own window...", true },
-    { "このプラグインは別プロセスで動いています", "This plugin is running in a separate process", true },
-    { "このプラグインは別プロセスで動いています。本来の画面は開けませんでした", "This plugin is running in a separate process. Its own window could not be opened.", true },
-    { "このプラグインは別プロセスで動いています。本来の画面は別の窓で開いています", "This plugin is running in a separate process. Its own window is open separately.", true },
-    { "このプラグインは落ちました。音は素通しになっています", "This plugin crashed. Audio now passes through it untouched.", true },
-
     // PluginScanView.cpp
     { "スキャン中... （終わるまで一覧は変わりません）", "Scanning... (the list does not change until it finishes)", true },
     { "スキャン中... （前回落ちた ", "Scanning... (skipping the ", true },
@@ -897,7 +895,6 @@
     { "配色はアプリ全体の設定として保存されます。", "The theme is saved as an application-wide setting.", true },
 
     // ProjectChooser.cpp
-    { "プラグインを使っているプロジェクトは、その数だけ時間がかかります", "Projects that use plugins take longer, the more of them there are", true },
     { "バージョン ", "Version ", false },
     { "テンプレートから始める", "Start from a template", false },
     { "最近開いたプロジェクト", "Recent projects", false },
@@ -905,6 +902,7 @@
     { "開く", "Open", false },
     { "ファイルを開く...", "Open file...", false },
     { "まだありません。テンプレートから始めてください。", "Nothing yet. Start from a template.", true },
+    { "プラグインを使っているプロジェクトは、その数だけ時間がかかります", "Projects that use plugins take longer, the more of them there are", true },
     { "テンプレートを削除しますか", "Delete this template?", false },
     { "」を削除します。\n", "\" will be deleted.\n", true },
     { "削除する", "Delete", false },
@@ -936,13 +934,8 @@
     { "書き込めませんでした:\n", "Could not write:\n", true },
 
     // RaccoGuitarEditor.cpp
-    { "コントロールにカーソルを合わせると、ここに説明が出ます", "Hover a control and what it does appears here", true },
     { "いまの奏法と、その減衰のかたち。奏法によってSustainに上限が掛かります", "The current articulation and the shape of its decay. Some articulations cap Sustain", true },
-    { "このプラグインから出る音量", "The level this plugin sends out", true },
     { "ピックアップの位置。ブリッジ寄り（Rear）ほど硬い音になります", "Pickup position. Nearer the bridge (Rear) gives a harder sound", true },
-    { "つまみと奏法を、最初の状態へ戻します", "Puts the knobs and the articulation back to how they started", true },
-    { "鍵盤のキースイッチと同じ切り替えです（音は鳴りません）", "The same switch as the key switches on the keyboard (these make no sound)", true },
-    { "弦が鳴り続ける秒数。どの音程でも同じ秒数だけ鳴ります", "How long the string keeps ringing, in seconds - the same length at every pitch", true },
     { "ピックの硬さ。0でフェルトや指、1で硬いピックの鋭い音", "How hard the pick is. 0 is felt or a finger, 1 is a hard pick with a sharp attack", true },
     { "音色の明るさ。下げると倍音が速く減って丸いトーンになります", "Tone brightness. Lower it and the harmonics die away faster, for a rounder tone", true },
     { "弾く位置。ブリッジ寄り（小さい値）で硬い音。ピッキングハーモニクスの次数もここで決まります", "Where the string is picked. Nearer the bridge (a smaller value) is harder, and it also sets the order of pinch harmonics", true },
@@ -952,12 +945,20 @@
     // RecorderProcessor.cpp
     { "録音ファイルを作成できませんでした: ", "Could not create the recording file: ", true },
 
+    // SandboxedPluginEditor.cpp
+    { "プラグインの画面を開いています…", "Opening the plugin's own window...", true },
+    { "このプラグインは別プロセスで動いています", "This plugin is running in a separate process", true },
+    { "このプラグインは別プロセスで動いています。本来の画面は開けませんでした", "This plugin is running in a separate process. Its own window could not be opened.", true },
+    { "このプラグインは別プロセスで動いています。本来の画面は別の窓で開いています", "This plugin is running in a separate process. Its own window is open separately.", true },
+    { "このプラグインは落ちました。音は素通しになっています", "This plugin crashed. Audio now passes through it untouched.", true },
+
     // SnapGrid.h
     { "小節", "Bar", false },
     { "フリー", "Free", false },
 
     // SnapGridSelector.cpp
     { "スナップ：クリップ・ノート・コード区間・ループ・マーカー・再生カーソルを、この刻みへ寄せます\n（クオンタイズのグリッドとは別の設定です）", "Snap: pulls clips, notes, chord regions, the loop, markers and the playhead to this grid\n(this is separate from the quantise grid)", true },
+    { "3連符：選んでいる音価を3等分した刻みへ寄せます\n（1/8なら、3つで1拍）", "Triplets: snaps to the chosen note value split into three\n(with 1/8, three of them make one beat)", true },
 
     // StorageLocations.cpp
     { "プロジェクト", "Projects", false },
@@ -1038,8 +1039,11 @@
     { "小節目からのキー", " - key from this bar", false },
     { "小節の変更を移動", "Move bar change", false },
     { "テンポの変更を移動", "Move tempo change", false },
+    { "コード区間の複製", "Duplicate chord region", false },
     { "コード区間の移動", "Move chord region", false },
     { "オートメーションのバイパス", "Bypass automation", false },
+    { "貼り付け先のコードトラックがありません。", "There is no chord track to paste into.", true },
+    { "コード区間の貼り付け", "Paste chord regions", false },
     { "クリップの貼り付け", "Paste clips", false },
     { "トラックを移動", "Move tracks", true },
     { "クリップの移動", "Move clip", false },

@@ -33,10 +33,14 @@ public:
                             float sliderPosProportional, float rotaryStartAngle,
                             float rotaryEndAngle, juce::Slider& slider) override;
 
-    /** つまみの下の数値を**太字で**描く。
+    /** つまみの見出しと数値を**太字で**描く。
 
-        この絵はラメの粒が全面にあるので、細い字だと粒に紛れます
-        （ギターの絵は滑らかなので、あちらは基底のままです）。
+        8.274：**縁は描きません**（Phase 273／本人の指定）。Phase 272までは
+        **暗い縁＋白い字**でしたが、あれは濃い絵の上に文字を浮かせるための手当てで、
+        絵を淡いものへ替えたので畳みました。**色は`fieldInk()`の一色**
+        （`Racco Guitar`と同じ扱い）。
+
+        **太字だけ残しているのは、つまみの下の小さい数値のため**です。
 
         **Ember（7セグ）はそのまま**——基底へ渡します。棒は元から太いので困りません。 */
     void drawLabel (juce::Graphics& g, juce::Label& label) override;

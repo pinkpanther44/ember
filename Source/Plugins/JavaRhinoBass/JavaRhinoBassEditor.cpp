@@ -92,23 +92,19 @@ void BassFieldLookAndFeel::drawLabel (juce::Graphics& g, juce::Label& label)
         return;
     }
 
-    const auto text = label.getText();
-    const auto area = label.getLocalBounds();
-    const auto justification = label.getJustificationType();
     const float alpha = label.isEnabled() ? 1.0f : 0.5f;
 
+    // 8.274：**縁は描きません**（Phase 273／本人の指定「縁は無し」）。
+    //
+    // Phase 272までは**暗い縁を4方向に置いてから白い字**を重ねていました（8.259）。
+    // あれは**濃い絵の上に文字を浮かせる**ための手当てで、絵を淡いものへ替えたいま、
+    // 白い縁だけが浮きます。**絵に合わせた手当ては、絵と一緒に畳むこと。**
+    //
+    // **太字だけは残します。** つまみの下の小さい数値は、絵の階調の上では
+    // 細いと読みにくいままです（`Racco Guitar`の絵より階調の幅が広い）。
     g.setFont (juce::Font (juce::FontOptions (label.getFont().getHeight(), juce::Font::bold)));
-
-    // 8.259：**先に暗い縁を置く**（Phase 267／本人の指摘）。
-    // ラメの粒の上では、白一色だと明るいところで文字が飛びます
-    g.setColour (JavaRhinoBassTheme::fieldTextEdge().withMultipliedAlpha (alpha));
-
-    for (const auto offset : { juce::Point<int> (-1, 0), juce::Point<int> (1, 0),
-                                juce::Point<int> (0, -1), juce::Point<int> (0, 1) })
-        g.drawFittedText (text, area.translated (offset.x, offset.y), justification, 1, 1.0f);
-
     g.setColour (label.findColour (juce::Label::textColourId).withMultipliedAlpha (alpha));
-    g.drawFittedText (text, area, justification, 1, 1.0f);
+    g.drawFittedText (label.getText(), label.getLocalBounds(), label.getJustificationType(), 1, 1.0f);
 }
 
 //==============================================================================
@@ -118,12 +114,12 @@ BassFieldKnob::BassFieldKnob (const juce::String& name, juce::Colour arcColour)
     label.setText (name, juce::dontSendNotification);
     label.setJustificationType (juce::Justification::centred);
     label.setFont (juce::Font (juce::FontOptions (10.5f, juce::Font::bold)));
-    label.setColour (juce::Label::textColourId, JavaRhinoBassTheme::fieldText());
+    label.setColour (juce::Label::textColourId, JavaRhinoBassTheme::fieldInk());
     label.setInterceptsMouseClicks (false, false);
     addAndMakeVisible (label);
 
     slider.setColour (juce::Slider::rotarySliderFillColourId, arcColour);
-    slider.setColour (juce::Slider::textBoxTextColourId, JavaRhinoBassTheme::fieldText());
+    slider.setColour (juce::Slider::textBoxTextColourId, JavaRhinoBassTheme::fieldInk());
     slider.setColour (juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
     slider.setColour (juce::Slider::textBoxBackgroundColourId, juce::Colours::transparentBlack);
     slider.setColour (juce::Slider::textBoxHighlightColourId, arcColour.withAlpha (0.35f));
@@ -733,7 +729,8 @@ void JavaRhinoBassEditor::drawField (juce::Graphics& g) const
             // **切り取らずに伸ばします**（絵は16:9、置き場所は約3:1。8.256）
             g.drawImage (fieldImage, area.toFloat(), juce::RectanglePlacement::stretchToFit);
 
-            // **白を重ねる**。この絵は中間より濃いので、ギターより厚め（`JavaRhinoBassTheme`）
+            // **白を重ねる**。8.274で絵を淡いものへ替えたので、厚さもギターと同じ
+            // 0.22になりました（`JavaRhinoBassTheme::fieldVeil()`）
             g.setColour (JavaRhinoBassTheme::fieldVeil());
             g.fillRect (area);
         }

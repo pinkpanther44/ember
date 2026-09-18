@@ -939,25 +939,85 @@ bool TimelineComponent::hitTestChordRegion (juce::Point<int> position, int& trac
     return false;
 }
 
+bool TimelineComponent::isChordRegionSelected (const juce::ValueTree& regionState) const
+{
+    if (! regionState.isValid())
+        return false;
+
+    for (const auto& state : selectedChordRegions)
+        if (state == regionState)
+            return true;
+
+    return false;
+}
+
 void TimelineComponent::setSelectedChordRegion (const juce::ValueTree& regionState)
 {
-    if (selectedChordRegion == regionState)
+    // 既に「その1本だけ」なら触らない（同じ選択で描き直しを呼ばない）
+    if (selectedChordRegions.size() == 1 && selectedChordRegions.front() == regionState)
         return;
 
-    selectedChordRegion = regionState;
+    if (selectedChordRegions.empty() && ! regionState.isValid())
+        return;
+
+    selectedChordRegions.clear();
+
+    if (regionState.isValid())
+        selectedChordRegions.push_back (regionState);
+
     repaint();
 }
 
-bool TimelineComponent::deleteSelectedChordRegion()
+void TimelineComponent::toggleChordRegionSelection (const juce::ValueTree& regionState)
 {
-    // **消えた区間を掴んだままにしない**（親を失ったValueTreeは無効）
-    if (! selectedChordRegion.isValid() || ! selectedChordRegion.getParent().isValid())
+    if (! regionState.isValid())
+        return;
+
+    for (auto it = selectedChordRegions.begin(); it != selectedChordRegions.end(); ++it)
     {
-        selectedChordRegion = {};
-        return false;
+        if (*it != regionState)
+            continue;
+
+        selectedChordRegions.erase (it);
+        repaint();
+        return;
     }
 
-    auto parent = selectedChordRegion.getParent();
+    selectedChordRegions.push_back (regionState);
+    repaint();
+}
+
+void TimelineComponent::pruneChordSelection()
+{
+    const auto before = selectedChordRegions.size();
+
+    // **親を失ったツリーを捨てる。** 消された区間やUndoで消えた区間を選んだままだと、
+    // Deleteが「何も消さずにtrueを返す」ことになります
+    selectedChordRegions.erase (std::remove_if (selectedChordRegions.begin(),
+                                                 selectedChordRegions.end(),
+                                                 [] (const juce::ValueTree& state)
+                                                 {
+                                                     return ! state.isValid()
+                                                         || ! state.getParent().isValid();
+                                                 }),
+                                 selectedChordRegions.end());
+
+    if (selectedChordRegions.size() != before)
+        repaint();
+}
+
+bool TimelineComponent::deleteSelectedChordRegions()
+{
+    pruneChordSelection();
+
+    if (selectedChordRegions.empty())
+        return false;
+
+    // **後ろから消すこと。** 前から消すと、以降の番号が1つずつずれて飛ばされます
+    // （範囲の削除でも同じことをしています）
+    project.beginAction (utf8 ("コード区間の削除"));
+
+    bool deletedAnything = false;
 
     for (int t = 0; t < project.getNumTracks(); ++t)
     {
@@ -966,32 +1026,40 @@ bool TimelineComponent::deleteSelectedChordRegion()
         if (track.getType() != TrackType::Chord)
             continue;
 
-        for (int r = 0; r < track.getNumChordRegions(); ++r)
+        bool deletedHere = false;
+
+        for (int r = track.getNumChordRegions(); --r >= 0;)
         {
             auto region = track.getChordRegion (r);
 
-            if (region.state != selectedChordRegion)
+            if (! isChordRegionSelected (region.state))
                 continue;
 
-            project.beginAction (utf8 ("コード区間の削除"));
             track.removeChordRegion (region, &project.getUndoManager());
-            selectedChordRegion = {};
-
-            // 8.128：**消したら並べ直す**（Phase 164／改善案13）。
-            // 手前の区間が、消えた旗のぶんまで伸びます——
-            // 呼ばないと、そこだけ「コードの無い隙間」が残ります
-            track.normaliseChordRegions (&project.getUndoManager());
-
-            if (onModelChanged != nullptr)
-                onModelChanged();
-
-            repaint();
-            return true;
+            deletedHere = true;
         }
+
+        if (! deletedHere)
+            continue;
+
+        deletedAnything = true;
+
+        // 8.128：**消したら並べ直す**（Phase 164／改善案13）。
+        // 手前の区間が、消えた旗のぶんまで伸びます——
+        // 呼ばないと、そこだけ「コードの無い隙間」が残ります
+        track.normaliseChordRegions (&project.getUndoManager());
     }
 
-    selectedChordRegion = {};
-    return false;
+    selectedChordRegions.clear();
+
+    if (! deletedAnything)
+        return false;
+
+    if (onModelChanged != nullptr)
+        onModelChanged();
+
+    repaint();
+    return true;
 }
 
 void TimelineComponent::drawChordRegion (juce::Graphics& g, juce::Rectangle<int> bounds, ChordRegion region)
@@ -1004,7 +1072,8 @@ void TimelineComponent::drawChordRegion (juce::Graphics& g, juce::Rectangle<int>
     //
     // **行の高さは変えていません**（本人の指定）。いまの大きさが見やすいとのことなので、
     // 旗を上端に置いて、下は区間の切れ目が読める薄い塗りにしてあります。
-    const bool isSelected = (region.state.isValid() && region.state == selectedChordRegion);
+    // 8.273：**複数選べます**（Phase 272）。1本だけのときも同じ道を通ります
+    const bool isSelected = isChordRegionSelected (region.state);
 
     // 区間ぜんぶを薄く塗る。**帯の代わりではなく「どこからどこまでか」の下敷き**で、
     // 塗りだけでは読めないくらいに抑えてある（旗のほうを読ませたい）
@@ -1100,6 +1169,8 @@ void TimelineComponent::toggleClipSelection (int trackIndex, int clipIndex, bool
     if (ref.clipId.isEmpty())
         return;
 
+    selectedChordRegions.clear();   // 8.273：選んでいるのは1種類だけ（Phase 272）
+
     auto found = std::find (selectedClips.begin(), selectedClips.end(), ref);
 
     if (found != selectedClips.end())
@@ -1131,6 +1202,15 @@ void TimelineComponent::toggleClipSelection (int trackIndex, int clipIndex, bool
 void TimelineComponent::setSingleClipSelection (int trackIndex, int clipIndex, bool isMidi)
 {
     const auto ref = makeClipRef (trackIndex, clipIndex, isMidi);
+
+    // 8.273：**選んでいるのは1種類だけにする**（Phase 272）。
+    //
+    // コード旗にコピーと削除が付いたので、**クリップと旗を同時に選んでいると
+    // Ctrl＋Cがどちらを指すのか決まりません**。Deleteのほうは前から
+    // 「コード区間を選んでいるあいだはクリップの選択が残っていない」と
+    // 書いてありましたが、**実際には残り得ました**（旗を掴んでも
+    // クリップの選択は外れていなかった）。ここで本当にそうします
+    selectedChordRegions.clear();
 
     selectedClips.clear();
 
@@ -1205,6 +1285,32 @@ void TimelineComponent::applyRangeSelection()
     // 前から呼んでいて、**範囲選択だけ抜けていました**——
     // 枠で囲うとグループの片割れだけが選ばれる、という食い違いになります（8.78）
     expandSelectionToGroups();
+
+    // 8.273：**同じ枠でコード旗も選ぶ**（Phase 272／本人の要望）。
+    //
+    // **見るのは旗（札）の矩形で、区間の帯ではありません。** 帯は隙間なく並ぶので、
+    // 枠が少しでもコードトラックに掛かると**曲じゅうの旗が選ばれます**
+    // （「区間の上か」ではもう振り分けられない、というのは8.128で通った道）。
+    {
+        selectedChordRegions.clear();
+
+        for (int t = 0; t < project.getNumTracks(); ++t)
+        {
+            auto track = project.getTrack (t);
+
+            if (track.getType() != TrackType::Chord || track.isCollapsed())
+                continue;   // 8.44：畳んでいるものは描いていない＝選べない
+
+            for (int r = 0; r < track.getNumChordRegions(); ++r)
+            {
+                const auto flag = getChordFlagBounds (t, r);
+
+                // 空＝札が区間からはみ出すので描いていない。触れないものは選ばない
+                if (! flag.isEmpty() && flag.intersects (rangeSelectBounds))
+                    selectedChordRegions.push_back (track.getChordRegion (r).state);
+            }
+        }
+    }
 
     // 8.159：**同じ枠で、MIDIの時間範囲も引く**（Phase 197／本人の要望）。
     //
@@ -3252,6 +3358,32 @@ void TimelineComponent::drawLoopRange (juce::Graphics& g)
                  clippedEndX - clippedStartX, juce::jmax (0, getHeight() - rulerHeight));
 }
 
+bool TimelineComponent::isChordDragItem (const juce::ValueTree& regionState) const
+{
+    if (! regionState.isValid())
+        return false;
+
+    for (const auto& item : chordDragItems)
+        if (item.state == regionState)
+            return true;
+
+    return false;
+}
+
+void TimelineComponent::removeChordRegionAtBeats (Track& track, double beats,
+                                                   juce::UndoManager* undoManager)
+{
+    // **拍で比べること。** 秒で比べると、テンポの変化点の向こうで
+    // 「同じ位置」の判定が甘くなったり厳しくなったりします（8.139）
+    for (int r = track.getNumChordRegions(); --r >= 0;)
+    {
+        auto region = track.getChordRegion (r);
+
+        if (std::abs (region.getStartBeats() - beats) < 1.0e-6)
+            track.removeChordRegion (region, undoManager);
+    }
+}
+
 void TimelineComponent::updateChordDrag (const juce::MouseEvent& e)
 {
     if (chordDragMode == ChordDragMode::none)
@@ -3282,32 +3414,79 @@ void TimelineComponent::updateChordDrag (const juce::MouseEvent& e)
     //
     // **隣は時刻で探すこと。** 区間の並び順は時刻順とは限りません（足した順に入る）。
     // 番号の隣を見ると、飛び越したところで止まらなくなります
-    double previousStart = 0.0;
-    double nextStart = std::numeric_limits<double>::max();
+    //
+    // 8.273：**動かすぶん全部について見ます**（Phase 272）。
+    //
+    // 掴んだ1本だけを見て止めると、**一緒に動いている他の旗が隣を追い越します**。
+    // 隣といっても、**一緒に動いている旗は隣ではありません**（同じ量だけ動くので
+    // 追い越しようがない）。見るのは「動かないほうの旗」だけです。
+    //
+    // **複製のときは止めません**（元の旗はその場に残り、同じ位置に落ちたものは
+    // `removeChordRegionAtBeats()`が片付けます）。止めると、**旗が詰まっている
+    // ところでは1つ隣までしか複製できなくなります**——すぐ下の場合分けを参照。
 
-    for (int r = 0; r < track.getNumChordRegions(); ++r)
+    const double wantedDelta = (double) (e.x - chordDragStartMousePosition.x) / pixelsPerSecond;
+
+    // 寄せるのは**掴んだ旗**。ずれをそのまま他へ配るので、
+    // 掴んだ旗が目盛りの上に乗れば、他も掴んだときの間隔のまま乗ります
+    const double snappedStart = snap (chordDragOriginalStart + wantedDelta);
+
+    const double wantedSnappedDelta = snappedStart - chordDragOriginalStart;
+
+    // **上限と下限を別々に集めてから、最後に1回だけ収めること。**
+    // 旗ごとにその場で丸めると、**後ろの旗の上限が、前の旗の下限を押し戻します**
+    // （2本目で右へ、3本目で左へ、と引っ張り合って値が定まらない）
+    double lowestDelta = -std::numeric_limits<double>::max();
+    double highestDelta = std::numeric_limits<double>::max();
+
+    for (const auto& item : chordDragItems)
     {
-        if (r == chordDragRegionIndex)
+        // **複製のときは、曲の頭より前へ行かないことだけ見ます。**
+        //
+        // 移動と同じに止めると、**旗が詰まっているところでは1つ隣までしか複製できません**
+        // （進行の途中は、たいてい隙間なく旗が並んでいます）。
+        // 落とし先に旗があっても、**後から来たほうが残る**と決めてあるので
+        // （`removeChordRegionAtBeats()`）、止める理由がありません。
+        if (chordDragIsCopy)
+        {
+            lowestDelta = juce::jmax (lowestDelta, -item.originalStart);
             continue;
+        }
 
-        const double other = track.getChordRegion (r).getStartTime();
+        double previousStart = 0.0;
+        double nextStart = std::numeric_limits<double>::max();
 
-        if (other < chordDragOriginalStart - 1.0e-6)
-            previousStart = juce::jmax (previousStart, other);
-        else if (other > chordDragOriginalStart + 1.0e-6)
-            nextStart = juce::jmin (nextStart, other);
+        for (int r = 0; r < track.getNumChordRegions(); ++r)
+        {
+            auto other = track.getChordRegion (r);
+
+            // **一緒に動くものは隣に数えない**（同じ量だけ動く）
+            if (isChordDragItem (other.state))
+                continue;
+
+            const double otherStart = other.getStartTime();
+
+            if (otherStart < item.originalStart - 1.0e-6)
+                previousStart = juce::jmax (previousStart, otherStart);
+            else if (otherStart > item.originalStart + 1.0e-6)
+                nextStart = juce::jmin (nextStart, otherStart);
+        }
+
+        const double lowest = (previousStart > 0.0) ? previousStart + minimumLength : 0.0;
+
+        lowestDelta = juce::jmax (lowestDelta, lowest - item.originalStart);
+
+        if (nextStart < std::numeric_limits<double>::max())
+            highestDelta = juce::jmin (highestDelta, (nextStart - minimumLength) - item.originalStart);
     }
 
-    const double deltaSeconds = (double) (e.x - chordDragStartMousePosition.x) / pixelsPerSecond;
+    // **下限のほうが上のときは下限を採る**（隣どうしの旗をまとめて掴んだときに起こる）。
+    // `jlimit`へ逆さの範囲を渡すと`jassert`で止まります
+    const double delta = juce::jlimit (lowestDelta, juce::jmax (lowestDelta, highestDelta),
+                                        wantedSnappedDelta);
 
-    const double lowest = (previousStart > 0.0) ? previousStart + minimumLength : 0.0;
-    const double highest = (nextStart == std::numeric_limits<double>::max())
-                              ? std::numeric_limits<double>::max()
-                              : nextStart - minimumLength;
-
-    const double wanted = snap (chordDragOriginalStart + deltaSeconds);
-
-    chordDragPreviewStart = juce::jlimit (lowest, juce::jmax (lowest, highest), wanted);
+    chordDragDelta = delta;
+    chordDragPreviewStart = juce::jmax (0.0, chordDragOriginalStart + delta);
 
     // 長さは掴んだときのまま持ち回す（描画の予告に使うだけ）。
     // **本当の長さは離した後に`normaliseChordRegions()`が決めます**
@@ -3323,29 +3502,75 @@ void TimelineComponent::commitChordDrag()
 
     auto track = project.getTrack (chordDragTrackIndex);
 
-    if (juce::isPositiveAndBelow (chordDragRegionIndex, track.getNumChordRegions()))
+    // 掴んだだけで動かしていないなら、Undoに空のステップを積まない
+    const bool moved = ! juce::approximatelyEqual (chordDragPreviewStart, chordDragOriginalStart)
+                    || ! juce::approximatelyEqual (chordDragPreviewLength, chordDragOriginalLength);
+
+    if (moved && ! chordDragItems.empty())
     {
-        auto region = track.getChordRegion (chordDragRegionIndex);
+        auto& undoManager = project.getUndoManager();
 
-        const bool moved = ! juce::approximatelyEqual (chordDragPreviewStart, chordDragOriginalStart)
-                        || ! juce::approximatelyEqual (chordDragPreviewLength, chordDragOriginalLength);
+        // 8.273：**複製と移動で分ける**（Phase 272／本人の要望）
+        project.beginAction (chordDragIsCopy ? utf8 ("コード区間の複製")
+                                              : utf8 ("コード区間の移動"));
 
-        // 掴んだだけで動かしていないなら、Undoに空のステップを積まない
-        if (moved)
+        // **位置は秒で持ち回します**（拍ではなく）。ドラッグ中の予告も秒で描いており、
+        // テンポの変化点をまたいで掴んだときに**見えている位置と結果がずれる**のが
+        // いちばん困るためです。寄せ（スナップ）自体は拍の座標で決まっています（8.98）
+
+        std::vector<juce::ValueTree> newSelection;
+
+        for (const auto& item : chordDragItems)
         {
-            project.beginAction (utf8 ("コード区間の移動"));
-            track.setChordRegionTime (region, chordDragPreviewStart, chordDragPreviewLength,
-                                       &project.getUndoManager());
+            if (! item.state.isValid())
+                continue;   // ドラッグ中に消えた（Undoなど）
 
-            // 8.128：**動かしたら並べ直す**（Phase 164／改善案13）。
-            // 動いた旗の前後が、そのぶん伸び縮みします
-            track.normaliseChordRegions (&project.getUndoManager());
+            ChordRegion region { juce::ValueTree (item.state) };
+            const double newStart = juce::jmax (0.0, item.originalStart + chordDragDelta);
+
+            if (! chordDragIsCopy)
+            {
+                // **親を失っていたら動かさない。** 移動は「そこにある旗を動かす」ことなので、
+                // 消えたものを動かしようがありません（複製のほうは中身を読むだけなので、
+                // 親から外れていても作れます——すぐ下の説明）
+                if (! item.state.getParent().isValid())
+                    continue;
+
+                track.setChordRegionTime (region, newStart, region.getLength(), &undoManager);
+                newSelection.push_back (region.state);
+                continue;
+            }
+
+            // **落とし先に旗があれば、先に退かす。** 同じ位置に2本立つと、
+            // 片方が長さ0の区間になって触れなくなります（`addChordRegionAt()`と同じ決まり）。
+            //
+            // **ここで退く旗が、自分たちの中にいることがあります**——2本選んで
+            // ちょうど1本ぶん右へ複製すると、1本目の複製が2本目の元の上に落ちます。
+            // 退いた旗は親から外れますが、**中身（コードと長さ）はそのまま読めます**
+            // （ValueTreeは参照カウントで生きている）ので、続きの複製は作れます
+            removeChordRegionAtBeats (track, project.getBeatPositionAt (newStart), &undoManager);
+
+            auto added = track.addChordRegionBeats (region.getChord(),
+                                                     project.getBeatPositionAt (newStart),
+                                                     region.getLengthBeats(), &undoManager);
+            newSelection.push_back (added.state);
         }
+
+        // 8.128：**動かしたら並べ直す**（Phase 164／改善案13）。
+        // 動いた旗の前後が、そのぶん伸び縮みします
+        track.normaliseChordRegions (&undoManager);
+
+        // 8.273：**複製したら、選択は複製したほうへ移る**（Phase 272）。
+        // クリップの複製と同じで、「いま作ったもの」を続けて動かせます
+        selectedChordRegions = newSelection;
     }
 
     chordDragMode = ChordDragMode::none;
     chordDragTrackIndex = -1;
     chordDragRegionIndex = -1;
+    chordDragIsCopy = false;
+    chordDragDelta = 0.0;
+    chordDragItems.clear();
 
     if (onModelChanged != nullptr)
         onModelChanged();
@@ -4014,22 +4239,33 @@ void TimelineComponent::drawChordRegionsForTrack (juce::Graphics& g, int trackIn
     if (track.isCollapsed())
         return;
 
+    const bool dragging = (chordDragMode != ChordDragMode::none && trackIndex == chordDragTrackIndex);
+
     for (int r = 0; r < track.getNumChordRegions(); ++r)
     {
+        auto region = track.getChordRegion (r);
+
         // ドラッグ中の区間は、モデルではなくプレビューの位置に描く（Phase 45）。
         // モデルを書き換えるのは離したときなので、ここを分けないと動いて見えない。
-        if (chordDragMode != ChordDragMode::none
-             && trackIndex == chordDragTrackIndex && r == chordDragRegionIndex)
+        //
+        // 8.273：**動かしているぶん全部**（Phase 272）。掴んだ1本だけを動かして描くと、
+        // 一緒に動く旗は離すまでその場に留まって見えます
+        if (dragging && isChordDragItem (region.state))
         {
-            const int x = timeToX (chordDragPreviewStart);
-            const int width = juce::jmax (4, (int) (chordDragPreviewLength * pixelsPerSecond));
+            // **複製のときは元の旗もその場に描く。** どこから増えるのかが見えないと、
+            // 「動かしているのか、増やしているのか」が離すまで分かりません
+            if (chordDragIsCopy)
+                drawChordRegion (g, getChordRegionBounds (trackIndex, r), region);
+
+            const int x = timeToX (region.getStartTime() + chordDragDelta);
+            const int width = juce::jmax (4, (int) (region.getLength() * pixelsPerSecond));
 
             drawChordRegion (g, { x, getTrackRowY (trackIndex) + 4, width, getTrackAreaHeight (trackIndex) - 8 },
-                              track.getChordRegion (r));
+                              region);
             continue;
         }
 
-        drawChordRegion (g, getChordRegionBounds (trackIndex, r), track.getChordRegion (r));
+        drawChordRegion (g, getChordRegionBounds (trackIndex, r), region);
     }
 }
 
@@ -5134,9 +5370,30 @@ void TimelineComponent::mouseDown (const juce::MouseEvent& e)
         }
 
         // 仕様書5.2.3：左クリックでコード区間を掴む（Phase 45）。
-        // 端を掴んだら伸縮、それ以外は移動（クリップと同じ操作感）。
-        if (! e.mods.isPopupMenu()
-             && hitTestChordRegion (e.getPosition(), chordTrackIndex, regionIndex))
+        //
+        // 8.273：**掴めるのは旗（札）の上**（Phase 272／本人の要望）。
+        //
+        // Phase 271までは**帯のどこでも掴めました**。区間の帯は隙間なく並ぶので、
+        // それだと**コードトラックの上では枠（範囲選択）を引き始められません**——
+        // 押した先が必ずどれかの区間だからです。「選択ツールで複数選べるように」
+        // という要望に応えるには、**掴む場所と、囲い始める場所を分ける**必要がありました。
+        //
+        // | 押した場所 | |
+        // |---|---|
+        // | 旗（コード名の札） | 掴む・選ぶ |
+        // | 帯の残り | **枠で囲い始める**（他のトラックの空きと同じ） |
+        //
+        // **札が描かれていない区間だけは、今までどおり帯で掴めます。**
+        // 幅が足りないと札は描かれないので（`chordFlagRect()`が空を返す）、
+        // そのままでは**動かすことも選ぶこともできない旗**になってしまいます。
+        const bool grabbedFlag = ! e.mods.isPopupMenu()
+                                   && hitTestChordFlag (e.getPosition(), chordTrackIndex, regionIndex);
+
+        const bool grabbedFlaglessRegion = ! grabbedFlag && ! e.mods.isPopupMenu()
+                                             && hitTestChordRegion (e.getPosition(), chordTrackIndex, regionIndex)
+                                             && getChordFlagBounds (chordTrackIndex, regionIndex).isEmpty();
+
+        if (grabbedFlag || grabbedFlaglessRegion)
         {
             auto track = project.getTrack (chordTrackIndex);
             auto region = track.getChordRegion (regionIndex);
@@ -5155,12 +5412,69 @@ void TimelineComponent::mouseDown (const juce::MouseEvent& e)
             chordDragPreviewStart = chordDragOriginalStart;
             chordDragPreviewLength = chordDragOriginalLength;
             chordDragStartMousePosition = e.getPosition();
+            chordDragDelta = 0.0;
+
+            //==================================================================
+            // 8.273：**Ctrlは「選択に足す」と「複製」の両方**（Phase 272／本人の要望）。
+            //
+            // クリップと同じ形です（8.154／Phase 192）。掴んだ時点では
+            // どちらのつもりか分からないので、**動かし始めてから決めます**：
+            //
+            // | | |
+            // |---|---|
+            // | Ctrl＋押して、動かした | **複製**（選択はそのまま連れていく） |
+            // | Ctrl＋押して、動かさずに離した | **選択に足す／外す**（`mouseUp`） |
+
+            chordDragIsCopy = e.mods.isCommandDown();
+            chordCtrlClickPendingSelection = false;
 
             // 8.29の表：**掴んだ区間を選択する**（Phase 70）。
             // 選んでおくと Delete で消せる（右クリックメニューまで行かずに済む）。
             // **ValueTreeで覚えること**：番号で持つと、他の区間が増減したときに
             // 別のコードを指す（1.32。ノートの選択と同じ理由）
-            setSelectedChordRegion (region.state);
+            // 8.273：**クリップの選択は外す**（Phase 272）。
+            // 旗とクリップを同時に選んでいると、Ctrl＋Cとdeleteの行き先が決まりません
+            // （`setSingleClipSelection()`の説明）
+            if (! selectedClips.empty())
+            {
+                selectedClips.clear();
+
+                if (onClipSelectionChanged != nullptr)
+                    onClipSelectionChanged();
+            }
+
+            if (e.mods.isCommandDown())
+            {
+                // **選択に入っている旗をCtrlで掴んだら、選択はそのまま。**
+                // 掴み直しただけで他の旗が外れると、まとめて複製できません
+                if (! isChordRegionSelected (region.state))
+                    chordCtrlClickPendingSelection = true;
+            }
+            else if (! isChordRegionSelected (region.state))
+            {
+                // 選択の外を掴んだら、その1本だけの選択にする（クリップと同じ）
+                setSelectedChordRegion (region.state);
+            }
+
+            // 8.273：**一緒に動かす旗を、掴んだ時点で決める**（Phase 272）。
+            // 選択に入っていない旗を掴んだときは、その1本だけ
+            chordDragItems.clear();
+
+            {
+                // **掴んだトラックの旗だけ。** コードトラックが2本あって
+                // 両方の旗を選んでいても、動くのは掴んだほうです——
+                // 見えない行のコードが一緒に動くのは、気づけない変化です
+                const bool dragWholeSelection = isChordRegionSelected (region.state);
+
+                for (int r = 0; r < track.getNumChordRegions(); ++r)
+                {
+                    auto other = track.getChordRegion (r);
+
+                    if (dragWholeSelection ? isChordRegionSelected (other.state)
+                                           : (other.state == region.state))
+                        chordDragItems.push_back ({ other.state, other.getStartTime() });
+                }
+            }
 
             // クリップ側のドラッグ状態には触らせない（別々に持っている。宣言のコメント参照）
             dragMode = DragMode::None;
@@ -5829,6 +6143,150 @@ bool TimelineComponent::copySelectedClips (bool alsoDelete)
     return true;
 }
 
+//==============================================================================
+// 8.273：コード旗のコピーと貼り付け（Phase 272／本人の要望）
+
+bool TimelineComponent::copySelectedChordRegions (bool cut)
+{
+    pruneChordSelection();
+
+    if (selectedChordRegions.empty())
+        return false;
+
+    // **いちばん手前の旗を基準にする。** 中身のずれはそこからの差で持つので、
+    // 何本選んでも、貼ったときに同じ間隔で並びます（`EditClipboard.h`）
+    double referenceBeats = std::numeric_limits<double>::max();
+
+    struct Found { juce::ValueTree state; int trackIndex = -1; double startBeats = 0.0; };
+    std::vector<Found> found;
+
+    for (int t = 0; t < project.getNumTracks(); ++t)
+    {
+        auto track = project.getTrack (t);
+
+        if (track.getType() != TrackType::Chord)
+            continue;
+
+        for (int r = 0; r < track.getNumChordRegions(); ++r)
+        {
+            auto region = track.getChordRegion (r);
+
+            if (! isChordRegionSelected (region.state))
+                continue;
+
+            found.push_back ({ region.state, t, region.getStartBeats() });
+            referenceBeats = juce::jmin (referenceBeats, region.getStartBeats());
+        }
+    }
+
+    if (found.empty())
+        return false;
+
+    juce::Array<EditClipboard::Item> items;
+
+    for (const auto& f : found)
+    {
+        EditClipboard::Item item;
+
+        // **複製を入れること**（元が消えたり動いたりすると貼る中身まで変わる）
+        item.state = f.state.createCopy();
+
+        // 8.139：**コード区間は拍のほう**（Phase 177／`EditClipboard.h`の表）。
+        // 貼り付け先のテンポが違っても、音楽的な間隔が保たれます
+        item.beatOffset = f.startBeats - referenceBeats;
+        item.rowOffset = f.trackIndex;
+        items.add (item);
+    }
+
+    EditClipboard::set (EditClipboard::Kind::chordRegions, std::move (items));
+
+    if (cut)
+        deleteSelectedChordRegions();
+
+    return true;
+}
+
+bool TimelineComponent::pasteChordRegionsAt (double timeSeconds)
+{
+    if (EditClipboard::getKind() != EditClipboard::Kind::chordRegions)
+        return false;
+
+    // **貼り先は、コピー元と同じ番号のコードトラック。**
+    // 番号が別のものになっていたら、最初のコードトラックへ落とします
+    int targetTrackIndex = -1;
+
+    const int wanted = EditClipboard::getItems().isEmpty() ? -1
+                                                           : EditClipboard::getItems().getFirst().rowOffset;
+
+    for (int t = 0; t < project.getNumTracks(); ++t)
+    {
+        if (project.getTrack (t).getType() != TrackType::Chord)
+            continue;
+
+        if (targetTrackIndex < 0)
+            targetTrackIndex = t;   // 見つけた最初のコードトラック（落とし先）
+
+        if (t == wanted)
+        {
+            targetTrackIndex = t;
+            break;
+        }
+    }
+
+    if (targetTrackIndex < 0)
+    {
+        // **押したのに何も起きない、をそのままにしない**（8.198と同じ考え方）
+        if (onStatusMessage != nullptr)
+            onStatusMessage (utf8 ("貼り付け先のコードトラックがありません。"));
+
+        return false;
+    }
+
+    auto track = project.getTrack (targetTrackIndex);
+    auto& undoManager = project.getUndoManager();
+
+    // 置く位置は共通のスナップに従う（8.14）。**拍で持ち回す**（8.139）
+    const double startTime = project.snapTime (juce::jmax (0.0, timeSeconds));
+    const double startBeats = project.getBeatPositionAt (startTime);
+
+    project.beginAction (utf8 ("コード区間の貼り付け"));
+
+    std::vector<juce::ValueTree> pasted;
+
+    for (const auto& item : EditClipboard::getItems())
+    {
+        if (! item.state.hasType (IDs::CHORDREGION))
+            continue;
+
+        ChordRegion region { juce::ValueTree (item.state) };
+        const double beats = juce::jmax (0.0, startBeats + item.beatOffset);
+
+        // **落とし先に旗があれば、先に退かす**（同じ位置に2本立てない。8.128）
+        removeChordRegionAtBeats (track, beats, &undoManager);
+
+        // 8.139：**長さも拍で**（Phase 177）。切り離されたツリーに`getLength()`（秒）を
+        // 訊くと、テンポの表へ辿り着けず既定の120BPMで答えます（`MusicalTime.h`）。
+        // 長さは後で`normaliseChordRegions()`が「次の旗まで」に揃え直します
+        auto added = track.addChordRegionBeats (region.getChord(), beats,
+                                                 region.getLengthBeats(), &undoManager);
+        pasted.push_back (added.state);
+    }
+
+    if (pasted.empty())
+        return false;
+
+    track.normaliseChordRegions (&undoManager);
+
+    // **貼ったものを選んでおく。** 続けて動かしたり消したりできます（クリップと同じ）
+    selectedChordRegions = pasted;
+
+    if (onModelChanged != nullptr)
+        onModelChanged();
+
+    repaint();
+    return true;
+}
+
 bool TimelineComponent::pasteClipsAt (double timeSeconds)
 {
     if (EditClipboard::getKind() != EditClipboard::Kind::clips)
@@ -5969,6 +6427,13 @@ bool TimelineComponent::cutSelection()
     if (hasTimeRange)
         return copyTimeRange (true);
 
+    // 8.273：**コード旗を選んでいるならそれ**（Phase 272）。
+    // クリップの選択とは同時に立たないようにしてあります（`setSingleClipSelection()`）
+    pruneChordSelection();
+
+    if (! selectedChordRegions.empty())
+        return copySelectedChordRegions (true);
+
     return copySelectedClips (true);
 }
 
@@ -5981,6 +6446,11 @@ bool TimelineComponent::copySelection()
 
     if (hasTimeRange)   // 8.95（Phase 135）
         return copyTimeRange (false);
+
+    pruneChordSelection();   // 8.273：コード旗（Phase 272）
+
+    if (! selectedChordRegions.empty())
+        return copySelectedChordRegions (false);
 
     return copySelectedClips (false);
 }
@@ -5997,6 +6467,10 @@ bool TimelineComponent::pasteAt (double timeSeconds)
     // 8.124：区間まるごと（Phase 160／改善案5）
     if (EditClipboard::getKind() == EditClipboard::Kind::trackRange)
         return pasteRangeAllTracks (timeSeconds);
+
+    // 8.273：コード旗（Phase 272／本人の要望）
+    if (EditClipboard::getKind() == EditClipboard::Kind::chordRegions)
+        return pasteChordRegionsAt (timeSeconds);
 
     // 8.95：**MIDIの中身は、選んでいるMIDIトラックの再生カーソル位置へ**（Phase 135）
     if (EditClipboard::getKind() == EditClipboard::Kind::notes)
@@ -6299,6 +6773,16 @@ void TimelineComponent::mouseDrag (const juce::MouseEvent& e)
     // 仕様書5.2.3：コード区間のドラッグ（Phase 45）。クリップの選択とは無関係
     if (chordDragMode != ChordDragMode::none)
     {
+        // 8.273：**Ctrlで掴んだまま動かしたら「複製」だった**（Phase 272）。
+        // 選択の外を掴んでいたので、ここで**その1本だけの選択へ畳みます**
+        // （クリップの`ctrlClickPendingSelection`と同じ形。8.154）
+        if (chordCtrlClickPendingSelection && e.mouseWasDraggedSinceMouseDown()
+             && ! chordDragItems.empty())
+        {
+            setSelectedChordRegion (chordDragItems.front().state);
+            chordCtrlClickPendingSelection = false;
+        }
+
         updateChordDrag (e);
         return;
     }
@@ -6598,6 +7082,31 @@ void TimelineComponent::mouseUp (const juce::MouseEvent& e)
     // ドラッグ中に書くと、途中の位置が全部Undoに積まれる。
     if (chordDragMode != ChordDragMode::none)
     {
+        // 8.273：**Ctrl＋クリック（動かさずに離した）は、選択に足す／外す**（Phase 272）。
+        // クリップと同じ振り分けです（8.154）——動かしていれば複製、動かしていなければ選択
+        if (chordDragIsCopy && ! e.mouseWasDraggedSinceMouseDown())
+        {
+            if (juce::isPositiveAndBelow (chordDragTrackIndex, project.getNumTracks()))
+            {
+                auto track = project.getTrack (chordDragTrackIndex);
+
+                if (juce::isPositiveAndBelow (chordDragRegionIndex, track.getNumChordRegions()))
+                    toggleChordRegionSelection (track.getChordRegion (chordDragRegionIndex).state);
+            }
+
+            chordDragMode = ChordDragMode::none;
+            chordDragTrackIndex = -1;
+            chordDragRegionIndex = -1;
+            chordDragIsCopy = false;
+            chordCtrlClickPendingSelection = false;
+            chordDragDelta = 0.0;
+            chordDragItems.clear();
+
+            repaint();
+            return;
+        }
+
+        chordCtrlClickPendingSelection = false;
         commitChordDrag();
         return;
     }
@@ -7032,6 +7541,15 @@ bool TimelineComponent::keyPressed (const juce::KeyPress& key)
         return true;
     }
 
+    // 8.273：**コード旗の選択もEscapeで解く**（Phase 272）。
+    // 範囲と同じ入口にしておかないと、「Escapeで解けるもの」を覚えることになります
+    if (key == juce::KeyPress::escapeKey && ! selectedChordRegions.empty())
+    {
+        selectedChordRegions.clear();
+        repaint();
+        return true;
+    }
+
     // 8.93：**時間範囲を選んでいるなら、その中のノートを消す**（Phase 133）。
     // レーンの点と同じ理由で、クリップの削除より先に見ること
     if ((key == juce::KeyPress::deleteKey || key == juce::KeyPress::backspaceKey) && hasTimeRange)
@@ -7057,10 +7575,11 @@ bool TimelineComponent::keyPressed (const juce::KeyPress& key)
     // **クリップの削除より先に見ること。** コード区間を選んでいるあいだは
     // クリップの選択が残っていないので順番の争いは起きないが、
     // 先に置いておくほうが「何が消えるか」を読み比べやすい
+    // 8.273：**選んでいるぶん全部**が1つのUndoで消えます（Phase 272）
     if ((key == juce::KeyPress::deleteKey || key == juce::KeyPress::backspaceKey)
-         && selectedChordRegion.isValid())
+         && ! selectedChordRegions.empty())
     {
-        if (deleteSelectedChordRegion())
+        if (deleteSelectedChordRegions())
             return true;
     }
 

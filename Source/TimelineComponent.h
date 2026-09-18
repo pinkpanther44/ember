@@ -2095,16 +2095,90 @@ private:
     double chordDragPreviewLength = 0.0;
     juce::Point<int> chordDragStartMousePosition;
 
+    /** 8.273：**Ctrlを押しながらのドラッグは複製**（Phase 272／本人の要望）。
+        クリップの`dragIsCopy`と同じ形（Phase 52）。 */
+    bool chordDragIsCopy = false;
+
+    /** 8.273：**選んでいない旗をCtrlで掴んだ**（Phase 272）。クリップの
+        `ctrlClickPendingSelection`と同じ話——Ctrlは「選択に足す」と「複製」の
+        両方に使うので、掴んだ時点ではどちらか決まりません。 */
+    bool chordCtrlClickPendingSelection = false;
+
+    /** 8.273：**一緒に動かす旗**（Phase 272）。掴んだ1本もここに入ります。
+
+        **掴んだときの位置を覚えておくこと。** ドラッグ中はモデルを触らないので
+        （Phase 45からの決まり）、動かす量は「掴んだときの位置＋ずれ」で出します。 */
+    struct ChordDragItem
+    {
+        juce::ValueTree state;
+        double originalStart = 0.0;
+    };
+
+    std::vector<ChordDragItem> chordDragItems;
+
+    /** その区間が、いま動かしているぶんに入っているか。 */
+    bool isChordDragItem (const juce::ValueTree& regionState) const;
+
+    /** ドラッグ中のずれ（秒）。**旗ごとの位置ではなく、ずれを1つだけ持ちます**——
+        全部が同じ量だけ動くので、1つで足ります。 */
+    double chordDragDelta = 0.0;
+
     //==========================================================================
     // 8.29の表：コード区間の選択（Phase 70）
+    //
+    // 8.273：**複数選べるようになりました**（Phase 272／本人の要望）。
+    //
+    // | 操作 | |
+    // |---|---|
+    // | 旗をクリック | その1本だけを選ぶ |
+    // | Ctrl＋クリック | 選択に足す／外す |
+    // | 選択ツールで囲う | 囲った旗を全部（クリップと同じ枠。`applyRangeSelection()`） |
+    // | Ctrl＋ドラッグ | **複製**（クリップと同じ。Phase 52） |
+    // | Ctrl＋C／V | コピーと貼り付け（`EditClipboard::Kind::chordRegions`） |
+    //
+    // **1本だけ選んでいるときもここへ入ります。**「単数の選択」と「複数選択」を
+    // 別々に持つと必ず食い違う、というのはクリップ（`selectedClips`）で通った道です。
 
     /** 選んでいるコード区間。**ValueTreeで覚える**（番号だと他の区間の増減でずれる。1.32）。 */
-    juce::ValueTree selectedChordRegion;
+    std::vector<juce::ValueTree> selectedChordRegions;
 
+    /** その区間が選ばれているか。 */
+    bool isChordRegionSelected (const juce::ValueTree& regionState) const;
+
+    /** 選択を**その1本だけ**にする。空のツリーを渡すと選択を解く。 */
     void setSelectedChordRegion (const juce::ValueTree& regionState);
 
-    /** 選んでいるコード区間を消す。消したらtrue（Deleteキーから呼ぶ）。 */
-    bool deleteSelectedChordRegion();
+    /** 選択へ足す／外す（既に入っていれば外す）。 */
+    void toggleChordRegionSelection (const juce::ValueTree& regionState);
+
+    /** **消された区間を選んだままにしない。** 親を失ったValueTreeは無効なので、
+        消したあとや Undo のあとに呼んで捨てます（`pruneAutomationSelection()`と同じ形）。 */
+    void pruneChordSelection();
+
+    /** 選んでいるコード区間を消す。消したらtrue（Deleteキーから呼ぶ）。
+        **選んでいるぶん全部**が、1つのUndoで消えます。 */
+    bool deleteSelectedChordRegions();
+
+    //==========================================================================
+    // 8.273：コード旗のコピー／貼り付け（Phase 272／本人の要望）
+
+    /** 選んでいる旗をクリップボードへ。`cut`がtrueなら、そのあと消す。 */
+    bool copySelectedChordRegions (bool cut);
+
+    /** クリップボードの旗を、その時刻から並べ直す。
+
+        **貼り先は「コピー元と同じ番号のコードトラック」**。無ければ
+        **最初のコードトラック**へ落とします（区間まるごとの貼り付けが
+        「番号が無ければ捨てる」なのとは違う扱いです——コードトラックは
+        たいてい1本しか無く、捨てると「押したのに何も起きない」になるため）。 */
+    bool pasteChordRegionsAt (double timeSeconds);
+
+    /** そのトラックの、その位置にある旗を消す（貼り付け・複製の落とし先の掃除）。
+
+        **同じ位置に旗を2本立てない**ため。`addChordRegionAt()`が
+        同じ位置への追加を断っているのと同じ決まりで、
+        こちらは**後から来たほうを残します**（貼った結果が見えないと困る）。 */
+    void removeChordRegionAtBeats (Track& track, double beats, juce::UndoManager* undoManager);
 
     double dragPreviewStartTime = 0.0;
     double dragPreviewLength = 0.0;
