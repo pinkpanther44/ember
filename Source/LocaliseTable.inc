@@ -379,6 +379,17 @@
     { "スラップのときの、弦がフレットに当たる音。ほかの奏法では効きません", "The sound of the string hitting the frets when you slap. It does nothing in the other styles", true },
     { "B0からG4までが鳴ります。右端の色つきの6鍵は奏法の切り替えです", "B0 to G4 sound. The six coloured keys at the right switch the style", true },
 
+    // KakapoEditor.cpp
+    { "いちばん多く鳴っている音（トーナルセンター）と、そこから決めた優勢なほう", "The note that is played most (the tonal centre), and which of the two candidates it favours", true },
+    { "内蔵リードの音量。音色は固定で、触れるのはここだけです", "How loud the built-in lead is. The sound itself is fixed - this is the only thing you can change about it", true },
+    { "受け取った音符を、そのまま出口へ流します（このアプリでは受け手がいないので、いまは効きません）", "Passes the notes it receives straight to the output (nothing in this app listens to that, so it does nothing here for now)", true },
+    { "判定に使う音の長さ。直近の何音か、または直近の何秒かを決めます", "How much playing the verdict is based on - either the last few notes or the last few seconds", true },
+    { "HOLDの単位。音数で切るか、秒で切るかを選びます", "What HOLD counts in: a number of notes, or a number of seconds", true },
+    { "控えている音と判定を消します。弾き直すところから数え直したいときに", "Clears the notes it is holding and the verdict, so it starts counting again from what you play next", true },
+    { "12音それぞれの使われ方。色が付いているのが、優勢なスケールに入っている音です", "How much each of the twelve notes is used. The coloured ones are in the favoured scale", true },
+    { "メジャー1つとマイナー1つ。帯は一致率で、FAVOUREDが付いているほうが優勢です", "One major and one minor. The bar is how well it matches, and FAVOURED marks the one it leans towards", true },
+    { "鳴っている音は濃く、控えに残っている音は薄く出ます。ここから弾くこともできます", "Notes sounding now are solid, notes still held in the buffer are faint. You can play from here too", true },
+
     // LevelMeterComponent.cpp
     { "--", "--", false },
 
@@ -743,6 +754,29 @@
     { "  ・変化点を増やして伸びるなら、`TempoMap`の走査が効いています", "  - If it grows as changes are added, the `TempoMap` walk is what costs", true },
     { "    （そのときは索引を足す。8.105のPhase 152）", "    (add an index then. 8.105, Phase 152)", true },
     { "  （最適化除けなので、値に意味はありません）", "  (this only defeats the optimiser - the value means nothing)", true },
+
+    // OrangutanDrumsEditor.cpp
+    { "カーソルを合わせると、ここに説明が出ます", "Hover over a control and its description appears here", true },
+    { "このプラグインから出る音量。出口にソフトリミッタがあるので、上げ切っても0dBFSは越えません", "How loud this plugin is. A soft limiter sits at the output, so even fully up it does not pass 0 dBFS", true },
+    { "このパッドの音源。16種類あり、どのパッドにも自由に割り当てられます", "The sound for this pad. There are 16, and any of them can go on any pad", true },
+    { "このパッドの出口。DIRECTにすると、マスターを通らずにパラアウトへ出ます（本体でドラムアウトトラックを作って受けてください）", "Where this pad comes out. On DIRECT it skips the master section and goes to its own output (make a drum out track in the app to catch it)", true },
+    { "16個のパッド。叩いて選び、そのまま鳴らせます", "The 16 pads. Hit one to select it and play it", true },
+    { "選んでいるパッドのつまみ7つ", "The seven knobs of the selected pad", true },
+    { "叩くと選んで鳴ります。上のほうを押すほど強く鳴ります", "Hit it to select it and play it. The higher up you press, the harder it hits", true },
+    { "このパッドの音程。ノイズ系のエンジンでは、フィルタの位置が動きます（±24半音）", "The pitch of this pad. On the noise engines it moves the filter instead (+/-24 semitones)", true },
+    { "音が消えるまでの長さ。範囲はエンジンごとに違います（下の箱に形が出ます）", "How long the sound takes to die away. The range differs from engine to engine (the box below shows the shape)", true },
+    { "明るさ。KICKとSUB 808だけは意味が変わり、倍音（サチュレーション）の量になります", "Brightness. On KICK and SUB 808 alone it means something else - the amount of harmonics (saturation)", true },
+    { "アタックの成分。エンジンで意味が変わるので、見出しのほうが変わります", "The attack component. It means different things on different engines, so the label changes instead", true },
+    { "このパッドの音量", "How loud this pad is", true },
+    { "左右の位置（等パワー）", "Where it sits left to right (equal power)", true },
+    { "マスターのリバーブへ送る量。DIRECTのパッドは送りません", "How much is sent to the master reverb. Pads on DIRECT send nothing", true },
+    { "選んでいるパッドの減衰のかたち。エンジンごとに時間の範囲が違います", "The shape of the decay on the selected pad. Each engine has its own range of times", true },
+    { "出口のサチュレーション。上げるほど太く、潰れます", "Saturation at the output. The more you add, the fatter and the more crushed it gets", true },
+    { "全体をまとめるコンプ。ドラム全体が1つの塊に聞こえるようになります", "The compressor that glues everything together, so the kit sounds like one block", true },
+    { "リバーブの量。送るのはパッドごとのSENDで、ここはその返りの大きさです", "How much reverb comes back. What goes in is each pad's SEND; this is the size of the return", true },
+    { "リバーブの広さ", "How big the reverb is", true },
+    { "リバーブの高い側の減り方。上げるほど暗い響きになります", "How fast the high side of the reverb dies away. The more you add, the darker the tail", true },
+    { "左の16鍵がパッド1〜16（MIDI 36〜51）です。右端のE3は鳴りません", "The 16 keys on the left are pads 1 to 16 (MIDI 36 to 51). The E3 at the right end does not sound", true },
 
     // PianoRollComponent.cpp
     { "ノートの削除", "Delete notes", false },

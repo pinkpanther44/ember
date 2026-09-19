@@ -23,12 +23,35 @@ void ValueEntrySlider::setDisplayUnit (DisplayUnit unit)
     updateText();   // 既に出ているテキストボックスを新しい単位で書き直す
 }
 
+void ValueEntrySlider::setDisplayDecimals (int numDecimals)
+{
+    if (displayDecimals == numDecimals)
+        return;
+
+    displayDecimals = numDecimals;
+    updateText();
+}
+
 juce::String ValueEntrySlider::getTextFromValue (double value)
 {
     // **どちらも100倍して整数で出す。** 小数を出しても手では合わせられないうえ、
     // 「-0.35」より「-35」のほうが左右の振れ幅として読みやすい
     if (displayUnit == DisplayUnit::panPercent || displayUnit == DisplayUnit::percent)
         return juce::String (juce::roundToInt (value * 100.0));
+
+    // 8.290：**つまみの位置を0.0〜10.0で**（Phase 283／本人の要望）。
+    //
+    // **`textFromValueFunction`を使わないこと。** `SliderAttachment`は繋ぐときに
+    // あれを自分のものへ差し替えます——つまり**繋ぎ直すたびに桁が戻ります**
+    // （8.256で1度踏んでいます）。ここは`getTextFromValue()`の側なので、
+    // 差し替えの影響を受けません
+    if (displayUnit == DisplayUnit::zeroToTen)
+        return juce::String (getNormalisableRange().convertTo0to1 (value) * 10.0, 1);
+
+    // 8.291：**そのままの値を、桁だけ決めて出す**（Phase 284）。
+    // `SliderAttachment`が差し替える`textFromValueFunction`より、こちらが先に効きます
+    if (displayDecimals >= 0)
+        return juce::String (value, displayDecimals) + getTextValueSuffix();
 
     return juce::Slider::getTextFromValue (value);
 }
@@ -40,6 +63,14 @@ double ValueEntrySlider::getValueFromText (const juce::String& text)
         // **出す側と対にしておくこと。** ここを直し忘れると、
         // 打ち込んだ「50」が0.5ではなく50として入り、範囲外として端に張り付く
         return text.retainCharacters ("0123456789.-").getDoubleValue() / 100.0;
+    }
+
+    if (displayUnit == DisplayUnit::zeroToTen)
+    {
+        // **出す側と対にしておくこと**（上と同じ理由）
+        const double position = text.retainCharacters ("0123456789.-").getDoubleValue() / 10.0;
+
+        return getNormalisableRange().convertFrom0to1 (juce::jlimit (0.0, 1.0, position));
     }
 
     return juce::Slider::getValueFromText (text);

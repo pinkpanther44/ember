@@ -511,6 +511,19 @@ JavaRhinoBassEditor::JavaRhinoBassEditor (JavaRhinoBassProcessor& processorToUse
     // 秒とパーセントだけ単位を添えます
     sustain->slider.setTextValueSuffix (" s");
 
+    // 8.291：**数値は0.0〜10.0**（Phase 284／本人の指定。`Orangutan Drums`と揃えました）。
+    //
+    // **`SUSTAIN`だけ秒のまま**です（本人の指定）——「9秒」は**そのものが読みたい値**で、
+    // 0〜10にすると位置しか分からなくなります。
+    //
+    // > `TONE`は元から0〜10でした（`JavaRhinoBassParameters.cpp`）。**数字は変わりません**が、
+    // > ここを通しておくと、範囲を後で変えたときに**表示だけは0〜10のまま**でいられます。
+    //
+    // 繋いだ後に入れ直す必要はありません（`getTextFromValue()`の側なので。8.290）
+    for (auto* knob : { brightness.get(), pluckPos.get(), tone.get(),
+                         hardness.get(), attack.get(), clank.get() })
+        knob->slider.setDisplayUnit (ValueEntrySlider::DisplayUnit::zeroToTen);
+
     //--------------------------------------------------------------------------
     // 鍵盤
     keyboard.setAvailableRange (JavaRhinoBassProcessor::lowestNote,

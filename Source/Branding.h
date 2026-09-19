@@ -126,6 +126,22 @@ namespace Branding
         **名前を分けないものが2つめ**になりました。 */
     inline constexpr const char* bassPluginName = "Java Rhino Bass";
 
+    /** 8.288：8つめ（Phase 281／本人の指定）。**こちらも両製品とも同じ名前**です。
+
+        `Orangutan`＝オランウータン（IUCNのCR＝近絶滅種。3種とも）。
+        Ember側は絶滅危惧種から採る方針で、`Racco Guitar`・`Java Rhino Bass`に続き
+        **名前を分けないものが3つめ**になりました。 */
+    inline constexpr const char* drumsPluginName = "Orangutan Drums";
+
+    /** 8.292：9つめ（Phase 285／本人の指定）。**こちらも両製品とも同じ名前**です。
+
+        `Kakapo`＝カカポ（ニュージーランドの飛べないオウム。IUCNのCR＝近絶滅種で、
+        野生に250羽ほど）。**緑の羽**なので、画面の絵も苔の緑にしてあります。
+
+        `Racco Guitar`・`Java Rhino Bass`・`Orangutan Drums`に続いて、
+        **名前を分けないものが4つめ**です。 */
+    inline constexpr const char* scalePluginName = "Kakapo";
+
     /** プリセットの置き場所（`%APPDATA%\<data>\Presets\<これ>\`）。
 
         **プラグイン名とは別に持ちます。** 名前を変えたときに
@@ -137,6 +153,8 @@ namespace Branding
     inline constexpr const char* reverbPresetFolder = "MantaReverb";  // 8.240（Phase 254）
     inline constexpr const char* guitarPresetFolder = "RaccoGuitar";  // 8.256（Phase 264）
     inline constexpr const char* bassPresetFolder = "JavaRhinoBass";  // 8.257（Phase 265）
+    inline constexpr const char* drumsPresetFolder = "OrangutanDrums"; // 8.288（Phase 281）
+    inline constexpr const char* scalePresetFolder = "Kakapo";         // 8.292（Phase 285）
 
     //==========================================================================
     // 既定値
@@ -381,6 +399,62 @@ namespace Branding
     inline constexpr juce::uint32 bassAccentSecondary (bool dark)
     {
         return dark ? 0xff3a6fc4 : 0xff23508f;   // 濃いブルー
+    }
+
+    /** 8.288：**ドラムのアクセント2色**（Phase 281）。
+
+        | | 主 | 副 |
+        |---|---|---|
+        | Orangutan Drums（両製品） | **濃いインディゴ** | **濃いプラム** |
+
+        ギター（8.256）・ベース（8.257）と同じく**製品で分けていません**。
+
+        **ここだけ本人の指定がありません**（絵だけを頂きました）。絵が銅色なので、
+        オレンジ系＝Mantaのアクセントも、ゴールド＝Emberのアクセントも、
+        **絵の上で消えます**。銅の向かい側から2色選んであります。
+
+        > 気に入らなければ、**この2行を書き換えるだけ**です
+        > （`OrangutanDrumsTheme`は必ずここを引きます。1.27）。 */
+    inline constexpr juce::uint32 drumsAccentPrimary (bool dark)
+    {
+        return dark ? 0xff6a7ce8 : 0xff3b4cc0;   // 濃いインディゴ
+    }
+
+    inline constexpr juce::uint32 drumsAccentSecondary (bool dark)
+    {
+        return dark ? 0xffc46bba : 0xff9c3d96;   // 濃いプラム
+    }
+
+    /** 8.292：**Kakapoのアクセント2色**（Phase 285）。
+
+        | | 主 | 副 |
+        |---|---|---|
+        | Kakapo（両製品） | **バイオレット** | **エメラルドグリーン**（8.293で琥珀から） |
+
+        `Orangutan Drums`（8.288）と同じく、**絵に合わせてこちらで選んだ**ものです。
+        ドラムのインディゴ（`0xff3b4cc0`）より**紫寄り**にしてあります
+        （並んだときに色で見分けられるように）。
+
+        ### 8.293：副を**琥珀→グリーン**へ（Phase 286／本人の指定）
+
+        Phase 285では琥珀でした。**絵が苔の緑なので、緑は溶ける**という理由です
+        ——実際に溶けるのは**絵の上に直に置いたとき**で、この色を使っている
+        ルートの棒も`FAVOURED`も**薄い板の上**にあります（`KakapoTheme`）。
+
+        溶けないように、**黄緑ではなく青寄りのエメラルド**を選んでいます。
+        絵（苔＝黄緑）とは**色相で30度以上離れていて**、暗さも違います。
+
+        > `Java Rhino Bass`の濃いグリーン（`0xff1e7350`）と近い色ですが、
+        > あちらは**濃いブルーと組**、こちらは**バイオレットと組**です。
+        > 並べても、組で見分けが付きます。 */
+    inline constexpr juce::uint32 scaleAccentPrimary (bool dark)
+    {
+        return dark ? 0xffa782ee : 0xff6a3fa8;   // バイオレット
+    }
+
+    inline constexpr juce::uint32 scaleAccentSecondary (bool dark)
+    {
+        return dark ? 0xff34c98c : 0xff0f7a4a;   // エメラルドグリーン
     }
 
 }

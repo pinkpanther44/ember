@@ -1,7 +1,8 @@
 # Ember
 
 A digital audio workstation for Windows and Linux. Record, arrange, edit MIDI,
-host VST3 and LV2 plugins, and mix — with a synthesizer and four effects built in.
+host VST3 and LV2 plugins, and mix — with five instruments and four effects
+built in.
 
 Ember is free and open source.
 
@@ -104,7 +105,7 @@ the generic icon for it too.
 
 ## What is included
 
-Seven plugins are built in — nothing to install separately.
+Nine plugins are built in — nothing to install separately.
 
 | | |
 |---|---|
@@ -115,6 +116,9 @@ Seven plugins are built in — nothing to install separately.
 | **Bf Owl Reverb** | Reverb. Seven algorithms: Room, Plate, Hall, Ambience, Random Hall, Twin Delays and Panorama. Predelay, decay, size, and the shape and spread of the early reflections; damping for the highs and the lows; modulation that makes the tail drift; and a saturation that only bites on the loud part. Two engines run as Single, Cascade, Mono Split or Stereo Split. Twin Delays is two delays, one each side, that can bounce between them; Panorama is a stereo tool with width, mono sum, phase invert and a channel swap |
 | **Racco Guitar** | Electric guitar instrument, modelled string by string rather than sampled. A 648 mm scale, a pickup you can move between front, centre and rear, and knobs for brightness, sustain, picking position, pick hardness and pick noise. Six key switches (A#1 to D#2) choose the articulation — normal, palm mute, natural and pinch harmonics, slide and brushing — and hammer-ons, pull-offs and slides come from how you play, with no key switch at all. E2 to D6 sound, as on a 22-fret guitar; the modulation wheel bends the note upwards, like a finger vibrato. There is no amp or cabinet in it: it sends out a DI sound for the amp of your choice |
 | **Java Rhino Bass** | Five-string jazz bass instrument, modelled string by string rather than sampled. A 34-inch scale tuned B-E-A-D-G, two pickups you blend (both full in the middle, the way a jazz bass is usually played), and knobs for brightness, sustain, plucking position, tone, hardness, attack and the clank of the strings on the frets. Six key switches (C5 to F5) choose the style — finger, pick, slap, mute, ghost and harmonic — and on slap the two top strings are popped instead, the way they are played. Hammer-ons, pull-offs and slides come from how you play and can be switched off. B0 to G4 sound, as on a 24-fret bass. No amp or cabinet: it sends out a DI sound |
+| **Orangutan Drums** | Sixteen-pad drum synthesizer, built from oscillators rather than samples. Each pad takes any of sixteen engines — kick, 808 sub, snare, clap, rim, tom, conga, closed and open hat, cymbal, cowbell, shaker, snap, zap, noise sweep and stick — and has its own tune, decay, tone, snap, level, pan and reverb send. The closed hat chokes the open one, as on the machine this comes from, and it does so whichever pads they are on. Pads 1 to 16 are MIDI notes 36 to 51, laid out like an MPC with pad 1 at the bottom left. Any pad can be sent out on its own output instead of the main mix, to be picked up by a drum out track. Ten factory kits; a master section with drive, glue compression, a reverb the pads send to, and a soft limiter |
+| **Kakapo** | Scale suggester with a lead voice. Play, and it tells you which scale you are in — one major and one minor candidate, each with its notes and how well it matches. Twenty-four candidates are scored (twelve roots, major and natural minor) by counting the notes that fit and subtracting the ones that do not, so a chromatic run cannot fit everything at once. For relative keys like C major and A minor, where the notes are the same, the note you play most decides which one it leans towards. The twelve pitch classes are drawn as bars, so you can see which notes are pulling the verdict. It keeps either the last few notes or the last few seconds, and a simple monophonic lead is built in so you can hear what you are playing without routing MIDI anywhere — the sound is fixed and the only knob is its volume |
+
 
 ## Where your files are kept
 

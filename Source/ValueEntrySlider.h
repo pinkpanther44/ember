@@ -87,10 +87,30 @@ public:
     {
         plain,        ///< そのまま（既定）
         panPercent,   ///< -1.0〜+1.0 を **-100〜0〜100** で見せる
-        percent       ///<  0.0〜1.0  を **0〜100** で見せる
+        percent,      ///<  0.0〜1.0  を **0〜100** で見せる
+
+        /** 8.290：**つまみの位置を0.0〜10.0で見せる**（Phase 283／本人の要望）。
+
+            範囲がつまみごとに違うと（0〜1／0〜1.5／-24〜+24……）、
+            **数字だけ見ても「どのくらい回っているか」が分かりません**。
+            ここは`NormalisableRange`に訊くので、**歪み（skew）があるときは
+            つまみの位置そのもの**が出ます——0.0が左いっぱい、10.0が右いっぱい。
+
+            > **真ん中が0のつまみは5.0が真ん中**になります。
+            > 半音やdBのように**単位に意味があるもの**へ当てないこと。 */
+        zeroToTen
     };
 
     void setDisplayUnit (DisplayUnit unit);
+
+    /** 8.291：**そのままの値を、桁数だけ決めて出す**（Phase 284／本人の指定）。
+
+        `DisplayUnit::plain`のときだけ効きます（-1で既定＝JUCEに任せる）。
+
+        **`textFromValueFunction`ではなくここへ置く理由**は`zeroToTen`と同じです
+        ——`SliderAttachment`は繋ぐときにあれを自分のものへ差し替えるので、
+        **繋ぎ直すたびに桁が戻ります**（8.256）。ここは`getTextFromValue()`の側です。 */
+    void setDisplayDecimals (int numDecimals);
 
     juce::String getTextFromValue (double value) override;
     double getValueFromText (const juce::String& text) override;
@@ -156,6 +176,7 @@ private:
     juce::Component* watchedTopLevel = nullptr;
     juce::String defaultValueDescription;
     int entryDecimals = 1;
+    int displayDecimals = -1;   // 8.291：-1は既定（JUCEに任せる）
     DisplayUnit displayUnit = DisplayUnit::plain;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ValueEntrySlider)

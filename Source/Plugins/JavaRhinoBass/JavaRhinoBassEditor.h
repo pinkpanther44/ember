@@ -323,14 +323,17 @@ private:
     static constexpr int blendSliderX = 918;
     static constexpr int blendSliderW = 154;
     static constexpr int blendValueX  = 1080;
-    static constexpr int blendValueW  = 104;
+    static constexpr int blendValueW  = 88;
 
     static constexpr int boxY      = 180;
     static constexpr int boxH      = 62;
     static constexpr int leftBoxX  = 32;
     static constexpr int leftBoxW  = 540;
+    // 8.293：**右端は左と同じだけ空けること**（Phase 286／本人の指摘）。
+    // 帯の内側は左が16pxなのに、右は0でした——**箱もボタンも枠に張り付いて**見えます。
+    // 右端を1168（＝1184-16）に揃えてあります
     static constexpr int rightBoxX = 588;
-    static constexpr int rightBoxW = 596;
+    static constexpr int rightBoxW = 580;
 
     static constexpr int chipInset  = 10;
     static constexpr int chipGap    = 5;

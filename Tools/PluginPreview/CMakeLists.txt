@@ -48,6 +48,8 @@ juce_add_binary_data(PluginPreviewAssets
     SOURCES
         "${DAW_ROOT}/Resources/Plugins/racco_guitar_field.jpg"
         "${DAW_ROOT}/Resources/Plugins/java_rhino_bass_field.jpg"
+        "${DAW_ROOT}/Resources/Plugins/orangutan_drums_field.jpg"
+        "${DAW_ROOT}/Resources/Plugins/kakapo_field.jpg"
         "${DAW_ROOT}/Resources/Icons/app_icon.png"
         "${DAW_ROOT}/Resources/Icons/plugin_bypass.svg"
         "${DAW_ROOT}/Resources/Icons/plugin_pin.svg"
@@ -107,7 +109,15 @@ target_sources(PluginPreview
 
         "${DAW_ROOT}/Source/Plugins/JavaRhinoBass/JavaRhinoBassParameters.cpp"
         "${DAW_ROOT}/Source/Plugins/JavaRhinoBass/JavaRhinoBassProcessor.cpp"
-        "${DAW_ROOT}/Source/Plugins/JavaRhinoBass/JavaRhinoBassEditor.cpp")
+        "${DAW_ROOT}/Source/Plugins/JavaRhinoBass/JavaRhinoBassEditor.cpp"
+
+        "${DAW_ROOT}/Source/Plugins/OrangutanDrums/OrangutanDrumsParameters.cpp"
+        "${DAW_ROOT}/Source/Plugins/OrangutanDrums/OrangutanDrumsProcessor.cpp"
+        "${DAW_ROOT}/Source/Plugins/OrangutanDrums/OrangutanDrumsEditor.cpp"
+
+        "${DAW_ROOT}/Source/Plugins/Kakapo/KakapoParameters.cpp"
+        "${DAW_ROOT}/Source/Plugins/Kakapo/KakapoProcessor.cpp"
+        "${DAW_ROOT}/Source/Plugins/Kakapo/KakapoEditor.cpp")
 
 target_include_directories(PluginPreview PRIVATE "${DAW_ROOT}/Source")
 

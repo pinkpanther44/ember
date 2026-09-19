@@ -7,6 +7,8 @@
 #include "MantaReverb/MantaReverbProcessor.h" // 8.240：5つめ（Phase 254）
 #include "RaccoGuitar/RaccoGuitarProcessor.h" // 8.256：6つめ（Phase 264）
 #include "JavaRhinoBass/JavaRhinoBassProcessor.h" // 8.257：7つめ（Phase 265）
+#include "OrangutanDrums/OrangutanDrumsProcessor.h" // 8.288：8つめ（Phase 281）
+#include "Kakapo/KakapoProcessor.h"               // 8.292：9つめ（Phase 285）
 #include "../Branding.h"   // 8.175：ブランドごとの名前（Phase 216）
 
 namespace MantaPlugins
@@ -131,6 +133,40 @@ namespace MantaPlugins
                 [] () -> std::unique_ptr<juce::AudioPluginInstance>
                 {
                     return std::make_unique<JavaRhinoBassProcessor>();
+                }
+            },
+            {
+                // 8.288：8つめ＝**4つめの音源**（Phase 281／本人の要望）。
+                // 名前は**両製品とも`Orangutan Drums`**（本人の指定。`Branding.h`）
+                "manta:drums",
+                Branding::drumsPluginName,
+                "16 Pad Drum Synthesizer",
+                "Instrument|Drum",
+                "1.0.0",
+                0x4d445231,   // 'MDR1'
+                true,         // **音源**
+                [] () -> std::unique_ptr<juce::AudioPluginInstance>
+                {
+                    return std::make_unique<OrangutanDrumsProcessor>();
+                }
+            },
+            {
+                // 8.292：9つめ＝**5つめの音源**（Phase 285／本人の仕様書）。
+                // 名前は**両製品とも`Kakapo`**（本人の指定。`Branding.h`）。
+                //
+                // **分類は`Instrument|Scale`**——音も出しますが、挿す理由は
+                // 「弾いた音からスケールを当てる」ことなので、
+                // ブラウザの絞り込みでも**そう名乗らせます**（8.68）
+                "manta:kakapo",
+                Branding::scalePluginName,
+                "Scale Suggester With A Lead Voice",
+                "Instrument|Scale",
+                "1.0.0",
+                0x4d4b5031,   // 'MKP1'
+                true,         // **音源**
+                [] () -> std::unique_ptr<juce::AudioPluginInstance>
+                {
+                    return std::make_unique<KakapoProcessor>();
                 }
             },
         };

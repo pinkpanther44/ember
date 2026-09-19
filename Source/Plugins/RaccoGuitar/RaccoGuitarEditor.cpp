@@ -485,6 +485,16 @@ RaccoGuitarEditor::RaccoGuitarEditor (RaccoGuitarProcessor& processorToUse)
     addKnob (attack,     "ATTACK",   RaccoGuitarParams::attack,     pink,
               utf8 ("弾いた瞬間のピックノイズの量。ハンマリングやプリングには付きません"));
 
+    // 8.291：**数値は0.0〜10.0**（Phase 284／本人の指定。`Orangutan Drums`と揃えました）。
+    //
+    // **`SUSTAIN`だけ秒のまま**です（本人の指定）——「9秒」は**そのものが読みたい値**で、
+    // 0〜10にすると位置しか分からなくなります。
+    // `PICK POS`のように0.05〜0.45という半端な範囲のものは、**むしろ位置のほうが読めます**。
+    //
+    // 繋いだ後に入れ直す必要はありません（`getTextFromValue()`の側なので。8.290）
+    for (auto* knob : { hardness.get(), brightness.get(), pickPos.get(), attack.get() })
+        knob->slider.setDisplayUnit (ValueEntrySlider::DisplayUnit::zeroToTen);
+
     //--------------------------------------------------------------------------
     // 鍵盤
     keyboard.setAvailableRange (RaccoGuitarProcessor::keyboardLowNote,

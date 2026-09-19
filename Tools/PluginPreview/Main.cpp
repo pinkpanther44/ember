@@ -5,11 +5,12 @@
     何ができるか
     ─────────────────────────────────────────────────────────────────────
 
-        PluginPreview.exe --snapshots [出力先]   … 7つの画面をPNGで撮る（ライト／ダーク）
+        PluginPreview.exe --snapshots [出力先]   … 9つの画面をPNGで撮る（ライト／ダーク）
         PluginPreview.exe --presets              … 工場プリセットのIDが全部あるか見る
-        PluginPreview.exe --audio                … 音源3つのピッチ・減衰・大きさを測る
+        PluginPreview.exe --audio                … 音源5つのピッチ・減衰・大きさを測る
         PluginPreview.exe --eq-band              … EQにバンドを1つ足して、1つだけか見る
         PluginPreview.exe --icons                … ブラウザの絵がブランドの色を受けるか見る
+        PluginPreview.exe --scale                … Kakapoのスケール判定（仕様書18章の試験）
         PluginPreview.exe --all                  … 上ぜんぶ
 
     出力先を省くと、exeの隣の`preview`フォルダへ出します。
@@ -49,6 +50,7 @@
 #include "IconAssets.h"
 
 #include "Plugins/MantaFactoryPresets.h"
+#include "Plugins/MantaPluginFormat.h"   // 8.288：表と名乗りを突き合わせる（Phase 281）
 
 #include "Plugins/MantaEQ/MantaEQProcessor.h"
 #include "Plugins/MantaEQ/EQFilterDesign.h"
@@ -65,6 +67,9 @@
 #include "Plugins/RaccoGuitar/RaccoGuitarPresets.h"
 #include "Plugins/JavaRhinoBass/JavaRhinoBassProcessor.h"
 #include "Plugins/JavaRhinoBass/JavaRhinoBassPresets.h"
+#include "Plugins/OrangutanDrums/OrangutanDrumsProcessor.h"
+#include "Plugins/OrangutanDrums/OrangutanDrumsPresets.h"
+#include "Plugins/Kakapo/KakapoProcessor.h"
 
 #include <memory>
 #include <vector>
@@ -243,10 +248,74 @@ namespace
         return result;
     }
 
-    /** 1音鳴らして測る。`prepare`で、鳴らす前にパラメータをいじれます。 */
+    //==========================================================================
+    /** 8.292：**ゼロ交差で音程を数える**（Phase 285／8.289で書いたものを外へ出しました）。
+
+        `measure()`の自己相関は、**2つの場面で嘘をつきます**：
+
+        | | |
+        |---|---|
+        | 速く減衰する低音 | いちばん短いラグへ寄る（8.289。ドラムのベースゾーンで踏みました） |
+        | 減衰しない波形 | **周期の何倍のところも同じ相関**になり、どれが選ばれるか分からない（`Kakapo`のリードで踏みました。440Hzが「40Hz」と出ました） |
+
+        どちらも**上りのゼロ交差を数える**ほうが素直です。しきい値は峰の10%で、
+        0の近くの雑音を数えないようにしてあります。
+
+        > **測り方は、測るものに合わせること。** 同じ物差しを使い回して
+        > 「壊れている」と読み違えるところでした（2回目）。 */
+    float hzByZeroCrossings (const std::vector<float>& samples, double sampleRate,
+                              double fromSeconds, double toSeconds)
+    {
+        const size_t from = (size_t) (fromSeconds * sampleRate);
+        const size_t to = juce::jmin (samples.size(), (size_t) (toSeconds * sampleRate));
+
+        if (to <= from + 2)
+            return 0.0f;
+
+        float peak = 0.0f;
+
+        for (size_t i = from; i < to; ++i)
+            peak = juce::jmax (peak, std::abs (samples[i]));
+
+        if (peak < 1.0e-4f)
+            return 0.0f;
+
+        const float threshold = peak * 0.1f;
+
+        int crossings = 0;
+        bool above = samples[from] > 0.0f;
+        size_t firstCrossing = 0, lastCrossing = 0;
+
+        for (size_t i = from; i < to; ++i)
+        {
+            if (above && samples[i] < -threshold)
+            {
+                above = false;
+            }
+            else if (! above && samples[i] > threshold)
+            {
+                above = true;
+                ++crossings;
+
+                if (crossings == 1) firstCrossing = i;
+                lastCrossing = i;
+            }
+        }
+
+        if (crossings < 2)
+            return 0.0f;
+
+        const double periods = (double) (crossings - 1);
+        const double seconds = (double) (lastCrossing - firstCrossing) / sampleRate;
+
+        return (float) (periods / juce::jmax (1.0e-6, seconds));
+    }
+
+    /** 1音鳴らして、**左chの波形をそのまま**返す。
+        `prepare`で、鳴らす前にパラメータをいじれます。 */
     template <typename ProcessorType>
-    NoteResult renderNote (int midiNote, double seconds,
-                            std::function<void (juce::AudioProcessorValueTreeState&)> prepare = {})
+    std::vector<float> renderNoteSamples (int midiNote, double seconds,
+                                           std::function<void (juce::AudioProcessorValueTreeState&)> prepare = {})
     {
         constexpr double sampleRate = 48000.0;
         constexpr int blockSize = 512;
@@ -281,7 +350,16 @@ namespace
             position += blockSize;
         }
 
-        return measure (captured, sampleRate);
+        return captured;
+    }
+
+    /** 1音鳴らして測る。 */
+    template <typename ProcessorType>
+    NoteResult renderNote (int midiNote, double seconds,
+                            std::function<void (juce::AudioProcessorValueTreeState&)> prepare = {})
+    {
+        return measure (renderNoteSamples<ProcessorType> (midiNote, seconds, std::move (prepare)),
+                         48000.0);
     }
 
     void reportNote (const juce::String& name, const NoteResult& result, float expectedHz)
@@ -634,6 +712,227 @@ namespace
     }
 
     //==========================================================================
+    // 8.292：**スケール判定の試験**（Phase 285／本人の仕様書18章）。
+    //
+    // 仕様書に**期待値まで書いてある**ので、そのまま機械にやらせます。
+    //
+    // | 入れるもの | 期待するもの |
+    // |---|---|
+    // | Cメジャーの7音 | Major=C／Minor=A／**メジャー優勢** |
+    // | 半音階12音 | どこにも寄らない（一致率が拮抗する） |
+    // | 2音だけ | **判定中**（情報不足） |
+    // | Aナチュラルマイナー＋Aを多め | **マイナー優勢** |
+    //
+    // **プラグインを丸ごと通します**（判定だけを呼ぶのではなく、MIDIを入れて
+    // 画面へ渡る写しを読む）——途中の配線が外れていても、ここで出ます。
+
+    /** 用意した音を順に弾く（**1音ずつ、鳴らして離す**）。 */
+    void feedNotes (KakapoProcessor& processor, const std::vector<int>& notes)
+    {
+        constexpr int blockSize = 512;
+        constexpr int blocksPerNote = 8;   // 約85ms
+
+        juce::AudioBuffer<float> block (2, blockSize);
+
+        for (const int note : notes)
+        {
+            for (int i = 0; i < blocksPerNote; ++i)
+            {
+                juce::MidiBuffer midi;
+
+                if (i == 0)
+                    midi.addEvent (juce::MidiMessage::noteOn (1, note, 0.9f), 0);
+                else if (i == blocksPerNote - 1)
+                    midi.addEvent (juce::MidiMessage::noteOff (1, note), blockSize - 1);
+
+                block.clear();
+                processor.processBlock (block, midi);
+            }
+        }
+    }
+
+    KakapoProcessor::AnalysisSnapshot playNotes (const std::vector<int>& notes)
+    {
+        KakapoProcessor processor;
+        processor.prepareToPlay (48000.0, 512);
+
+        feedNotes (processor, notes);
+
+        return processor.readSnapshot();
+    }
+
+    void runScaleCheck()
+    {
+        say ("--- Kakapo: the scale detector (spec 18) ---");
+
+        auto describe = [] (const KakapoProcessor::AnalysisSnapshot& snapshot)
+        {
+            if (! snapshot.result.hasEnoughNotes)
+                return juce::String ("listening (not enough notes)");
+
+            juce::String line;
+
+            line << kakapo::pitchClassName (snapshot.result.major.root) << " major "
+                 << juce::String (juce::roundToInt (snapshot.result.major.matchRatio * 100.0f)) << "%"
+                 << "   " << kakapo::pitchClassName (snapshot.result.minor.root) << " minor "
+                 << juce::String (juce::roundToInt (snapshot.result.minor.matchRatio * 100.0f)) << "%"
+                 << "   centre " << kakapo::pitchClassName (snapshot.result.tonalCentre)
+                 << "   favours " << (snapshot.result.majorFavoured ? "major" : "minor");
+
+            return line;
+        };
+
+        //----------------------------------------------------------------------
+        // ① Cメジャー（C D E F G A B）
+        {
+            const auto snapshot = playNotes ({ 60, 62, 64, 65, 67, 69, 71 });
+
+            say ("  C major scale   " + describe (snapshot));
+
+            if (! snapshot.result.hasEnoughNotes)
+                problem ("C major scale: the plugin says there are not enough notes");
+
+            if (snapshot.result.major.root != 0)
+                problem ("C major scale: the major candidate is "
+                           + juce::String (kakapo::pitchClassName (snapshot.result.major.root))
+                           + " (expected C)");
+
+            if (snapshot.result.minor.root != 9)
+                problem ("C major scale: the minor candidate is "
+                           + juce::String (kakapo::pitchClassName (snapshot.result.minor.root))
+                           + " (expected A)");
+
+            if (snapshot.result.major.matchRatio < 0.999f)
+                problem ("C major scale: the major match is only "
+                           + juce::String (snapshot.result.major.matchRatio, 3));
+
+            // **並行調です**——点数では差が付かないので、トーナルセンターで決めます
+            if (! kakapo::isRelativeKey (snapshot.result.major, snapshot.result.minor))
+                problem ("C major scale: C major and A minor should be relative keys");
+
+            if (! snapshot.result.majorFavoured)
+                problem ("C major scale: major should be favoured (C is played first and longest)");
+        }
+
+        //----------------------------------------------------------------------
+        // ② 半音階（どこにも寄らないこと）
+        {
+            const auto snapshot = playNotes ({ 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71 });
+
+            say ("  chromatic       " + describe (snapshot));
+
+            const float gap = std::abs (snapshot.result.major.matchRatio
+                                          - snapshot.result.minor.matchRatio);
+
+            if (gap > 0.05f)
+                problem ("chromatic: one candidate won by " + juce::String (gap, 3)
+                           + " - all twelve notes should leave them level");
+
+            // 7/12 ＝ 0.583。**満点にならないこと**が肝心です
+            if (snapshot.result.major.matchRatio > 0.65f)
+                problem ("chromatic: the major match is "
+                           + juce::String (snapshot.result.major.matchRatio, 3)
+                           + " - twelve notes cannot fit a seven note scale");
+        }
+
+        //----------------------------------------------------------------------
+        // ③ 2音だけ（情報不足）
+        {
+            const auto snapshot = playNotes ({ 60, 64 });
+
+            say ("  two notes       " + describe (snapshot));
+
+            if (snapshot.result.hasEnoughNotes)
+                problem ("two notes: the plugin should say it is still listening");
+        }
+
+        //----------------------------------------------------------------------
+        // ④ Aナチュラルマイナー、Aを多めに（マイナー優勢）
+        {
+            const auto snapshot = playNotes ({ 69, 71, 72, 74, 76, 77, 79, 69, 69, 69 });
+
+            say ("  A minor (A led) " + describe (snapshot));
+
+            if (snapshot.result.minor.root != 9)
+                problem ("A minor: the minor candidate is "
+                           + juce::String (kakapo::pitchClassName (snapshot.result.minor.root))
+                           + " (expected A)");
+
+            if (snapshot.result.tonalCentre != 9)
+                problem ("A minor: the strongest note is "
+                           + juce::String (kakapo::pitchClassName (snapshot.result.tonalCentre))
+                           + " (expected A)");
+
+            if (snapshot.result.majorFavoured)
+                problem ("A minor: minor should be favoured when A is played most");
+        }
+
+        //----------------------------------------------------------------------
+        // ⑤ **消えること**（画面のRESET）。仕様書18章の手動確認のぶん
+        {
+            constexpr double sampleRate = 48000.0;
+            constexpr int blockSize = 512;
+
+            KakapoProcessor processor;
+            processor.prepareToPlay (sampleRate, blockSize);
+
+            juce::AudioBuffer<float> block (2, blockSize);
+
+            for (const int note : { 60, 62, 64, 65 })
+            {
+                juce::MidiBuffer midi;
+                midi.addEvent (juce::MidiMessage::noteOn (1, note, 0.9f), 0);
+                midi.addEvent (juce::MidiMessage::noteOff (1, note), blockSize - 1);
+
+                block.clear();
+                processor.processBlock (block, midi);
+            }
+
+            if (processor.readSnapshot().noteCount != 4)
+                problem ("reset: four notes should be in the buffer before the reset");
+
+            processor.requestReset();
+
+            juce::MidiBuffer empty;
+            block.clear();
+            processor.processBlock (block, empty);
+
+            const auto after = processor.readSnapshot();
+
+            if (after.noteCount == 0 && ! after.result.hasEnoughNotes)
+                say ("  ok    reset clears the buffer and the verdict");
+            else
+                problem ("reset: the buffer still holds " + juce::String (after.noteCount)
+                           + " note(s)");
+        }
+
+        //----------------------------------------------------------------------
+        // ⑥ **音が出ること**・**音程**・**0dBFSを越えないこと**（内蔵リード）
+        //
+        // **音程はゼロ交差で数えます**（`hzByZeroCrossings`の説明）。
+        // 内蔵リードは減衰しないので、自己相関では**周期の何倍のところも同点**になり、
+        // 440Hzが「40Hz」と出ました（11周期ぶんのラグが選ばれていました）。
+        {
+            const auto samples = renderNoteSamples<KakapoProcessor> (69, 1.0);
+            const auto result = measure (samples, 48000.0);
+
+            reportNote ("kakapo A4", result, 0.0f);
+
+            const float hz = hzByZeroCrossings (samples, 48000.0, 0.1, 0.9);
+            const float cents = 1200.0f * std::log2 (juce::jmax (1.0f, hz) / 440.0f);
+
+            say ("  kakapo A4 pitch  hz=" + juce::String (hz, 2)
+                   + " (expected 440.00, " + juce::String (cents, 1) + " cent)");
+
+            if (std::abs (cents) > 20.0f)
+                problem ("kakapo: the lead voice is off by " + juce::String (cents, 1) + " cent");
+
+            if (result.peak < 0.02f)
+                problem ("kakapo: the lead voice made no sound");
+        }
+    }
+
+    //==========================================================================
     void runSnapshots()
     {
         say ("--- snapshots ---");
@@ -645,10 +944,143 @@ namespace
         snapshots<MantaReverbProcessor> ("manta_reverb");
         snapshots<RaccoGuitarProcessor> ("racco_guitar");
         snapshots<JavaRhinoBassProcessor> ("java_rhino_bass");
+        snapshots<OrangutanDrumsProcessor> ("orangutan_drums");
+        snapshots<KakapoProcessor> ("kakapo");
+
+        // 8.292：**Kakapoは、何か弾いたところも撮ります**（Phase 285）。
+        // 既定の状態は「まだ聞いています」なので、**判定が出ている姿は誰も見ません**
+        // ——`Orangutan Drums`で頁を撮り忘れたのと同じ話（8.290）
+        for (const auto theme : { AppColours::Theme::Light, AppColours::Theme::Dark })
+        {
+            AppColours::setTheme (theme);
+
+            KakapoProcessor processor;
+            processor.prepareToPlay (48000.0, 512);
+
+            // Cメジャー（Cを多めに弾いて、メジャー優勢にする）
+            feedNotes (processor, { 60, 62, 64, 65, 67, 69, 71, 72, 60, 67, 64, 60 });
+
+            std::unique_ptr<juce::AudioProcessorEditor> editor (processor.createEditor());
+
+            if (editor == nullptr)
+            {
+                problem ("kakapo_playing: createEditor() returned nothing");
+                continue;
+            }
+
+            editor->setBounds (0, 0, editor->getWidth(), editor->getHeight());
+            editor->resized();
+
+            // **音を先に入れておくこと。** 画面は作られたときに1度だけ
+            // 写しを読みます（`KakapoEditor`のコンストラクタが`timerCallback()`を呼ぶ）
+            // ——先に開いてから弾いても、撮れるのは「まだ聞いています」の姿です
+
+            const auto image = editor->createComponentSnapshot (editor->getLocalBounds(), false);
+            const auto file = outputFolder.getChildFile (
+                juce::String ("kakapo_playing_")
+                  + (theme == AppColours::Theme::Light ? "light" : "dark") + ".png");
+
+            file.deleteFile();
+
+            juce::PNGImageFormat png;
+
+            if (auto stream = file.createOutputStream())
+                png.writeImageToStream (image, *stream);
+
+            say ("  " + file.getFileName() + "  " + juce::String (image.getWidth())
+                   + "x" + juce::String (image.getHeight()));
+        }
+
+        // 8.289：**ドラムは頁が2枚あります**（Phase 282）。
+        // 既定で作ると1枚目しか撮れないので、`<UI>`へ頁を書いてから開きます
+        // ——**撮っていない頁は、誰も見ていない頁**です
+        for (const auto theme : { AppColours::Theme::Light, AppColours::Theme::Dark })
+        {
+            AppColours::setTheme (theme);
+
+            OrangutanDrumsProcessor processor;
+            processor.prepareToPlay (48000.0, 512);
+            processor.getUiState().setProperty ("page", 1, nullptr);
+
+            std::unique_ptr<juce::AudioProcessorEditor> editor (processor.createEditor());
+
+            if (editor == nullptr)
+            {
+                problem ("orangutan_drums_knobs: createEditor() returned nothing");
+                continue;
+            }
+
+            editor->setBounds (0, 0, editor->getWidth(), editor->getHeight());
+            editor->resized();
+
+            const auto image = editor->createComponentSnapshot (editor->getLocalBounds(), false);
+            const auto file = outputFolder.getChildFile (
+                juce::String ("orangutan_drums_knobs_")
+                  + (theme == AppColours::Theme::Light ? "light" : "dark") + ".png");
+
+            file.deleteFile();
+
+            juce::PNGImageFormat png;
+
+            if (auto stream = file.createOutputStream())
+                png.writeImageToStream (image, *stream);
+
+            say ("  " + file.getFileName() + "  " + juce::String (image.getWidth())
+                   + "x" + juce::String (image.getHeight()));
+        }
+    }
+
+    //==========================================================================
+    // 8.288：**表と、プラグインが名乗る説明が合っているか**（Phase 281）
+    //
+    // `fillInPluginDescription()`は`MantaPlugins::findDescription()`を通します
+    // （1.27）。**識別子を1文字打ち間違えると、そこで何も入りません**——
+    // 説明が空のまま挿さり、**保存して開き直したときに初めて**見失います。
+    //
+    // 表を全部作って、名乗りが表と一致するかを数えます。
+    // **増やしたときに、ここが自動で増えます**（表を回しているので）。
+
+    void runTableCheck()
+    {
+        say ("--- the plugin table ---");
+
+        for (const auto& entry : MantaPlugins::getEntries())
+        {
+            auto instance = entry.create();
+
+            if (instance == nullptr)
+            {
+                problem (juce::String (entry.name) + ": create() returned nothing");
+                continue;
+            }
+
+            juce::PluginDescription description;
+            instance->fillInPluginDescription (description);
+
+            if (description.fileOrIdentifier != entry.identifier)
+            {
+                problem (juce::String (entry.name) + ": says it is \""
+                           + description.fileOrIdentifier + "\", the table says \""
+                           + entry.identifier + "\"");
+                continue;
+            }
+
+            if (description.name != entry.name)
+            {
+                problem (juce::String (entry.name) + ": the name does not match the table ("
+                           + description.name + ")");
+                continue;
+            }
+
+            say ("  ok    " + juce::String (entry.identifier).paddedRight (' ', 14)
+                   + description.name + "   [" + description.createIdentifierString() + "]");
+        }
     }
 
     void runPresetCheck()
     {
+        runTableCheck();
+
         say ("--- factory presets ---");
 
         checkPresets<MantaEQProcessor> ("Manta EQ", MantaEQPresets::all());
@@ -657,6 +1089,7 @@ namespace
         checkPresets<MantaReverbProcessor> ("Manta Reverb", MantaReverbPresets::all());
         checkPresets<RaccoGuitarProcessor> ("Racco Guitar", RaccoGuitarPresets::all());
         checkPresets<JavaRhinoBassProcessor> ("Java Rhino Bass", JavaRhinoBassPresets::all());
+        checkPresets<OrangutanDrumsProcessor> ("Orangutan Drums", OrangutanDrumsPresets::all());
 
         // シンセだけ表の型が別（156個。`MantaSynthPresets.h`）
         {
@@ -746,6 +1179,250 @@ namespace
             else
                 problem ("bass key switch F5 gave style " + juce::String (choice) + " (expected 5)");
         }
+
+        //----------------------------------------------------------------------
+        // 8.288：**Orangutan Drums**（Phase 281。8.289で作り直し）。
+        //
+        // どれも**聞いているだけでは数えられない**ものです。
+        //
+        // | | |
+        // |---|---|
+        // | 16のエンジン | **鳴っていること**と、**0dBFSを越えないこと** |
+        // | パラアウト | `DIRECT`のパッドが**バスへ出て、メインには出ない**こと |
+        // | チョーク | クローズハットが**オープンハットを止める**こと |
+        // | 保存 | **開き直すと、パッドと選んでいるパッドが戻る**こと |
+
+        say ("  --- Orangutan Drums ---");
+
+        {
+            using namespace OrangutanDrumsParams;
+
+            // ① 16のエンジンを、パッド1へ順に割り当てて鳴らす
+            auto setEngine = [] (int engine)
+            {
+                return [engine] (juce::AudioProcessorValueTreeState& apvts)
+                {
+                    if (auto* parameter = apvts.getParameter (padId (0, padEngine)))
+                        parameter->setValueNotifyingHost (
+                            parameter->convertTo0to1 ((float) engine));
+                };
+            };
+
+            for (int engine = 0; engine < orangutan::ENG_COUNT; ++engine)
+            {
+                const auto result = renderNote<OrangutanDrumsProcessor> (
+                    OrangutanDrumsProcessor::padBaseNote, 2.0, setEngine (engine));
+
+                const juce::String name = juce::String ("drum ") + orangutan::engineName (engine);
+
+                reportNote (name, result, 0.0f);
+
+                // **鳴っていないエンジンを見つける**（つまみの既定値しだいで消えることがあります）
+                if (result.peak < 0.02f)
+                    problem (name + ": nothing came out (peak "
+                               + juce::String (result.peak, 4) + ")");
+            }
+
+            // ② 8.289：**ベースゾーンは廃止**（Phase 282／本人の指定）。
+            //    36〜51の外は、もう何も鳴りません——**前は52〜96が鳴っていました**
+            reportNote ("drum note 60 (silent)",
+                         renderNote<OrangutanDrumsProcessor> (60, 0.5), 0.0f);
+
+            // ③ 8.289：**パラアウト**（Phase 282／本人の要望で復活）。
+            //
+            // **本体と同じ順でやること**（8.144）：欲しい形を全部組んで、
+            // 確かめて、**グラフへ入れる前に1回だけ**渡す。ここではグラフが無いので
+            // `prepareToPlay()`の前に渡します。
+            //
+            // 見るのは**行き先**です——`DIRECT`のパッドは**バスへ出て、メインには出ない**。
+            // 音が鳴っているかだけ見ると、**メインへ落ちていても気づけません**
+            // （このプラグインは、バスが無効なときMAINへ落とすので）。
+            {
+                constexpr double sampleRate = 48000.0;
+                constexpr int blockSize = 512;
+
+                auto renderWithDirectOut = [] (bool direct, float& mainPeak, float& busPeak)
+                {
+                    OrangutanDrumsProcessor processor;
+
+                    auto layout = processor.getBusesLayout();
+
+                    // **本体は16本まとめて有効にします**（`enableExtraOutputBusesOn()`）。
+                    // 1本だけで試すと、**34chの形**を一度も通らずに合格します
+                    for (int bus = 1; bus < layout.outputBuses.size(); ++bus)
+                        layout.outputBuses.getReference (bus) = juce::AudioChannelSet::stereo();
+
+                    const bool accepted = processor.checkBusesLayoutSupported (layout)
+                                            && processor.setBusesLayout (layout);
+
+                    processor.prepareToPlay (sampleRate, blockSize);
+
+                    if (auto* parameter = processor.getValueTreeState()
+                                                     .getParameter (padId (0, padOut)))
+                        parameter->setValueNotifyingHost (
+                            parameter->convertTo0to1 (direct ? 1.0f : 0.0f));
+
+                    const int channels = processor.getTotalNumOutputChannels();
+
+                    juce::AudioBuffer<float> block (juce::jmax (2, channels), blockSize);
+
+                    mainPeak = 0.0f;
+                    busPeak = 0.0f;
+
+                    for (int position = 0; position < (int) (0.5 * sampleRate); position += blockSize)
+                    {
+                        juce::MidiBuffer midi;
+
+                        if (position == 0)
+                            midi.addEvent (juce::MidiMessage::noteOn (
+                                1, OrangutanDrumsProcessor::padBaseNote, 0.9f), 1);
+
+                        block.clear();
+                        processor.processBlock (block, midi);
+
+                        for (int i = 0; i < blockSize; ++i)
+                        {
+                            mainPeak = juce::jmax (mainPeak, std::abs (block.getSample (0, i)));
+
+                            if (block.getNumChannels() > 2)
+                                busPeak = juce::jmax (busPeak, std::abs (block.getSample (2, i)));
+                        }
+                    }
+
+                    return accepted;
+                };
+
+                float mainPeak = 0.0f, busPeak = 0.0f;
+
+                if (! renderWithDirectOut (false, mainPeak, busPeak))
+                    problem ("drums: the plugin refused a layout with one direct out enabled");
+
+                say ("  drum out MAIN     main=" + juce::String (mainPeak, 4)
+                       + " bus1=" + juce::String (busPeak, 4));
+
+                if (mainPeak < 0.02f)
+                    problem ("drums: pad 1 on MAIN made no sound on the main bus");
+
+                if (busPeak > 0.001f)
+                    problem ("drums: pad 1 on MAIN leaked into the direct out bus");
+
+                renderWithDirectOut (true, mainPeak, busPeak);
+
+                say ("  drum out DIRECT   main=" + juce::String (mainPeak, 4)
+                       + " bus1=" + juce::String (busPeak, 4));
+
+                if (busPeak < 0.02f)
+                    problem ("drums: pad 1 on DIRECT made no sound on its own bus");
+
+                if (mainPeak > 0.001f)
+                    problem ("drums: pad 1 on DIRECT is still coming out of the main bus");
+            }
+
+            // ④ **保存して開き直す。** パラメータだけでなく、画面が`<UI>`へ入れる
+            //    「選んでいるパッド」と「開いている頁」も戻ること（`OrangutanDrumsEditor`）
+            {
+                OrangutanDrumsProcessor saved;
+                saved.prepareToPlay (48000.0, 512);
+
+                auto& savedState = saved.getValueTreeState();
+
+                // パッド4のエンジンを`COWBELL`（10）、TUNEを+7、出口をDIRECTへ
+                if (auto* parameter = savedState.getParameter (padId (3, padEngine)))
+                    parameter->setValueNotifyingHost (parameter->convertTo0to1 (10.0f));
+
+                if (auto* parameter = savedState.getParameter (padId (3, padTune)))
+                    parameter->setValueNotifyingHost (parameter->convertTo0to1 (7.0f));
+
+                if (auto* parameter = savedState.getParameter (padId (3, padOut)))
+                    parameter->setValueNotifyingHost (parameter->convertTo0to1 (1.0f));
+
+                saved.getUiState().setProperty ("selectedPad", 3, nullptr);
+                saved.getUiState().setProperty ("page", 1, nullptr);
+
+                juce::MemoryBlock block;
+                saved.getStateInformation (block);
+
+                OrangutanDrumsProcessor restored;
+                restored.prepareToPlay (48000.0, 512);
+                restored.setStateInformation (block.getData(), (int) block.getSize());
+
+                const int engine = restored.getPadEngine (3);
+                const float tuneValue = restored.getValueTreeState()
+                                                  .getRawParameterValue (padId (3, padTune))->load();
+                const bool direct = restored.isPadDirectOut (3);
+                const int pad = (int) restored.getUiState().getProperty ("selectedPad", -1);
+                const int page = (int) restored.getUiState().getProperty ("page", -1);
+
+                if (engine == 10 && std::abs (tuneValue - 7.0f) < 0.01f
+                     && direct && pad == 3 && page == 1)
+                    say ("  ok    saving and reopening keeps the pads, the direct out and the page");
+                else
+                    problem ("after reopening: engine " + juce::String (engine)
+                               + " (expected 10), tune " + juce::String (tuneValue, 2)
+                               + " (expected 7.00), direct " + juce::String (direct ? 1 : 0)
+                               + " (expected 1), selected pad " + juce::String (pad)
+                               + " (expected 3), page " + juce::String (page) + " (expected 1)");
+            }
+
+            // ⑤ チョーク。**オープンハット（パッド6）を鳴らしてから、
+            //    クローズハット（パッド5）を叩いて、尻尾が消えるか**
+            auto renderHats = [] (bool withChoke)
+            {
+                constexpr double sampleRate = 48000.0;
+                constexpr int blockSize = 512;
+
+                OrangutanDrumsProcessor processor;
+                processor.prepareToPlay (sampleRate, blockSize);
+
+                juce::AudioBuffer<float> block (2, blockSize);
+
+                const int totalSamples = (int) (0.5 * sampleRate);
+                const int chokeAt = (int) (0.1 * sampleRate);
+
+                std::vector<float> captured;
+                captured.reserve ((size_t) totalSamples);
+
+                int position = 0;
+
+                while (position < totalSamples)
+                {
+                    juce::MidiBuffer midi;
+
+                    if (position == 0)
+                        midi.addEvent (juce::MidiMessage::noteOn (
+                            1, OrangutanDrumsProcessor::padBaseNote + 5, 0.9f), 1);
+
+                    if (withChoke && position <= chokeAt && chokeAt < position + blockSize)
+                        midi.addEvent (juce::MidiMessage::noteOn (
+                            1, OrangutanDrumsProcessor::padBaseNote + 4, 0.9f),
+                            chokeAt - position);
+
+                    block.clear();
+                    processor.processBlock (block, midi);
+
+                    for (int i = 0; i < blockSize && position + i < totalSamples; ++i)
+                        captured.push_back (block.getSample (0, i));
+
+                    position += blockSize;
+                }
+
+                return measure (captured, sampleRate);
+            };
+
+            const auto openOnly = renderHats (false);
+            const auto choked   = renderHats (true);
+
+            say ("  open hat tail=" + juce::String (openOnly.tailRms, 5)
+                   + "   after a closed hat tail=" + juce::String (choked.tailRms, 5));
+
+            // **尻尾で見ること**（頭はクローズハット自身の音で大きくなります）
+            if (choked.tailRms < openOnly.tailRms * 0.5f)
+                say ("  ok    the closed hat chokes the open one");
+            else
+                problem ("the closed hat did not choke the open one (tail "
+                           + juce::String (choked.tailRms, 5) + " vs "
+                           + juce::String (openOnly.tailRms, 5) + ")");
+        }
     }
 }
 
@@ -766,6 +1443,7 @@ public:
         const bool wantAudio     = all || args.containsOption ("--audio");
         const bool wantEqBand    = all || args.containsOption ("--eq-band");
         const bool wantIcons     = all || args.containsOption ("--icons");
+        const bool wantScale     = all || args.containsOption ("--scale");
 
         outputFolder = args.size() > 0 && args[args.size() - 1].isLongOption() == false
                          ? juce::File::getCurrentWorkingDirectory()
@@ -780,6 +1458,7 @@ public:
         if (wantSnapshots) runSnapshots();
         if (wantEqBand) runEqBandCheck();
         if (wantIcons) runIconCheck();
+        if (wantScale) runScaleCheck();
         if (wantPresets)   runPresetCheck();
         if (wantAudio)     runAudioCheck();
 

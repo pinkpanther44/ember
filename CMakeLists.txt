@@ -157,6 +157,34 @@ set(PERSONALDAW_EMBEDDED_ASSETS
     # 小さくするより縞を出さないほうを採っています
     Resources/Plugins/java_rhino_bass_field.jpg
 
+    # 8.288：Orangutan Drumsの画面のまん中に敷く絵（Phase 281／本人が用意）。
+    #
+    # 元は1920x1080のWebP。**置き場所の形に切ってから**縮めてあります
+    # （伸ばすより切るほうが、銅の流れが崩れません）。
+    #
+    # 8.289：**切り直しました**（Phase 282／窓が縦長になったため）。
+    # Phase 281は1600x543（約3:1）でしたが、置き場所が正方形に近くなりました
+    # ——3:1の絵を敷くと、真ん中の帯しか映りません。
+    #
+    # 8.290：**740x949**（Phase 283／絵をタブとマスターまで広げたため）。
+    # 置き場所は368x472＝**縦長**になり、切る形もそれに合わせてあります
+    # （`RectanglePlacement::fillDestination`で敷くので、**形が合っていないと端が落ちます**）
+    #
+    # **ガンマ0.72で明るく起こしてあります。** 銅の絵はギター・ベースの絵より
+    # 3割ほど暗く（平均の明るさ119に対して187・191）、そのままでは
+    # **濃い文字が読めません**。白のベールを厚くすると銅が灰色に寄るので、
+    # 絵そのものを起こしてベールは0.20に留めてあります（8.274の経緯と同じ話）
+    Resources/Plugins/orangutan_drums_field.jpg
+
+    # 8.292：Kakapoの画面のまん中に敷く絵（Phase 285／本人が用意）。
+    #
+    # 苔の緑（カカポは緑のオウム）。元は1920x1080のWebPで、3:1の帯に切って1600x543へ。
+    # **ガンマ0.62で少しだけ起こしてあります**——この絵は平均の明るさが79しかなく
+    # （銅は119、ギター・ベースは187・191）、そのままでは何も読めません。
+    # ただし**起こしすぎると苔が灰色に寄る**ので、読ませるものは
+    # 絵の上に敷いた薄い板へ載せてあります（`KakapoTheme.h`）
+    Resources/Plugins/kakapo_field.jpg
+
     # 8.151：起動画面に出すアプリのアイコン（Phase 189／改善案⑰）。
     # exeのアイコン（ICON_BIG）と**同じファイル**を、絵としても読めるように埋め込む。
     #
@@ -341,6 +369,23 @@ target_sources(PersonalDAW
         Source/Plugins/JavaRhinoBass/JavaRhinoBassParameters.cpp
         Source/Plugins/JavaRhinoBass/JavaRhinoBassProcessor.cpp
         Source/Plugins/JavaRhinoBass/JavaRhinoBassEditor.cpp
+
+        # 8.288：8つめ「Orangutan Drums」＝**4つめの音源**（Phase 281／本人の要望）。
+        # 本人が別に作った`MAGAZINE`（16パッドのドラムシンセ）を移したもので、
+        # **シークエンサは持って来ていません**（本人の指定。本体にピアノロールと
+        # ドラムエディタがあります）。
+        # **音とマスター段はヘッダだけ**——JUCEに依存しないので、そのまま数値で測れます
+        Source/Plugins/OrangutanDrums/OrangutanDrumsParameters.cpp
+        Source/Plugins/OrangutanDrums/OrangutanDrumsProcessor.cpp
+        Source/Plugins/OrangutanDrums/OrangutanDrumsEditor.cpp
+
+        # 8.292：9つめ「Kakapo」＝**5つめの音源**（Phase 285／本人の仕様書・設計書）。
+        # 弾いた音からスケールを当てて出すもので、**内蔵の単音リードで音も鳴ります**。
+        # **判定・控え・音はヘッダだけ**——JUCEに依存しないので、そのまま数値で測れます
+        # （`Tools/PluginPreview --scale`が仕様書18章の試験を回します）
+        Source/Plugins/Kakapo/KakapoParameters.cpp
+        Source/Plugins/Kakapo/KakapoProcessor.cpp
+        Source/Plugins/Kakapo/KakapoEditor.cpp
 )
 
 target_compile_definitions(PersonalDAW

@@ -324,17 +324,20 @@ private:
     // 2つめの帯の中身
     static constexpr int rowY      = 144;
     static constexpr int rowH      = 28;
-    static constexpr int pickupX   = 1014;
+    static constexpr int pickupX   = 998;
     static constexpr int pickupW   = 170;
-    static constexpr int resetX    = 938;
+    static constexpr int resetX    = 922;
     static constexpr int resetW    = 64;
 
     static constexpr int boxY      = 180;
     static constexpr int boxH      = 62;
     static constexpr int leftBoxX  = 32;
     static constexpr int leftBoxW  = 540;
+    // 8.293：**右端は左と同じだけ空けること**（Phase 286／本人の指摘）。
+    // 帯の内側は左が16pxなのに、右は0でした——**箱もボタンも枠に張り付いて**見えます。
+    // 右端を1168（＝1184-16）に揃えてあります
     static constexpr int rightBoxX = 588;
-    static constexpr int rightBoxW = 596;
+    static constexpr int rightBoxW = 580;
 
     static constexpr int chipInset  = 10;
     static constexpr int chipGap    = 5;
