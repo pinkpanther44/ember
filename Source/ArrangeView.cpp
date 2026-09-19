@@ -335,6 +335,37 @@ ArrangeView::ArrangeView (ProjectModel& projectToUse, AudioEngine& audioEngineTo
         audioEngine.setInputMonitoringEnabled (shouldMonitor);
     };
 
+    // 8.295：MIDIトラックの絵で、音源のGUIを出す／しまう（Phase 288／改善案1）。
+    // これも**エンジンを持ち込まずにコールバックで**（入力モニタリングと同じ方針）
+    timeline.isTrackInstrumentEditorOpen = [this] (const juce::String& trackId)
+    {
+        return audioEngine.isTrackInstrumentEditorOpen (trackId);
+    };
+
+    timeline.onTrackInstrumentIconClicked = [this] (const juce::String& trackId)
+    {
+        // **出ていればしまう。** 押すたびに開くだけだと、
+        // しまう手立てがGUIの「×」しかありません（押した場所へ戻れない）
+        if (audioEngine.isTrackInstrumentEditorOpen (trackId))
+        {
+            audioEngine.closeTrackInstrumentEditor (trackId);
+            return;
+        }
+
+        // 音源が挿さっていないトラックでは、**何も起きないほうが正しい**
+        // ——ラックのスロット（`TrackRackComponent`）と違い、
+        // ここは「種類を示す絵」なので、選択ダイアログが出てくるのは唐突です。
+        // 代わりに、どうすればよいかを下の帯へ出します（8.161と同じ考え方）
+        if (! audioEngine.trackHasInstrument (trackId))
+        {
+            showStatusMessage (utf8 ("このトラックにはまだ音源がありません"
+                                      "（インスペクタかConsoleのラックから挿せます）"));
+            return;
+        }
+
+        audioEngine.openTrackInstrumentEditor (trackId);
+    };
+
     // 仕様書5.6：ヘッダーのパンを掴んだ／離した（Phase 58）。
     // **Consoleのパンつまみと同じ扱いにすること**（`ChannelStripComponent`参照）。
     // 片方だけTouch/Latchの記録が始まると、「どこで動かしたか」で結果が変わる
@@ -1463,7 +1494,13 @@ void ArrangeView::changeListenerCallback (juce::ChangeBroadcaster*)
     // 選択が変わるとヘッダーの見た目（選択中トラックの枠）が変わるので描き直す。
     // Phase 26より前は、ここでオートメーションの対象一覧を作り直していた
     // （対象がプロジェクト全体で1つだったため。今はトラックごとにメニューで選ぶ）。
-    timeline.repaint();
+    //
+    // 8.301：**描き直す前に、番号を合わせること**（Phase 294／本人の要望）。
+    //
+    // ヘッダーの塗り分けは**自分で覚えている番号**を見ています。
+    // Consoleのストリップを押して選択が変わっても、
+    // **描き直すだけでは前のトラックが光ったまま**でした。
+    timeline.refreshSelectionFromState();
 }
 
 void ArrangeView::buildAutomationTargetMenu (juce::PopupMenu& menu, int trackIndex, bool isMaster,

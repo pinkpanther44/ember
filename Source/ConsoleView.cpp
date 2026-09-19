@@ -4,9 +4,13 @@
 #include "Utf8.h"
 #include "DragAndDropIds.h"
 
-ConsoleView::ConsoleView (ProjectModel& projectToUse, AudioEngine& audioEngineToUse)
-    : project (projectToUse), audioEngine (audioEngineToUse)
+ConsoleView::ConsoleView (ProjectModel& projectToUse, SelectionState& selectionToUse,
+                           AudioEngine& audioEngineToUse)
+    : project (projectToUse), selection (selectionToUse), audioEngine (audioEngineToUse)
 {
+    // 8.301：選択に追従する（Phase 294／本人の要望）
+    selection.addChangeListener (this);
+
     emptyLabel.setJustificationType (juce::Justification::centredTop);
     emptyLabel.setFont (juce::FontOptions (14.0f));
     emptyLabel.setColour (juce::Label::textColourId, AppColours::textSecondary);
@@ -30,6 +34,9 @@ ConsoleView::ConsoleView (ProjectModel& projectToUse, AudioEngine& audioEngineTo
 ConsoleView::~ConsoleView()
 {
     stopTimer();
+
+    // **購読は先に外すこと**（1.15）。残したまま消えると、居なくなった自分へ通知が来ます
+    selection.removeChangeListener (this);
 
     // 8.67：待っている作り直しを取り消す（Phase 106）。
     // 残したまま消えると、居なくなった自分に対して呼ばれる
@@ -93,9 +100,49 @@ void ConsoleView::valueTreeChildOrderChanged (juce::ValueTree& parent, int, int)
         triggerAsyncUpdate();
 }
 
+void ConsoleView::valueTreeChildAdded (juce::ValueTree& parent, juce::ValueTree&)
+{
+    // 8.299：**トラックが増えたら、その場でストリップを出す**（Phase 292／本人の報告）。
+    //
+    // **器の型で絞ること。** ルートを購読しているので、
+    // クリップやノートが増えたときもここへ来ます——絞らないと、
+    // 打ち込むたびにConsole全体を作り直すことになります。
+    //
+    // **作り直しは非同期**（`triggerAsyncUpdate`）です。通知の途中で
+    // ストリップを捨てると、**いま通知を配っている相手を消す**ことになります（1.15）。
+    if (parent.hasType (IDs::TRACKS))
+        triggerAsyncUpdate();
+}
+
+void ConsoleView::valueTreeChildRemoved (juce::ValueTree& parent, juce::ValueTree&, int)
+{
+    // 消えたときも同じ（**消したトラックのストリップが残ると、
+    // 触れるのに何も起きない**という形になります）
+    if (parent.hasType (IDs::TRACKS))
+        triggerAsyncUpdate();
+}
+
 void ConsoleView::handleAsyncUpdate()
 {
     rebuildStrips();
+}
+
+void ConsoleView::changeListenerCallback (juce::ChangeBroadcaster*)
+{
+    // 8.301：**選択が変わったら、印を付け直すだけ**（Phase 294）。
+    // 作り直しは要りません（並びも中身も変わっていない）
+    updateSelectedStrip();
+}
+
+void ConsoleView::updateSelectedStrip()
+{
+    // **クリップやレーンを選んでいるときも、親のトラックが光ります。**
+    // `getTrackId()`はどの種類の選択でも「どのトラックの話か」を返すので、
+    // アレンジ画面でクリップを選んだときも、Consoleの同じトラックに印が付きます
+    const auto trackId = selection.getTrackId();
+
+    for (auto* strip : strips)
+        strip->setSelected (trackId.isNotEmpty() && strip->getTrackId() == trackId);
 }
 
 void ConsoleView::paint (juce::Graphics& g)
@@ -260,7 +307,7 @@ void ConsoleView::resized()
     // 「Console」はパネルのヘッダー（`EditorPanel`）に出ているので、
     // 中にもう一度出す必要がありません。下部パネルは縦が限られるので
     // （8.27のC14と同じ話）、見出し28px＋間隔12pxは大きすぎました。
-    auto area = getLocalBounds().reduced (16, 8);
+    auto area = getLocalBounds().reduced (16, verticalPadding);
 
     // 説明ラベルは、ストリップが1本も無いときだけ場所を取る
     if (strips.isEmpty())
@@ -270,6 +317,37 @@ void ConsoleView::resized()
     area.removeFromRight (8);
 
     viewport.setBounds (area);
+
+    // 8.300・8.302：**覚えている位置が出せないなら、出せるところまで詰める**
+    // （Phase 293／本人の報告）。
+    //
+    // 詰めないと、覚えている値と画面に出ている高さが食い違ったままになり、
+    // **掴んでも動かない**という形になります。
+    //
+    // **出せる高さがそもそも無いとき（畳んだも同然）は触りません。**
+    // パネルをいちばん低くしただけで覚えている値が消えると、
+    // 戻したときに元へ戻りません。
+    if (isVisible() && viewport.getHeight() >= ChannelStripComponent::minimumConsoleHeight)
+    {
+        const int usable = getUsableFaderAreaHeight();
+
+        // 8.302：**Phase 294までの設定から引き継ぐ**（Phase 295）。
+        //
+        // あちらは**ラックの高さ**で覚えていました。**いま画面に出ている
+        // フェーダーの高さ**をそのまま書き移すので、**開き直したら別の高さだった**、
+        // が起きません。ここでしかできないのは、**ストリップの高さが要る**ためです。
+        if (! ConsoleLayout::hasRememberedFaderAreaHeight())
+        {
+            const int carried = usable - juce::jmin (ConsoleLayout::getLegacyRackAreaHeight(), usable);
+
+            ConsoleLayout::setFaderAreaHeight (juce::jmax (ConsoleLayout::minimumFaderAreaHeight,
+                                                            carried));
+        }
+        else if (ConsoleLayout::getFaderAreaHeight() > usable)
+        {
+            ConsoleLayout::setFaderAreaHeight (usable);
+        }
+    }
 
     // ストリップは固定幅で横に並べる。器の幅を中身に合わせるとViewportが
     // 横スクロールを出してくれる。
@@ -309,19 +387,30 @@ void ConsoleView::timerCallback()
         // エンジンからのコールバックにしないのは、破棄済みのビューを掴む事故を
         // 持ち込まないため。値が変わらなければ中で早期に戻るので負荷は無い。
         strip->refreshLatencyDisplay();
+
+        // 8.295：音源GUIが出ているかどうか（Phase 288／改善案1）。
+        // **窓は画面の外で閉じられます**（GUIの「×」）ので、こちらから見に行きます。
+        // レイテンシと同じで、変わらなければ中で早期に戻ります
+        strip->refreshInstrumentEditorState();
     }
 
     masterStrip.setLevels (audioEngine.getMasterLevel (0), audioEngine.getMasterLevel (1));
     masterStrip.refreshLatencyDisplay();
 }
 
-void ConsoleView::applyRackAreaHeight (int newHeight)
+void ConsoleView::applyFaderAreaHeight (int newHeight)
 {
     // 8.283：**覚えるのと配るのはここ1箇所**（Phase 276／本人の要望。`ConsoleLayout.h`）。
     //
     // ストリップに自分で覚えさせると、**トラックを足したときに新しい1本だけ既定の高さ**
     // になります（1.27の形）。値は`AppSettings`（設計書2.5）。
-    ConsoleLayout::setRackAreaHeight (newHeight);
+    //
+    // 8.300：**画面に無い位置は覚えません**（Phase 293／本人の報告）。
+    //
+    // 上限が無かったので、引くたびに**届かない数字**が積み上がっていました
+    // （本人の設定は647pxまで育っていました）。こうなると**掴んでも動きません**
+    // ——差のぶんだけ逆へ引かないと戻ってきません。
+    ConsoleLayout::setFaderAreaHeight (juce::jmin (newHeight, getUsableFaderAreaHeight()));
 
     // **マスターも同じ高さにすること。** 隣に並んでいるので、
     // ここだけ違うとメーターの行がずれます
@@ -395,12 +484,21 @@ void ConsoleView::rebuildStrips()
         auto* strip = strips.add (new ChannelStripComponent (track, project, audioEngine));
         strip->onMixerValueChanged = [this] { audioEngine.updateMixerSettings(); };
 
+        // 8.301：**押されたらそのトラックを選ぶ**（Phase 294／本人の要望）。
+        // **IDで覚えること**——ストリップは並べ替えや追加で作り直されます（1.32）
+        strip->onSelected = [this, trackId = track.getId()] { selection.selectTrack (trackId); };
+
         // 8.283：**どのストリップの境目を掴んでも、全部が同時に動く**（Phase 276／本人の要望）
-        strip->onRackAreaHeightDragged = [this] (int newHeight) { applyRackAreaHeight (newHeight); };
+        strip->onFaderAreaHeightDragged = [this] (int newHeight) { applyFaderAreaHeight (newHeight); };
 
         stripContainer.addAndMakeVisible (strip);
     }
 
     emptyLabel.setVisible (strips.isEmpty());
+
+    // 8.301：**作り直したら、印も付け直すこと**（Phase 294）。
+    // 選択は変わっていなくても、ストリップは新しいので**印は消えています**
+    updateSelectedStrip();
+
     resized();
 }

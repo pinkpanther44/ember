@@ -49,6 +49,8 @@
 #include "Branding.h"
 #include "IconAssets.h"
 
+#include <iterator>   // 8.295：std::size（絵の行数を表から数える）
+
 #include "Plugins/MantaFactoryPresets.h"
 #include "Plugins/MantaPluginFormat.h"   // 8.288：表と名乗りを突き合わせる（Phase 281）
 
@@ -590,10 +592,23 @@ namespace
             const char* name;
         };
 
+        // 8.295：**トラックの種類の絵とオートメーションも見ます**（Phase 288／改善案1）。
+        //
+        // もらった絵は**黒一色**（`0xff000000`）です。`replaceColour()`が
+        // 効かないと**真っ黒のまま**出るので、ダークテーマでは
+        // **何も描かれていないのと見分けがつきません**——
+        // 「絵が出ない」より質の悪い壊れ方です。
+        //
+        // 差し替え先は`TrackTypeIcons::getColourFor()`と同じアクセントです
         const Entry entries[]
         {
-            { "browser_folder_svg", Branding::browserFolderSourceColour, "folder" },
-            { "browser_file_svg",   Branding::browserFileSourceColour,   "file" },
+            { "browser_folder_svg",     Branding::browserFolderSourceColour, "folder" },
+            { "browser_file_svg",       Branding::browserFileSourceColour,   "file" },
+            { "track_midi_svg",         0xff000000,                          "midi" },
+            { "track_audio_svg",        0xff000000,                          "audio" },
+            { "track_vca_svg",          0xff000000,                          "vca" },
+            { "track_send_svg",         0xff000000,                          "send" },
+            { "header_automation_svg",  0xff000000,                          "automation" },
         };
 
         // **小さすぎると見比べられません**（56pxで出したら、
@@ -602,7 +617,13 @@ namespace
         constexpr int labelWidth = 76;
         constexpr int headerHeight = 34;
 
-        juce::Image sheet (juce::Image::ARGB, labelWidth + cell * 4, headerHeight + cell * 2, true);
+        // 8.295：**行数は表から数えること**（Phase 288）。絵を足したのに高さが
+        // 2行のままだと、足したぶんが**枠の外に描かれて見えません**
+        // ——「確かめたつもり」がいちばん困ります（8.294）
+        const int numRows = (int) std::size (entries);
+
+        juce::Image sheet (juce::Image::ARGB, labelWidth + cell * 4,
+                            headerHeight + cell * numRows, true);
 
         {
             juce::Graphics g (sheet);
@@ -631,9 +652,12 @@ namespace
 
                 for (const auto& entry : entries)
                 {
-                    const bool isFolder = juce::String (entry.resource) == "browser_folder_svg";
-                    const juce::uint32 accent = isFolder ? Branding::browserFolderColour (dark)
-                                                          : Branding::browserFileColour (dark);
+                    // 8.295：**ファイルだけが副（オレンジ／ゴールド）**で、
+                    // 残りは主（パープル／ワインレッド）です
+                    // （`TrackTypeIcons::getColourFor()`と同じ決まり）
+                    const bool isFile = juce::String (entry.resource) == "browser_file_svg";
+                    const juce::uint32 accent = isFile ? Branding::browserFileColour (dark)
+                                                       : Branding::browserFolderColour (dark);
 
                     int column = 0;
 

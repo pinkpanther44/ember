@@ -172,6 +172,19 @@ public:
     /** 指定したMIDIトラックの音源のネイティブエディタウィンドウを開く（設計書3.7）。 */
     void openTrackInstrumentEditor (const juce::String& trackId);
 
+    /** 8.295：そのトラックの音源GUIが**いま出ているか**（Phase 288／改善案1）。
+
+        **「窓を作ったか」ではなく「見えているか」**です。窓は「×」で閉じても
+        壊さずに隠してあるだけなので（`openEditorWindowFor()`）、
+        持っているかどうかで見ると**閉じたあともずっと真**になります。 */
+    bool isTrackInstrumentEditorOpen (const juce::String& trackId) const;
+
+    /** 8.295：音源GUIを**しまう**（Phase 288／改善案1）。
+
+        トラックヘッダーの絵は押すたびに開閉します——開くだけにすると、
+        **しまう手立てがGUIの「×」しかありません**（押した場所へ戻れない）。 */
+    void closeTrackInstrumentEditor (const juce::String& trackId);
+
     /** ピアノロールでの試聴用に、指定トラックの音源で1音を鳴らす／止める。 */
     void previewNoteOn (const juce::String& trackId, int pitch, int velocity);
     void previewNoteOff (const juce::String& trackId, int pitch);

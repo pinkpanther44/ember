@@ -141,6 +141,32 @@ set(PERSONALDAW_EMBEDDED_ASSETS
     # 元の名前：自動スクロール.svg（**ファイル名はASCII**）
     Resources/Icons/auto_scroll.svg
 
+    # 8.295：トラックの種類を示す絵と、オートメーションのボタン（Phase 288／本人が用意）。
+    # 元の名前：MIDIアイコン.svg／Audioアイコン.svg／VCAアイコン.svg／
+    # オートメーション.svg（**ファイル名はASCII**）
+    #
+    # **フォルダトラックの絵は増やしていません**——ブラウザと同じ
+    # `browser_folder.svg`をそのまま使います。フォルダはどちらの画面でも
+    # 同じものなので、**絵を2枚持つと形を直すときに片方だけ直す**ことになります（1.27）。
+    #
+    # **切り抜きは要りませんでした。** どれも1500x1500の枠に描いてありますが、
+    # `Drawable::drawWithin()`が見るのは**中身の外接矩形**（`getDrawableBounds()`）
+    # なので、まわりの余白は勝手に落ちます——オートメーションの絵は
+    # 1338x1090ぶんしか使っていませんが、そのまま置けば枠いっぱいに出ます
+    Resources/Icons/track_midi.svg
+    Resources/Icons/track_audio.svg
+    Resources/Icons/track_vca.svg
+    Resources/Icons/header_automation.svg
+
+    # 8.295：センドトラックの絵（Phase 288。**あとから本人が用意**）。
+    # 元の名前：SendIcon.svg（**ファイル名はASCII**）。
+    #
+    # **コードトラックの絵はありません**——本人の判断で「基本的に1本しか作らない
+    # からアイコンは必要ない」。**パラアウトの受け皿はMIDIの絵**を使います
+    # （出所がMIDIトラックの音源なので、同じ絵でつながりが読めます）
+    Resources/Icons/track_send.svg
+
+
     # 8.256：Racco Guitarの画面のまん中に敷く絵（Phase 264／本人が用意）。
     #
     # **1600x900のJPEGにしてあります**（元は1920x1080のPNGで1.8MB）。
@@ -303,6 +329,8 @@ target_sources(PersonalDAW
         Source/DrumMapPresetSelfTest.cpp
         # 8.286：プロジェクトの置き場所を窓なしで確かめる（Phase 279）
         Source/StorageSelfTest.cpp
+        # 8.295：トラックヘッダーの並びを窓なしで確かめる（Phase 288）
+        Source/TrackHeaderLayoutSelfTest.cpp
         Source/ProjectChooser.cpp
 
         # 9.5：**Manta Studio内部専用のプラグイン**（Phase 204）。

@@ -47,6 +47,19 @@ public:
         HANDOVER 1.43で一度つまずいた罠と**まったく同じ形**です。 */
     MixerLookAndFeel() { setColourScheme (AppColours::createColourScheme()); }
 
+    //==========================================================================
+    // 8.298：つまみの弧（Phase 291／本人の指定）
+    //
+    // **内蔵プラグインのつまみと同じ数字**です（`MantaKnobLookAndFeel`）。
+    // 同じ形のものが画面によって違う太さで描かれるのは避けます。
+
+    /** 弧の太さ。 */
+    static constexpr float arcThickness = 3.0f;
+
+    /** 弧と本体のあいだ。**0にしないこと**——弧と本体がくっつくと、
+        どこまでが値の表示なのか分かりません。 */
+    static constexpr float arcGap = 3.0f;
+
     /** 8.177：**つまみに付いている数値欄も棒で**（Phase 219）。
 
         `juce::Slider`のテキストボックスは`juce::Label`なので、ここを通ります。

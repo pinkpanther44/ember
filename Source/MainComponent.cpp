@@ -41,7 +41,9 @@ namespace
     const juce::String editorWindowBoundsKey  { "editorWindowBounds" };
     const juce::String editorPanelHeightKey   { "editorPanelHeight" };
     const juce::String browserPanelWidthKey   { "browserPanelWidth" };
-    const juce::String inspectorPanelWidthKey { "inspectorPanelWidth" };
+    // 8.295：`inspectorPanelWidth`は**もう読み書きしません**（Phase 288／改善案6。幅は固定）。
+    // 設定ファイルに残っている値はそのままです——消さないので、
+    // また変えられるようにしたときに前の幅が戻ります
     const juce::String browserPanelOpenKey    { "browserPanelOpen" };
     const juce::String inspectorPanelOpenKey  { "inspectorPanelOpen" };
     const juce::String metronomeEnabledKey    { "metronomeEnabled" };
@@ -204,15 +206,20 @@ MainComponent::MainComponent()
     editorPanel.onHeightChangeRequested = [this] (int newHeight) { setEditorPanelHeight (newHeight); };
 
     // 設計書2.5：前回のパネル高さを復元する
-    editorPanelHeight = juce::jmax (EditorPanel::minimumHeight,
+    // 8.298：覚えている高さも**下限まで押し上げます**（Phase 291）。
+    // Phase 290までの値は下限より低いことがあり、そのまま使うと
+    // **一度も掴んでいないのにメーターが縮んだ状態**で開きます
+    editorPanelHeight = juce::jmax (EditorPanel::headerHeight + EditorPanel::resizerHeight
+                                      + ConsoleView::minimumContentHeight,
                                      AppSettings::getInt (editorPanelHeightKey, editorPanelHeight));
 
     //==========================================================================
     // 設計書2.2：左右のサイドパネル（Phase 17）
     browserPanelWidth = juce::jmax (BrowserPanel::minimumWidth,
                                      AppSettings::getInt (browserPanelWidthKey, browserPanelWidth));
-    inspectorPanelWidth = juce::jmax (InspectorPanel::minimumWidth,
-                                       AppSettings::getInt (inspectorPanelWidthKey, inspectorPanelWidth));
+    // 8.295：**インスペクタの幅は読みません**（Phase 288／改善案6。本人の指定で固定）。
+    // 設定に残っている`inspectorPanelWidth`は**そのまま置いてあります**——
+    // 消すと、幅をまた変えられるようにしたときに前の値が戻りません
 
     browserPanel.onPluginChosen = [this] (const juce::PluginDescription& description)
     {
@@ -228,13 +235,12 @@ MainComponent::MainComponent()
     browserResizer.getCurrentSize = [this] { return browserPanelWidth; };
     browserResizer.onSizeDragged = [this] (int newWidth) { setBrowserPanelWidth (newWidth); };
 
-    inspectorResizer.getCurrentSize = [this] { return inspectorPanelWidth; };
-    inspectorResizer.onSizeDragged = [this] (int newWidth) { setInspectorPanelWidth (newWidth); };
+    // 8.295：**インスペクタに掴む帯は付けません**（Phase 288／改善案6。本人の指定で幅固定）。
+    // 幅が変わらないのに掴めると、押して初めて飾りだと分かることになります（8.161）
 
     addChildComponent (browserPanel);
     addChildComponent (browserResizer);
     addChildComponent (inspectorPanel);
-    addChildComponent (inspectorResizer);
 
     transportBar.onBrowserToggled = [this] { setBrowserPanelOpen (! browserPanel.isVisible()); };
     transportBar.onInspectorToggled = [this] { setInspectorPanelOpen (! inspectorPanel.isVisible()); };
@@ -638,11 +644,9 @@ void MainComponent::resized()
     // エディタとConsoleはアレンジ画面と同じ幅に収まります。
     if (inspectorPanel.isVisible())
     {
+        // 8.295：**幅は固定**（Phase 288／改善案6）。掴む帯も出しません
         auto inspectorArea = area.removeFromLeft (juce::jmin (inspectorPanelWidth, area.getWidth()));
         inspectorPanel.setBounds (inspectorArea);
-
-        // 帯はパネルの右端に重ねて置く。パネル側はresized()でこのぶんの幅を空けている
-        inspectorResizer.setBounds (inspectorArea.removeFromRight (PanelResizerBar::thickness));
     }
 
     if (browserPanel.isVisible())
@@ -1062,7 +1066,6 @@ void MainComponent::setInspectorPanelOpen (bool shouldBeOpen)
         return;
 
     inspectorPanel.setVisible (shouldBeOpen);
-    inspectorResizer.setVisible (shouldBeOpen);
     transportBar.setInspectorPanelOpen (shouldBeOpen);
     AppSettings::setInt (inspectorPanelOpenKey, shouldBeOpen ? 1 : 0);
 
@@ -1081,20 +1084,6 @@ void MainComponent::setBrowserPanelWidth (int newWidth)
 
     browserPanelWidth = limited;
     AppSettings::setInt (browserPanelWidthKey, browserPanelWidth);
-    resized();
-}
-
-void MainComponent::setInspectorPanelWidth (int newWidth)
-{
-    const int available = juce::jmax (InspectorPanel::minimumWidth,
-                                       getWidth() - browserPanelWidth - 320);
-    const int limited = juce::jlimit (InspectorPanel::minimumWidth, available, newWidth);
-
-    if (limited == inspectorPanelWidth)
-        return;
-
-    inspectorPanelWidth = limited;
-    AppSettings::setInt (inspectorPanelWidthKey, inspectorPanelWidth);
     resized();
 }
 
@@ -1181,9 +1170,22 @@ void MainComponent::setEditorPanelHeight (int newHeight)
     if (audioErrorLabel.isVisible())
         area.removeFromTop (24);
 
+    // 8.298：**下限はConsoleが決めます**（Phase 291／本人の指定）。
+    //
+    // フェーダーとメーターの最低（`ConsoleLayout::minimumFaderAreaHeight`）を
+    // 1.5倍にしたので、**縮めてもメーターは小さくなりません**
+    // ——そのぶん「これ以上は縮められない高さ」がパネル側に現れます。
+    //
+    // **中身がピアノロールでもコードパッドでも同じ下限**にしてあります。
+    // 中身で下限を変えると、**タブを切り替えた瞬間にパネルが飛びます**
+    // （高さは1つしか覚えていないので、戻すべき値も失われる）。
+    const int minimumHeight = juce::jmax (EditorPanel::minimumHeight,
+                                           EditorPanel::headerHeight + EditorPanel::resizerHeight
+                                             + ConsoleView::minimumContentHeight);
+
     // 中央エリアが潰れないよう、上側にも最低限の高さを残す
-    const int maximumHeight = juce::jmax (EditorPanel::minimumHeight, area.getHeight() - 120);
-    const int limited = juce::jlimit (EditorPanel::minimumHeight, maximumHeight, newHeight);
+    const int maximumHeight = juce::jmax (minimumHeight, area.getHeight() - 120);
+    const int limited = juce::jlimit (minimumHeight, maximumHeight, newHeight);
 
     if (limited == editorPanelHeight)
         return;

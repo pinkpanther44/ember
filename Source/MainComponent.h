@@ -204,7 +204,6 @@ private:
     void setBrowserPanelOpen (bool shouldBeOpen);
     void setInspectorPanelOpen (bool shouldBeOpen);
     void setBrowserPanelWidth (int newWidth);
-    void setInspectorPanelWidth (int newWidth);
 
     /** ブラウザからプラグインが選ばれたときの挿入先を決める（仕様書4.4）。
         選択中のトラックへ挿す。 */
@@ -487,14 +486,16 @@ private:
     InspectorPanel inspectorPanel { project, selection, audioEngine };
     // Phase 28で左右を入れ替えた。**帯の`Edge`はパネルがどちら側にあるかで決まる**ので、
     // 配置を入れ替えるときはここも必ず一緒に直すこと（直さないとドラッグの向きが逆になる）。
-    PanelResizerBar inspectorResizer { PanelResizerBar::Edge::Right }; // 左パネルの右端
+    // 8.295：**インスペクタ側の帯は外しました**（Phase 288／改善案6。本人の指定で幅固定）
     PanelResizerBar browserResizer   { PanelResizerBar::Edge::Left };  // 右パネルの左端
 
     int browserPanelWidth = BrowserPanel::defaultWidth;
-    int inspectorPanelWidth = InspectorPanel::defaultWidth;
+
+    /** 8.295：**変わりません**（Phase 288／改善案6）。値は`InspectorPanel::fixedWidth`1か所。 */
+    static constexpr int inspectorPanelWidth = InspectorPanel::fixedWidth;
 
     ArrangeView arrangeView { project, audioEngine, selection };
-    ConsoleView consoleView { project, audioEngine };
+    ConsoleView consoleView { project, selection, audioEngine };
 
     // 設計書2.2：ピアノロールはエディタパネルの「中身」として置く（Phase 16）。
     // 実体はここが持ち続け、パネル／ポップアウトウィンドウは親として並べるだけ。

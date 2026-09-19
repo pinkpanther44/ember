@@ -81,6 +81,27 @@ public:
     /** 与えられた幅で並べたときに必要な高さ。置いた側がレイアウト計算に使う。 */
     int getPreferredHeight (int width);
 
+    //==========================================================================
+    // 8.296：**2か所に分けて置く**（Phase 289／本人の指定）
+    //
+    // インスペクタでは、**書き込みモード・VCA・音源は全幅**のまま、
+    // **インサートとセンドだけがフェーダーの隣**へ回ります。
+    //
+    // 置く側の手順は3つ：
+    //
+    //   1. `getAttributesHeight()` と `getChainHeight()` で場所を決める
+    //   2. このコンポーネントの`setBounds()`（**2つを含む矩形**）
+    //   3. `setSplitAreas()`（**ローカル座標**で渡すこと）
+
+    /** 属性（書き込みモード・VCA・音源）だけを並べたときの高さ。 */
+    int getAttributesHeight (int width);
+
+    /** 信号の並び（インサート・センド・プリ／ポスト）だけの高さ。 */
+    int getChainHeight (int width);
+
+    /** 分けて置く。**ローカル座標**（`setBounds()`より後に呼ぶこと）。 */
+    void setSplitAreas (juce::Rectangle<int> attributesArea, juce::Rectangle<int> chainArea);
+
     /** 仕様書5.7：インサートスロットの表示を作り直す（追加・削除の後に呼ぶ）。 */
     void refreshInsertSlots();
 
@@ -172,6 +193,26 @@ private:
     int layOutContents (juce::Rectangle<int> area, bool apply);
 
     //==========================================================================
+    // 8.296：**中身を2つに分けて置けるようにした**（Phase 289／本人の指定）。
+    //
+    // インスペクタでは、**書き込みモード・VCA・音源は全幅**のまま、
+    // **インサートとセンドだけがフェーダーの隣**へ回ります。
+    // 縦一列（`layOutContents()`）はConsoleとインスペクタの今までどおりで、
+    // **どちらの道もこの2つの関数を通ります**——順番も間隔も1か所です（1.27）。
+
+    /** トラックの属性（書き込みモード・VCA・音源）。`area`は**進んだぶんだけ削られる**。 */
+    int layOutAttributes (juce::Rectangle<int>& area, bool apply);
+
+    /** 信号の並び（インサート・センド・プリ／ポスト）。 */
+    int layOutChain (juce::Rectangle<int>& area, bool apply);
+
+    /** 8.296：分けて置くときの置き場所（**このコンポーネントのローカル座標**）。
+        `setSplitAreas()`が入れる。空なら縦一列で置く。 */
+    juce::Rectangle<int> splitAttributesArea;
+    juce::Rectangle<int> splitChainArea;
+    bool splitting = false;
+
+    //==========================================================================
     // 仕様書5.3・5.7：スロットの操作（Phase 61で左クリックと右クリックに分けた。8.21）
     //
     //   左クリック … プラグインのGUIを開く（未設定なら選択ダイアログ）
@@ -223,7 +264,19 @@ private:
     void notifyHeightChanged();
 
     /** 見出しラベルを出すか（幅に余裕のあるインスペクタのみ）。 */
-    bool showsCaptions() const { return layout == Layout::Inspector; }
+    /** 8.297：**どちらでも見出しを出します**（Phase 290／本人の指定）。
+
+        Phase 289まではインスペクタだけでした。Consoleのストリップは
+        「+ Instrument」「+ Insert」「+ Send」が**区切りなしに縦に並ぶ**だけで、
+        どこからどこまでが何なのかが、**ボタンの文字を読まないと分かりません**でした。
+
+        本人の指定は「インサートとセンドで分けて表記する形をとりたい」。
+        **音源の見出しも一緒に出しています**——2つだけ出すと、
+        「+ Instrument」が見出しの無い1行として上に浮きます。
+
+        見出しが出ると、**インサートの一括バイパス（B）も出ます**
+        （置き場所が見出しの行の右端なので。8.63）——これも本人の指定です。 */
+    bool showsCaptions() const { return true; }
 
     Track track;
     ProjectModel& project;

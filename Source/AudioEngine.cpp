@@ -4153,6 +4153,27 @@ void AudioEngine::openTrackInstrumentEditor (const juce::String& trackId)
         openEditorWindowFor (nodes->instrumentNode, nodes->instrumentEditorWindow);
 }
 
+bool AudioEngine::isTrackInstrumentEditorOpen (const juce::String& trackId) const
+{
+    // 8.295：**見えているかを見ること**（Phase 288）。窓は「×」で閉じても
+    // 壊さずに隠してあるだけなので、持っているかどうかでは判定になりません
+    auto* nodes = findTrackNodes (trackId);
+
+    return nodes != nullptr
+            && nodes->instrumentEditorWindow != nullptr
+            && nodes->instrumentEditorWindow->isVisible();
+}
+
+void AudioEngine::closeTrackInstrumentEditor (const juce::String& trackId)
+{
+    // **隠すだけ**にすること（`openEditorWindowFor()`が復帰できる形）。
+    // 壊すと、次に開いたときにエディタを作り直すことになり、
+    // プラグインによっては**開くたびに表示が初期状態へ戻ります**
+    if (auto* nodes = findTrackNodes (trackId))
+        if (nodes->instrumentEditorWindow != nullptr)
+            nodes->instrumentEditorWindow->setVisible (false);
+}
+
 juce::File AudioEngine::getRecordingsDirectory() const
 {
     // 8.286：**プロジェクトのフォルダの中（`Rec`）へ**（Phase 279／本人の要望）。

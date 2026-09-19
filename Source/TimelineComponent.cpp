@@ -266,6 +266,24 @@ void TimelineComponent::valueTreeChildOrderChanged (juce::ValueTree&, int, int)
     repaint();
 }
 
+void TimelineComponent::refreshSelectionFromState()
+{
+    // 8.301：**番号を引き直してから、クリップの選択を片付ける**（Phase 294）。
+    //
+    // Consoleで選べるのは「トラック」だけなので、そのときは
+    // **クリップの選択を外します**——外さないと、
+    // 別のトラックを選んだのに**前のトラックのクリップが選ばれたまま**残ります。
+    syncSelectedTrackIndexFromSelection();
+
+    if (! selection.isClipSelected())
+    {
+        selectedClipIndex = -1;
+        selectedIsMidi = false;
+    }
+
+    repaint();
+}
+
 void TimelineComponent::syncSelectedTrackIndexFromSelection()
 {
     const auto trackId = selection.getTrackId();
@@ -625,6 +643,31 @@ void TimelineComponent::refreshHeaderMeters (const std::function<float (const ju
     // **並べ直しを先にやる。** スクロールや行の増減を拾う経路をいくつも用意すると、
     // どれかを必ず忘れる。ここを毎回通しておけば、遅くとも次のタイマーで直る（8.18）
     layoutHeaderControls();
+
+    // 8.295：**音源のGUIが出ているMIDIトラック**を数え直す（Phase 288／改善案1）。
+    //
+    // 絵をオレンジにするのはここではなく`drawTrackHeaderContents()`ですが、
+    // **窓は画面の外で閉じられます**（GUIの「×」）。誰も描き直しを頼まないので、
+    // 変わったときだけ自分で頼みます——**毎回`repaint()`しないこと**：
+    // このタイマーは再生中も回っていて、ヘッダー全部を毎フレーム描き直すことになります
+    if (isTrackInstrumentEditorOpen != nullptr)
+    {
+        juce::String openNow;
+
+        for (int t = 0; t < project.getNumTracks(); ++t)
+        {
+            auto track = project.getTrack (t);
+
+            if (track.getType() == TrackType::Midi && isTrackInstrumentEditorOpen (track.getId()))
+                openNow << track.getId() << ",";
+        }
+
+        if (openNow != openInstrumentEditorIds)
+        {
+            openInstrumentEditorIds = openNow;
+            repaint();
+        }
+    }
 
     if (getLevel == nullptr)
         return;
@@ -4055,23 +4098,29 @@ juce::Rectangle<int> TimelineComponent::getTrackNameBounds (int rowIndex) const
 
     auto area = juce::Rectangle<int> (left, getTrackRowY (rowIndex), trackHeaderWidth - left, height);
 
-    // 右端は「i」まで（録音待機中はさらにINのぶん手前まで）
-    int rightLimit = area.getRight() - 6;
+    // 8.295：右端は**種類の絵**まで（Phase 288／改善案1。「i」は左へ移った）。
+    // 絵の無い種類（コードトラックだけ）では、メーターの手前まで使えます
+    int rightLimit = area.getRight() - 6 - headerMeterColumnWidth;
 
-    if (auto inspectorBounds = getInspectorButtonBounds (rowIndex); ! inspectorBounds.isEmpty())
-        rightLimit = inspectorBounds.getX() - 4;
+    if (auto iconBounds = getTrackTypeIconBounds (rowIndex); ! iconBounds.isEmpty())
+        rightLimit = iconBounds.getX() - 4;
 
     if (project.getTrack (rowIndex).getType() == TrackType::Audio
          && project.getTrack (rowIndex).isArmed())
         if (auto monitorBounds = getMonitorButtonBounds (rowIndex); ! monitorBounds.isEmpty())
             rightLimit = monitorBounds.getX() - 4;
 
-    // 畳む三角のぶんだけ左を空ける（8.44）
-    auto triangleBounds = getCollapseTriangleBounds (rowIndex);
-    const int leftTrim = triangleBounds.isEmpty() ? 4
-                                                   : triangleBounds.getRight() + 4 - area.getX();
+    // 8.295：**左は「i」まで**（Phase 288）。畳む三角があるときは、その右隣に「i」が来ます
+    // ——どちらの位置も同じ関数から出るので、片方だけずれることはありません
+    int leftLimit = area.getX() + 4;
 
-    return area.withRight (juce::jmax (area.getX(), rightLimit)).withTrimmedLeft (leftTrim);
+    if (auto inspectorBounds = getInspectorButtonBounds (rowIndex); ! inspectorBounds.isEmpty())
+        leftLimit = inspectorBounds.getRight() + 4;
+    else if (auto triangleBounds = getCollapseTriangleBounds (rowIndex); ! triangleBounds.isEmpty())
+        leftLimit = triangleBounds.getRight() + 4;
+
+    return area.withRight (juce::jmax (leftLimit, rightLimit))
+               .withLeft (juce::jmin (leftLimit, area.getRight()));
 }
 
 juce::Rectangle<int> TimelineComponent::getHeaderButtonRow (int rowIndex) const
@@ -4122,27 +4171,60 @@ static juce::Rectangle<int> placeInControlRow (juce::Rectangle<int> row, int off
 juce::Rectangle<int> TimelineComponent::getArmButtonBounds (int trackIndex) const
 {
     // 設計書2.3.1：2段目の並びは左から Rec / A / S / M（Phase 58。8.61でパンが抜けた）。
-    // **位置は固定**：出ない部品があっても隣が寄ってこないので、押し間違えない
+    // **位置は固定**：出ない部品があっても隣が寄ってこないので、押し間違えない。
+    //
+    // 8.295：**●だけ元の15pxのまま**（Phase 288／本人の指定）。
+    // 帯（24px）の中で縦中央に置かれるので、小さくても浮きません
     return placeInControlRow (getHeaderButtonRow (trackIndex), 0,
-                               headerButtonSize, headerButtonSize);
+                               headerArmButtonSize, headerArmButtonSize);
+}
+
+//==============================================================================
+// 8.295：2段目の横位置（Phase 288）。**●だけ大きさが違う**ので、
+// 「幅＋間隔」を積み上げる形にしてあります——1つの定数から全部を出す形だと、
+// 大きさの違うものが混ざった時点で破綻します。
+//
+// 並びは左から **● ／ オートメーション・ミュート・ソロ**（本人の指定）。
+//
+//   - **3つは同じ間隔（2px）で詰めます。** Phase 288の最初の形では
+//     オートメーションとソロのあいだだけ8px空いていました（昔の「録音側」と
+//     「黙らせる側」の区切り）。本人の指定は**「隙間を埋めて綺麗に並ぶように」**で、
+//     3つとも1.5倍になったいまは**1かたまりに見えるほうが正しい**形です。
+//   - **ミュートが先、ソロが後**（本人の指定「Consoleに合わせたい」）。
+//     Phase 287まではソロが先で、**同じ2つのボタンが画面によって逆**でした
+//     ——押し間違えると、片方は音が消え、もう片方は他が全部消えます。
+//   - **●との間だけ4px**空けます。●は録るかどうかの話で、他の3つとは別のものです。
+
+namespace
+{
+    constexpr int headerButtonGap = 2;       ///< 3つのボタンのあいだ（1かたまりに見せる）
+    constexpr int headerArmGap = 4;          ///< ●と、その3つのあいだ
 }
 
 juce::Rectangle<int> TimelineComponent::getAutomationButtonBounds (int trackIndex) const
 {
-    return placeInControlRow (getHeaderButtonRow (trackIndex), headerButtonSize + 4,
-                               headerButtonSize, headerButtonSize);
-}
+    const int x = headerArmButtonSize + headerArmGap;
 
-juce::Rectangle<int> TimelineComponent::getSoloButtonBounds (int trackIndex) const
-{
-    return placeInControlRow (getHeaderButtonRow (trackIndex), (headerButtonSize + 4) * 2 + 4,
-                               headerSoloMuteWidth, headerButtonSize);
+    return placeInControlRow (getHeaderButtonRow (trackIndex), x,
+                               headerButtonSize, headerButtonSize);
 }
 
 juce::Rectangle<int> TimelineComponent::getMuteButtonBounds (int trackIndex) const
 {
-    return placeInControlRow (getHeaderButtonRow (trackIndex),
-                               (headerButtonSize + 4) * 2 + 4 + headerSoloMuteWidth + 2,
+    const int x = headerArmButtonSize + headerArmGap
+                   + headerButtonSize + headerButtonGap;
+
+    return placeInControlRow (getHeaderButtonRow (trackIndex), x,
+                               headerSoloMuteWidth, headerButtonSize);
+}
+
+juce::Rectangle<int> TimelineComponent::getSoloButtonBounds (int trackIndex) const
+{
+    const int x = headerArmButtonSize + headerArmGap
+                   + headerButtonSize + headerButtonGap
+                   + headerSoloMuteWidth + headerButtonGap;
+
+    return placeInControlRow (getHeaderButtonRow (trackIndex), x,
                                headerSoloMuteWidth, headerButtonSize);
 }
 
@@ -4152,16 +4234,20 @@ juce::Rectangle<int> TimelineComponent::getMonitorButtonBounds (int trackIndex) 
     // 入切のたびに部品が増減して、隣のボタンの位置が変わってしまう。
     //
     // 8.60：**「i」が右端に入ったので、その左隣へずらした**（Phase 97）。
-    // 位置は「i」から求めるので、片方を動かしてももう片方が重ならない
+    // 位置は隣から求めるので、片方を動かしてももう片方が重ならない。
+    //
+    // 8.295：**隣が「i」から種類の絵へ変わりました**（Phase 288／改善案1）。
+    // **大きさは元のまま**（22x14）——一度33x21へ上げましたが、
+    // ●・「i」と揃えて戻しました（本人の指定）
     const int width = 22;
-    const int height = 14;
-    auto inspectorBounds = getInspectorButtonBounds (trackIndex);
+    const int height = inspectorButtonHeight;
+    auto iconBounds = getTrackTypeIconBounds (trackIndex);
 
-    if (inspectorBounds.isEmpty())
+    if (iconBounds.isEmpty())
         return {};
 
-    return { inspectorBounds.getX() - width - 4,
-             inspectorBounds.getCentreY() - height / 2,
+    return { iconBounds.getX() - width - 4,
+             iconBounds.getCentreY() - height / 2,
              width, height };
 }
 
@@ -4170,6 +4256,20 @@ juce::Rectangle<int> TimelineComponent::getInspectorButtonBounds (int rowIndex) 
     // 8.60：**トラックの行にだけ出す**（Phase 97／改善案①）。
     // マスター行はインスペクタに出るものが無い
     if (! juce::isPositiveAndBelow (rowIndex, project.getNumTracks()))
+        return {};
+
+    // 8.295：**コードトラックには出しません**（Phase 288／本人の判断）。
+    //
+    // 本人の言葉：「コードトラックはInspector内の内容も薄いため、
+    // コードトラックヘッダーからの道は断ってしまっても問題ない」。
+    //
+    // **インスペクタが開けなくなるわけではありません**——行をクリックすれば
+    // 選択は移り、フッターのInspectorボタンでも開きます。
+    // 無くなるのは**ヘッダーからの近道**だけです。
+    //
+    // 低い行（35px）なので、**「i」と畳む三角が場所を取り合って**いました
+    // ——縦に重ねられず（9pxぶん重なる）、横に並べると名前が詰まります
+    if (project.getTrack (rowIndex).getType() == TrackType::Chord)
         return {};
 
     const int trackArea = getTrackAreaHeight (rowIndex);
@@ -4182,17 +4282,111 @@ juce::Rectangle<int> TimelineComponent::getInspectorButtonBounds (int rowIndex) 
     // 上段の位置に固定すると、名前と同じように上へ寄って見える
     const int nameRowHeight = juce::jmin (headerNameRowHeight, trackArea);
 
-    // 8.65：**メーターのぶんだけ左へ寄せる**（Phase 103）。
-    // メーターが行の上端まで伸びたので、右端に置いたままだと重なり、
-    // 「i」を押したつもりでピークがリセットされます。
-    // **低い行にはメーターが出ない**（`getHeaderControlsBounds()`が空を返す）ので、
-    // そのときは右端のまま
+    // 8.295：**名前の左**（Phase 288／改善案1。本人の指定）。
+    //
+    // Phase 287まではこの行の右端で、メーターのぶんだけ左へ寄せていました
+    // （8.65）。右端はいま**種類の絵**が使うので、寄せる話はそちら
+    // （`getTrackTypeIconBounds()`）へ移ってあります。
+    //
+    const int left = headerColourBandWidth + 3 + getHeaderIndent (rowIndex);
+
+    // 8.295：**畳む三角の真上に置きます**（Phase 288／本人の指定）。
+    //
+    // 三角は行の**縦中央**（＝名前の行より下）にあり、「i」は名前の行です。
+    // 同じ横位置に重ねると、**左端が1列にまとまり**、名前の場所も横に広がります
+    // ——Phase 288の最初の形は三角の右隣で、フォルダだけ名前が右へずれていました。
+    //
+    // **低い行では横に並べます。** コードトラック（35px）や畳んだ行（16px）では
+    // 三角が上へ来て、縦に重なります——「i」は6〜20px、三角は13〜22pxで、
+    // 9pxぶん重なる勘定です。`getHeaderControlRow()`が空でないこと
+    // （＝標準の高さの行）を条件にしてあります
+    if (auto triangleBounds = getCollapseTriangleBounds (rowIndex);
+         ! triangleBounds.isEmpty() && getHeaderControlRow (rowIndex).isEmpty())
+    {
+        // **6px空けること。** 押せる場所は`expanded()`で少し広げてあり
+        // （三角は3px、「i」は2px）、3pxしか空けないと**当たり判定が重なります**
+        // ——先に見るほう（「i」）が勝って、三角が押せなくなります
+        return { triangleBounds.getRight() + 6,
+                 getTrackRowY (rowIndex) + (nameRowHeight - inspectorButtonHeight) / 2,
+                 inspectorButtonWidth, inspectorButtonHeight };
+    }
+
+    return { left,
+             getTrackRowY (rowIndex) + (nameRowHeight - inspectorButtonHeight) / 2,
+             inspectorButtonWidth, inspectorButtonHeight };
+}
+
+TimelineComponent::HeaderRowLayout TimelineComponent::getHeaderRowLayout (int rowIndex) const
+{
+    // 8.295：**呼ぶだけ**（Phase 288）。ここで数字を組み直さないこと——
+    // 画面と検査で違う位置を見ることになります（1.27）
+    HeaderRowLayout layout;
+
+    if (! juce::isPositiveAndBelow (rowIndex, project.getNumTracks()))
+        return layout;
+
+    auto track = project.getTrack (rowIndex);
+    const auto type = track.getType();
+
+    layout.triangle  = getCollapseTriangleBounds (rowIndex);
+    layout.inspector = getInspectorButtonBounds (rowIndex);
+    layout.name      = getTrackNameBounds (rowIndex);
+    layout.typeIcon  = getTrackTypeIconBounds (rowIndex);
+
+    // **出ていないものは空のまま**（描いていないものを検査しないため）。
+    // 条件は`drawTrackHeaderContents()`と同じにすること
+    if (type == TrackType::Audio && track.isArmed())
+        layout.monitor = getMonitorButtonBounds (rowIndex);
+
+    if (trackTypeCanArm (type))
+        layout.arm = getArmButtonBounds (rowIndex);
+
+    if (trackTypeHasAudioPath (type))
+        layout.automation = getAutomationButtonBounds (rowIndex);
+
+    if (trackTypeHasSoloMute (type))
+    {
+        layout.solo = getSoloButtonBounds (rowIndex);
+        layout.mute = getMuteButtonBounds (rowIndex);
+    }
+
+    // メーターは子部品（`TrackHeaderControls`）が右端`meterWidth`ぶんに置きます。
+    // **あちらの`resized()`と同じ場所**を返すこと
+    if (auto controls = getHeaderControlsBounds (rowIndex); ! controls.isEmpty())
+        layout.meter = controls.removeFromRight (TrackHeaderControls::meterWidth).reduced (0, 1);
+
+    return layout;
+}
+
+juce::Rectangle<int> TimelineComponent::getTrackTypeIconBounds (int rowIndex) const
+{
+    // 8.295：**「i」が居た場所**（Phase 288／改善案1。本人の指定）
+    if (! juce::isPositiveAndBelow (rowIndex, project.getNumTracks()))
+        return {};
+
+    const auto type = project.getTrack (rowIndex).getType();
+
+    // **絵の無い種類には何も出しません**（`TrackTypeIcons.h`の説明）。
+    // 空の矩形を返すので、当たり判定もどこでもfalseになります
+    if (TrackTypeIcons::getResourceFor (type) == nullptr)
+        return {};
+
+    const int trackArea = getTrackAreaHeight (rowIndex);
+
+    if (trackArea < trackTypeIconSize + 2)
+        return {};   // 畳んだフォルダの中（高さ0）と、入らない行
+
+    const int nameRowHeight = juce::jmin (headerNameRowHeight, trackArea);
+
+    // 8.65と同じ話：**メーターのぶんだけ左へ寄せる**こと。重ねると、
+    // 絵を押したつもりでピークがリセットされます。
+    // **低い行にはメーターが出ない**ので、そのときは右端のまま
     const int meterColumn = getHeaderControlsBounds (rowIndex).isEmpty() ? 0
                                                                         : headerMeterColumnWidth;
 
-    return { trackHeaderWidth - inspectorButtonWidth - 6 - meterColumn,
-             getTrackRowY (rowIndex) + (nameRowHeight - inspectorButtonHeight) / 2,
-             inspectorButtonWidth, inspectorButtonHeight };
+    return { trackHeaderWidth - trackTypeIconSize - 6 - meterColumn,
+             getTrackRowY (rowIndex) + (nameRowHeight - trackTypeIconSize) / 2,
+             trackTypeIconSize, trackTypeIconSize };
 }
 
 void TimelineComponent::drawHeaderChip (juce::Graphics& g, juce::Rectangle<int> bounds,
@@ -4209,8 +4403,51 @@ void TimelineComponent::drawHeaderChip (juce::Graphics& g, juce::Rectangle<int> 
     // 塗りつぶしたときだけ白文字。**地の色に合わせて自動では決めない**
     // （パープル／オレンジの上は、ライトでもダークでも白が読みやすい。1.34）
     g.setColour (isOn ? juce::Colours::white : AppColours::textSecondary);
-    g.setFont (juce::FontOptions (9.0f, juce::Font::bold));
+
+    // 8.295：**字の大きさはボタンの高さから**（Phase 288／改善案1）。
+    //
+    // 9pxで固定していました。ボタンが15pxだったころはそれで釣り合っていましたが、
+    // 1.5倍（23px）にすると**枠だけ大きくて字は小さいまま**になり、
+    // 「大きくしたのに読みやすくなっていない」ことになります。
+    //
+    // **オートメーションのレーンの「B」「x」は今までどおり**です（あちらは14px）
+    // ——高さから求めるので、小さいボタンは小さい字のまま
+    const float fontHeight = juce::jlimit (9.0f, 12.0f, bounds.getHeight() * 0.5f);
+
+    g.setFont (juce::FontOptions (fontHeight, juce::Font::bold));
     g.drawText (text, bounds, juce::Justification::centred);
+}
+
+juce::Drawable* TimelineComponent::getAutomationIcon (juce::Colour colour)
+{
+    // **色が変わったときだけ作り直す**（`IconAssets::SvgButton`と同じ形）。
+    // 行ごとに読むと、スクロールのたびにSVGを解析することになります
+    if (automationIcon == nullptr || automationIconColour != colour)
+    {
+        automationIcon = IconAssets::loadTinted ("header_automation_svg", colour);
+        automationIconColour = colour;
+    }
+
+    return automationIcon.get();
+}
+
+void TimelineComponent::drawAutomationButton (juce::Graphics& g, juce::Rectangle<int> bounds, bool isOn)
+{
+    if (bounds.isEmpty())
+        return;
+
+    // **地と枠は`drawHeaderChip()`と同じ**（S・Mと並ぶので、揃っていないと浮きます）
+    g.setColour (isOn ? AppColours::purple : AppColours::background);
+    g.fillRoundedRectangle (bounds.toFloat(), AppColours::corner (3.0f));
+    g.setColour (isOn ? AppColours::purple : AppColours::border);
+    g.drawRoundedRectangle (bounds.toFloat(), AppColours::corner (3.0f), 1.0f);
+
+    // 塗りつぶしたときだけ白。**地の色に合わせて自動では決めない**（1.34。上と同じ）
+    // **余白は3px**。絵は横長（元は1338x1090）なので、23pxのボタンで4px取ると
+    // 縦が12pxまで落ちて、3つの点が潰れます
+    if (auto* icon = getAutomationIcon (isOn ? juce::Colours::white : AppColours::textSecondary))
+        icon->drawWithin (g, bounds.toFloat().reduced (3.0f),
+                           juce::RectanglePlacement::centred, 1.0f);
 }
 
 void TimelineComponent::drawFolderSummaryBlock (juce::Graphics& g, int trackIndex)
@@ -4494,8 +4731,26 @@ void TimelineComponent::drawTrackHeaderContents (juce::Graphics& g, int rowIndex
     //
     // それまでは、トラックの設定を触るのに**フッターのInspectorボタンまで目線を運ぶ**
     // 必要がありました。用があるのはヘッダーを見ているときなので、そこに置いています。
-    // **選択も同時に移す**ので、押したトラックの設定がそのまま出ます
+    // **選択も同時に移す**ので、押したトラックの設定がそのまま出ます。
+    //
+    // 8.295：**名前の左へ移りました**（Phase 288／改善案1。本人の指定）
     drawHeaderChip (g, getInspectorButtonBounds (rowIndex), "i", false, AppColours::purple);
+
+    // 8.295：**「i」が居た場所に、トラックの種類を示す絵**（Phase 288／改善案1）。
+    //
+    // MIDIとフォルダは**押せます**（音源のGUIを出す／畳む）ので、枠で囲みます。
+    // AudioとVCAは種類を示しているだけなので、枠は付けません
+    // ——**押して初めて飾りだと分かる**のが、いちばん困る壊れ方です（8.161）。
+    if (auto iconBounds = getTrackTypeIconBounds (rowIndex); ! iconBounds.isEmpty())
+    {
+        // **GUIが出ているあいだはオレンジ**（Emberではゴールド。本人の指定）。
+        // 引くのは`ArrangeView`経由——ここに`AudioEngine`は持ち込みません
+        const bool editorOpen = type == TrackType::Midi
+                                 && isTrackInstrumentEditorOpen != nullptr
+                                 && isTrackInstrumentEditorOpen (track.getId());
+
+        trackTypeIcons.draw (g, iconBounds, type, editorOpen);
+    }
 
     if (type == TrackType::Audio && track.isArmed())
     {
@@ -4515,9 +4770,15 @@ void TimelineComponent::drawTrackHeaderContents (juce::Graphics& g, int rowIndex
 
     // 8.61：**名前の場所は`getTrackNameBounds()`が決める**（Phase 99／改善案⑤）。
     // その場で編集する入力欄も同じ関数を通すので、開いたときにずれない
+    // 8.295：**種別の文字（`[Audio]`など）は外しました**（Phase 288／本人の指定）。
+    //
+    // 右端の絵が同じことを言っているので、**名前の場所を50pxほど返せます**。
+    // **絵が無いのはコードトラックだけ**です（本人の判断「基本的に1本しか
+    // 作らないからアイコンは必要ない」）。行の高さが半分なので、
+    // 並びの中で取り違えようがありません
     g.setColour (AppColours::textPrimary);
     g.setFont (juce::FontOptions (13.0f));
-    g.drawText (track.getName() + "  [" + trackTypeToString (type) + "]",
+    g.drawText (track.getName(),
                  getTrackNameBounds (rowIndex), juce::Justification::centredLeft, false);
 
     if (! hasControlRow)
@@ -4542,17 +4803,21 @@ void TimelineComponent::drawTrackHeaderContents (juce::Graphics& g, int rowIndex
         g.drawEllipse (armBounds, 1.5f);
     }
 
-    // 仕様書5.6：オートメーションのレーンを開く「A」ボタン（Phase 26）
+    // 仕様書5.6：オートメーションのレーンを開くボタン（Phase 26）。
+    // 8.295：**「A」の字から絵へ**（Phase 288／改善案1。本人が用意）
     if (trackTypeHasAudioPath (type))
-        drawHeaderChip (g, getAutomationButtonBounds (rowIndex), "A",
-                         track.getNumVisibleAutomationLanes() > 0, AppColours::purple);
+        drawAutomationButton (g, getAutomationButtonBounds (rowIndex),
+                               track.getNumVisibleAutomationLanes() > 0);
 
     // 仕様書5.2.1：ソロ／ミュート（Phase 58）。**Consoleと同じ配色**にしてある
     // （ミュート＝オレンジ、ソロ＝パープル）ので、どちらの画面でも同じに見える
+    // 8.295：**ミュートが先、ソロが後**（Phase 288／本人の指定「Consoleに合わせたい」）。
+    // 位置は`get…Bounds()`が決めるので、**描く順番は見た目に関係ありません**
+    // ——それでも並べ替えてあるのは、読んだときに画面と同じ順に見えるようにするためです
     if (trackTypeHasSoloMute (type))
     {
-        drawHeaderChip (g, getSoloButtonBounds (rowIndex), "S", track.isSoloed(), AppColours::purple);
         drawHeaderChip (g, getMuteButtonBounds (rowIndex), "M", track.isMuted(), AppColours::orange);
+        drawHeaderChip (g, getSoloButtonBounds (rowIndex), "S", track.isSoloed(), AppColours::purple);
     }
 }
 
@@ -4935,7 +5200,13 @@ void TimelineComponent::mouseDown (const juce::MouseEvent& e)
 
             // 8.60：**「i」でインスペクタを開く／閉じる**（Phase 97／改善案①）。
             // **選択も同時に移す**ので、押したトラックの設定がそのまま出る
-            if (getInspectorButtonBounds (headerTrackIndex).expanded (2).contains (e.getPosition()))
+            // 8.295：**空の矩形を先に弾くこと**（Phase 288）。
+            // コードトラックでは「i」を出さないので空が返りますが、
+            // 空（0,0,0,0）を`expanded(2)`すると**左上の角を含む矩形**になり、
+            // 「押していないのに押したことになる」場所ができます
+            if (auto inspectorBounds = getInspectorButtonBounds (headerTrackIndex);
+                 ! inspectorBounds.isEmpty()
+                  && inspectorBounds.expanded (2).contains (e.getPosition()))
             {
                 // **選択を移す前に見ること。** いま出ているのが押したトラックなら
                 // 開閉の切り替え、違うトラックなら開いたまま中身だけ差し替える。
@@ -4951,6 +5222,36 @@ void TimelineComponent::mouseDown (const juce::MouseEvent& e)
 
                 if (onInspectorRequested != nullptr)
                     onInspectorRequested (alreadyShowingThisTrack);
+
+                repaint();
+                return;
+            }
+
+            // 8.295：**種類の絵**（Phase 288／改善案1。本人の指定）。
+            //
+            // **押せるのはMIDIとフォルダだけ**です（`TrackTypeIcons::isClickable()`）。
+            // AudioとVCAの絵も同じ場所に出ていますが、ここで弾くので何も起きません
+            // ——枠を付けていないのと同じ判断です（8.161）
+            auto iconBounds = getTrackTypeIconBounds (headerTrackIndex);
+
+            if (TrackTypeIcons::isClickable (headerTrack.getType())
+                 && ! iconBounds.isEmpty()
+                 && iconBounds.expanded (2).contains (e.getPosition()))
+            {
+                if (headerTrack.getType() == TrackType::Folder)
+                {
+                    // **三角と同じことをする**（入口が2つあるだけ）。
+                    // 畳む三角はフォルダの左端にもありますが、
+                    // 絵のほうが大きく、Consoleから目を戻したときに探しやすい
+                    headerTrack.setCollapsed (! headerTrack.isCollapsed());
+                    resized();
+                    repaint();
+                    return;
+                }
+
+                // MIDI：音源のGUIを出す／しまう。**エンジンは`ArrangeView`が持っている**
+                if (onTrackInstrumentIconClicked != nullptr)
+                    onTrackInstrumentIconClicked (headerTrack.getId());
 
                 repaint();
                 return;
@@ -11296,8 +11597,10 @@ void TimelineComponent::paint (juce::Graphics& g)
             // 仕様書5.6：マスターのレーンを開く「A」ボタン（Phase 26）。
             // **トラックと同じ位置に置く**（下段の左から2つめ）ので、
             // マスターだけ探し直さずに済む
-            drawHeaderChip (g, getAutomationButtonBounds (masterRowIndex), "A",
-                             project.getNumVisibleMasterAutomationLanes() > 0, AppColours::purple);
+            // 8.295：**トラック側と同じ絵**（Phase 288）。ここだけ「A」の字が残ると、
+            // 同じ働きのボタンが2通りの見た目になります
+            drawAutomationButton (g, getAutomationButtonBounds (masterRowIndex),
+                                   project.getNumVisibleMasterAutomationLanes() > 0);
 
             g.setColour (AppColours::border);
             g.drawRect (masterRow);

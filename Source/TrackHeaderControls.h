@@ -25,7 +25,7 @@
     `TimelineComponent`が`getHeaderControlRow()`の矩形をそのまま渡します。
 
     ```
-    ┌─ 上段（`buttonRowHeight`）… ● A S M は親が描く ──┬─┐
+    ┌─ 上段（`buttonRowHeight`）… ●・A・S・M は親が描く ─┬─┐
     ├─ 下段 ………………… 音量フェーダー │ dB表示 ──┤▮│
     │  （行を高くしたぶんは空ける）              │▮│
     └──────────────────────────┴─┘
@@ -109,11 +109,22 @@ public:
     /** 名前の行の高さ。**親（`TimelineComponent::headerNameRowHeight`）と同じ値**にすること。
 
         8.65：この部品は**名前の行も含めた領域**を渡されるので（メーターを行の上端まで
-        伸ばすため）、名前のぶんを自分で空ける必要がある。 */
+        伸ばすため）、名前のぶんを自分で空ける必要がある。
+
+        8.295：**24のままです**（Phase 288）。一度26へ上げましたが、
+        本人の指定で「i」を元の大きさ（15x14）へ戻したので、戻しました。 */
     static constexpr int nameRowHeight = 24;
 
-    /** 上段（● A S M が並ぶ帯）の高さ。 */
-    static constexpr int buttonRowHeight = 16;
+    /** 上段（● A S M が並ぶ帯）の高さ。
+
+        8.295：**16から24へ**（Phase 288／改善案1）。本人の指定で
+        オートメーション・ソロ・ミュートを1.5倍（15→23px）にしたので、
+        帯もそれに合わせてあります——
+        **行の高さ（`TimelineComponent::trackRowHeight`）も一緒に上がります**。
+
+        **●（録音待機）は元の15pxのまま**です（本人の指定で戻しました）。
+        帯の中で縦中央に置くので、小さいままでも浮きません。 */
+    static constexpr int buttonRowHeight = 24;
 
     /** 右端の縦メーターの幅。 */
     static constexpr int meterWidth = 8;

@@ -2,6 +2,7 @@
 
 #include <juce_gui_extra/juce_gui_extra.h>
 #include "ProjectModel.h"
+#include "SelectionState.h"   // 8.301：ストリップを押して選ぶ（Phase 294）
 #include "ChannelStripComponent.h"
 #include "MasterStripComponent.h"
 
@@ -24,11 +25,31 @@ class ConsoleView : public juce::Component,
                      public juce::DragAndDropTarget,
                      private juce::Timer,
                      private juce::AsyncUpdater,
-                     private juce::ValueTree::Listener
+                     private juce::ValueTree::Listener,
+                     /** 8.301：**選択に追従する**（Phase 294／本人の要望）。
+                         誰が選ばれているかを知っているのは`SelectionState`です。 */
+                     private juce::ChangeListener
 {
 public:
-    ConsoleView (ProjectModel& projectToUse, AudioEngine& audioEngineToUse);
+    ConsoleView (ProjectModel& projectToUse, SelectionState& selectionToUse,
+                  AudioEngine& audioEngineToUse);
     ~ConsoleView() override;
+
+    /** 8.298：**Consoleが要る、いちばん低い高さ**（Phase 291／本人の指定）。
+
+        本人の指定は「フェーダーとメーターの最小サイズを1.5倍に。
+        **これによりConsoleウィンドウ縦幅の最小サイズも設定される**」——
+        そのとおりで、**メーターを縮めないと決めた時点で、パネルの下限も決まります**。
+
+        中身は`ChannelStripComponent::minimumConsoleHeight`（ストリップ1本ぶん）に、
+        `resized()`が上下に取る余白（8pxずつ）を足したものです。
+        **ここで数字を書き写さないこと**——余白を変えたら、下限だけ古くなります（1.27）。
+
+        使うのは`MainComponent::setEditorPanelHeight()`です。 */
+    static constexpr int verticalPadding = 8;
+
+    static constexpr int minimumContentHeight = ChannelStripComponent::minimumConsoleHeight
+                                                  + verticalPadding * 2;
 
     void paint (juce::Graphics& g) override;
 
@@ -99,7 +120,17 @@ private:
 
     /** 8.283：ラックの高さを覚えて、**全ストリップ（マスターも）へ配る**
         （Phase 276／本人の要望。`ConsoleLayout.h`）。 */
-    void applyRackAreaHeight (int newHeight);
+    void applyFaderAreaHeight (int newHeight);
+
+    /** 8.300：いまの高さで、**フェーダーが実際に取れるいちばん大きい高さ**（Phase 293・295）。
+
+        ストリップの高さは`viewport`の高さそのもの（`resized()`が全高を渡している）。
+        **覚える前と、詰めるときの両方がここを通ります**——
+        2箇所で数えると、片方だけずれます（1.27）。 */
+    int getUsableFaderAreaHeight() const
+    {
+        return ConsoleLayout::getMaximumFaderAreaHeightFor (viewport.getHeight());
+    }
 
     /** 仕様書5.7：メーター表示を更新する（およそ30fps）。 */
     void timerCallback() override;
@@ -117,6 +148,19 @@ private:
         （`visibilityChanged()`でしか作り直していなかったため）。 */
     void valueTreeChildOrderChanged (juce::ValueTree& parent, int, int) override;
 
+    /** 8.299：**トラックが増えた／減った**（Phase 292／本人の報告）。
+
+        Phase 291まで、ここは**並べ替え（`valueTreeChildOrderChanged`）しか
+        見ていませんでした**。つまりConsoleを開いたままトラックを足しても、
+        **タブを切り替えて戻るまでストリップが出てきません**
+        （`visibilityChanged()`が作り直すため、そこだけは直っていた）。
+
+        **ルートを購読しているので、クリップやノートが増えたときも来ます。**
+        器の型（`<TRACKS>`）で絞ること——絞らないと、
+        打ち込むたびにConsole全体を作り直すことになります。 */
+    void valueTreeChildAdded (juce::ValueTree& parent, juce::ValueTree&) override;
+    void valueTreeChildRemoved (juce::ValueTree& parent, juce::ValueTree&, int) override;
+
     /** 8.67：ストリップの作り直しを**いったん後回しにする**（Phase 106）。
 
         通知の中でその場で作り直すと、2つの困りごとが起きる：
@@ -133,6 +177,15 @@ private:
     void updateProjectSubscription();
 
     ProjectModel& project;
+
+    /** 8.301：選択（Phase 294）。**押されたらここへ書き、変わったら見た目を合わせます**。 */
+    SelectionState& selection;
+
+    /** 選択が変わったとき（`SelectionState`の通知）。 */
+    void changeListenerCallback (juce::ChangeBroadcaster*) override;
+
+    /** 8.301：いま選ばれているトラックのストリップに印を付け直す（Phase 294）。 */
+    void updateSelectedStrip();
 
     // 購読中のルート。差し替え時に古い方の購読を外すために持つ（HANDOVER 1.15）
     juce::ValueTree subscribedState;

@@ -37,6 +37,13 @@ public:
         ConsoleViewがメーターと同じタイマーで呼ぶ。値が変わったときだけ描き直す。 */
     void refreshLatencyDisplay();
 
+    /** 8.299：フェーダーとメーターに割り当てた高さ（Phase 292）。
+
+        **トラックのストリップと同じ数字になるはず**です
+        （`ConsoleLayout::getFaderAreaHeightFor()`）——
+        `--header-selftest`が並べて見ます。 */
+    int getFaderAreaHeight() const { return volumeSlider.getHeight(); }
+
     /** 仕様書5.1：プロジェクトが差し替わったら、新しい`<MASTERBUS>`へ購読し直す。
         これを忘れると、読み込み後も古いツリーを掴んだままになり、
         フェーダーを動かしても現在のプロジェクトに反映されない。 */

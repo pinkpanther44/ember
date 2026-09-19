@@ -4,6 +4,7 @@
 #include "ProjectModel.h"
 #include "SelectionState.h"
 #include "TrackRackComponent.h"
+#include "ChannelStripComponent.h"   // 8.296：Consoleのストリップをそのまま置く（Phase 289）
 #include "LevelMeterComponent.h"   // 仕様書5.7：レベルメーター（Phase 59／8.1のC4）
 #include "ValueEntrySlider.h"      // Phase 61：ダブルクリックでの数値入力（8.1のC2）
 #include "ColourSwatchButton.h"  // 8.125：色見本はヘッダーと共用（Phase 161）
@@ -55,8 +56,27 @@ public:
         値を決めるのは`Track::getEffectiveVolumeDbAt()`（Consoleと同じもの）。 */
     void setPlayheadSeconds (double seconds);
 
-    static constexpr int defaultWidth = 230;
-    static constexpr int minimumWidth = 170;
+    /** 8.295：**幅は固定**（Phase 288／改善案6。本人の指定）。
+
+        Phase 287まで、右端の帯を掴んで170〜（画面しだい）まで変えられました
+        （`defaultWidth`＝230／`minimumWidth`＝170）。本人の指定は
+        **「Inspectorウィンドウ横幅を固定にしよう」**で、**いまの既定に収まると嬉しい**
+        とのことなので、**その230をそのまま固定の幅**にしてあります。
+
+        > **掴む帯は出しません。** 幅が変わらないのに掴めると、
+        > **押して初めて飾りだと分かる**ことになります（8.161）。
+        > ブラウザ側（`BrowserPanel`）は今までどおり掴んで変えられます。
+
+        **最終的な幅は、本人がConsoleのフェーダーの置き方を決めてから**です
+        （改善案5「後ほど添付する」）。変えるのはここ1行になります。 */
+    static constexpr int fixedWidth = 230;
+
+    /** 8.297：Consoleの部分を下端に固定したときに、**上へ必ず残す高さ**（Phase 290）。
+
+        ストリップは「欲しい高さ」を申告しますが、**画面が低いときはそれを飲めません**。
+        ここを割らないところまでしか渡さないので、
+        **名前や色がまったく見えない**という形にはなりません。 */
+    static constexpr int minimumViewportHeight = 120;
 
     /** 8.77：MIDIノートをまとめて上下させたい（Phase 117／改善案㉝）。
 
@@ -174,18 +194,21 @@ private:
         **オートメーションの行を選んでいるときだけ出る**（トラックには戻す先が無い）。 */
     juce::TextButton resetLaneColourButton;
 
-    juce::Label volumeCaption;
-    // Phase 61：ダブルクリックで数値入力、Alt＋クリックで初期値へ（Consoleと同じ扱い。8.21）
-    ValueEntrySlider volumeSlider { juce::Slider::LinearHorizontal, juce::Slider::TextBoxRight };
-    juce::Label panCaption;
-    ValueEntrySlider panSlider { juce::Slider::LinearHorizontal, juce::Slider::TextBoxRight };
+    /** 8.296：**Consoleのチャンネルストリップそのもの**（Phase 289／本人の指定）。
 
-    /** 仕様書5.7：レベルメーター（Phase 59／8.1のC4）。
+        音量・パン・メーター・ミュート／ソロ・dB表示・種類の絵・トラック名、
+        そして**ラック**（書き込みモード・VCA・音源・インサート・センド）が
+        全部この中にあります。インスペクタ用の`Layout`では**2列**に並びます。
 
-        **Consoleのストリップと同じ部品**（`LevelMeterComponent`）を横向きで置いている。
-        音を通さないトラック（コード・フォルダ・VCA）では隠す。 */
-    juce::Label meterCaption;
-    LevelMeterComponent meter;
+        Phase 288まで、ここには**同じ役目の部品がもう1組**ありました
+        （横向きのフェーダー・パン・メーターと、M・S、それに別のラック）。
+        値も操作も揃えるために**2箇所を見比べて直す**必要があり、
+        8.19・8.61でも同じことをしています（1.27）。
+
+        **選択が変わるたびに作り直します**——担当トラックはコンストラクタで
+        決まる作りなので、付け替えより作り直しのほうが購読の外し忘れが起きません。
+        音量を持たないトラック（コード）では`nullptr`のままです。 */
+    std::unique_ptr<ChannelStripComponent> strip;
 
     void timerCallback() override;
     void visibilityChanged() override;
@@ -195,9 +218,6 @@ private:
 
     /** メーターのタイマーを、いまの状態に合わせて回す／止める。 */
     void updateMeterTimer();
-
-    juce::TextButton muteButton { "M" };
-    juce::TextButton soloButton { "S" };
 
     // Phase 33：トラックの削除。
     // タイムラインのヘッダーを右クリックしても同じことができるが、
@@ -211,11 +231,9 @@ private:
     // ここで直接リテラルを書くと、日本語環境のビルドで文字化けの原因になる。
     juce::TextButton deleteTrackButton;
 
-    // 仕様書5.3/5.7/5.2.2/5.2.4/5.6：Consoleと共通のラック（Phase 29）。
-    // **選択が変わるたびに作り直す。** 担当トラックはコンストラクタで決まる作りなので、
-    // 付け替えではなく作り直しのほうが購読の外し忘れが起きない。
-    // 音声を通さないトラック（コード等）では nullptr のまま。
-    std::unique_ptr<TrackRackComponent> rack;
+    // 8.296：**ラックは`strip`の中にあります**（Phase 289）。
+    // Phase 288まではここが別に持っていて、Consoleのストリップの中のラックと
+    // **2つ**ありました。いまは1つです。
 
     //==========================================================================
     // クリップ用のコントロール。値は「秒」で、編集可能なラベルとして出す

@@ -9,6 +9,7 @@
 #include "LevelMeterComponent.h"   // 仕様書5.7：ヘッダーのレベルメーター（Phase 58）
 #include "TrackHeaderControls.h"   // 8.61：ヘッダーの音量・パン・メーター（Phase 99）
 #include "ColourSwatchButton.h"   // 8.125：色帯から出すパレット（Phase 161）
+#include "TrackTypeIcons.h"   // 8.295：種類の絵（Consoleと共用。Phase 288）
 
 #include <optional>   // 8.150：掴んだマーカーが「無い」ことを返す（Phase 188）
 
@@ -398,6 +399,23 @@ public:
     std::function<void (bool)> onInputMonitoringToggled;
 
     //==========================================================================
+    // 8.295：MIDIトラックの絵で、音源のGUIを出す／しまう（Phase 288／改善案1）
+    //
+    // **ここにも`AudioEngine`は持ち込みません**（入力モニタリングと同じ方針）。
+    // 受けるのは`ArrangeView`——エンジンを知っているのはあちらです。
+
+    /** MIDIトラックの絵が押された。**出ていればしまう、出ていなければ出す**
+        （押すたびに窓が増えていくと、閉じる手が要ります）。 */
+    std::function<void (const juce::String& trackId)> onTrackInstrumentIconClicked;
+
+    /** そのトラックの音源GUIが**いま出ているか**。真のあいだ、絵はオレンジになります
+        （Emberではゴールド。本人の指定）。
+
+        **毎フレーム引かれます**（`refreshHeaderMeters()`と同じタイマー）ので、
+        重い処理を繋がないこと。 */
+    std::function<bool (const juce::String& trackId)> isTrackInstrumentEditorOpen;
+
+    //==========================================================================
     // 仕様書5.7：ヘッダーのパンとレベルメーター（Phase 58／8.1のC16）
     //
     // **AudioEngineはここへ持ち込まない**（入力モニタリングと同じ方針）。
@@ -425,6 +443,42 @@ public:
 
     /** どこか1トラックでもレーンを開いていれば true。マスター行を出すかの判断に使う。 */
     bool isShowingAutomation() const;
+
+    /** 8.301：**外で選択が変わったので、こちらの印を合わせる**（Phase 294／本人の要望）。
+
+        Consoleのストリップを押すと`SelectionState`が変わりますが、
+        アレンジ画面は**自分で覚えている番号**（`selectedTrackIndex`）で
+        ヘッダーを塗っています——**書いたほうを見に行かないと、光りません**。
+
+        呼ぶのは`ArrangeView::changeListenerCallback()`（選択の通知を受けている場所）。
+        **自分が書いたときも通ります**が、同じ値を入れ直すだけなので何も起きません。 */
+    void refreshSelectionFromState();
+
+    //==========================================================================
+    /** 8.295：**ヘッダーに並ぶものの位置を、まとめて返す**（Phase 288／改善案1）。
+
+        中身は`get…Bounds()`をそのまま呼んだものです。**写しではありません**
+        ——ここで数字を組み直すと、画面と検査で違う位置を見ることになります（1.27）。
+
+        置いてあるのは`TrackHeaderLayoutSelfTest`のためです。ボタンを1.5倍にし、
+        「i」を左へ、種類の絵を右へ動かしたので、**重なりと見切れ**が起きやすくなりました
+        ——どちらも画面では「なんとなく詰まっている」としか見えず、
+        狭いヘッダーや深いフォルダでだけ出ます。**窓を出さずに数えられる**ようにしてあります。 */
+    struct HeaderRowLayout
+    {
+        juce::Rectangle<int> triangle;      ///< 畳む三角（フォルダ・コードだけ）
+        juce::Rectangle<int> inspector;     ///< 「i」
+        juce::Rectangle<int> name;          ///< トラック名
+        juce::Rectangle<int> monitor;       ///< IN（録音待機中のオーディオだけ）
+        juce::Rectangle<int> typeIcon;      ///< 種類の絵
+        juce::Rectangle<int> arm;           ///< ●
+        juce::Rectangle<int> automation;    ///< オートメーション
+        juce::Rectangle<int> solo;
+        juce::Rectangle<int> mute;
+        juce::Rectangle<int> meter;         ///< 右端の縦メーター
+    };
+
+    HeaderRowLayout getHeaderRowLayout (int rowIndex) const;
 
     //==========================================================================
     // 仕様書4.4・6章：ドラッグ&ドロップの受け口（Phase 21）
@@ -1530,8 +1584,11 @@ private:
 
     /** 8.65：右端でメーターが使う幅（余白込み）。
 
-        **「i」はこのぶんだけ左へ寄せる**こと（`getInspectorButtonBounds()`）。
-        重ねると、押したつもりでピークがリセットされます。 */
+        **右端に置くものはこのぶんだけ左へ寄せる**こと。重ねると、
+        押したつもりでピークがリセットされます。
+
+        8.295：寄せる相手が「i」から**種類の絵**へ変わりました
+        （`getTrackTypeIconBounds()`。「i」は名前の左へ移った）。 */
     static constexpr int headerMeterColumnWidth = TrackHeaderControls::meterWidth + 4;
 
     /** 仕様書5.4：トラックヘッダー内の録音待機ボタン（●）の位置。 */
@@ -1549,13 +1606,28 @@ private:
 
     /** 8.60：トラックヘッダー内の「i」（インスペクタを開く）の位置（Phase 97／改善案①）。
 
-        **上段（名前の行）の右端**に置いてある。下段はRec／A／S／M／Pan／メーターで
-        埋まっていて、割り込ませると全部の位置を決め直すことになるため。
-        **常に出る**ので、INボタン（録音待機中だけ）はこの左隣へずらしてある。 */
+        8.295：**名前の左へ移しました**（Phase 288／改善案1。本人の指定）。
+        Phase 287まではこの行の**右端**で、右端はいま**種類の絵**が使っています。
+
+        並びは左から **［畳む三角］［i］［名前］……［IN］［種類の絵］［メーター］**。
+        畳む三角のある行（フォルダ・コード）では、三角の右隣になります
+        ——三角は行の開閉、「i」は中身の表示で、**どちらも名前より手前**にあるほうが
+        「この行について」の操作としてまとまります。 */
     juce::Rectangle<int> getInspectorButtonBounds (int rowIndex) const;
 
+    /** 8.295：**元の大きさのまま**（15x14。Phase 288／本人の指定）。
+
+        一度23x21へ上げましたが、戻しました。「i」は**押す場所であると同時に、
+        名前の左に置かれる目印**でもあるので、大きくすると名前の場所を食います。 */
     static constexpr int inspectorButtonWidth = 15;
     static constexpr int inspectorButtonHeight = 14;
+
+    /** 8.295：トラックの種類を示す絵の位置（Phase 288／改善案1。本人の指定）。
+
+        **「i」が居た場所**（名前の行の右端、メーターの手前）です。
+        絵と押せるかどうかは`TrackTypeIcons`が決めます——
+        **Consoleのストリップにも同じ絵を出す**ので、対応表は1つにしてあります。 */
+    juce::Rectangle<int> getTrackTypeIconBounds (int rowIndex) const;
 
     /** 仕様書5.2.1：トラックヘッダー内のソロ／ミュートボタン（Phase 58／8.1のC16）。
 
@@ -1646,6 +1718,13 @@ private:
     void drawHeaderChip (juce::Graphics& g, juce::Rectangle<int> bounds,
                           const juce::String& text, bool isOn, juce::Colour onColour);
 
+    /** 8.295：オートメーションのボタンを描く（Phase 288／改善案1。本人が用意した絵）。
+
+        地・枠・色の決め方は`drawHeaderChip()`とまったく同じにしてあります
+        ——同じ帯に並ぶので、**押されているときの見え方**が食い違うと、
+        ここだけ別の部品に見えます。違うのは、**中身が「A」の字ではなく絵**という点だけ。 */
+    void drawAutomationButton (juce::Graphics& g, juce::Rectangle<int> bounds, bool isOn);
+
     /** フェードハンドル（丸）の座標を求める。fadeInがtrueなら左上、falseなら右上のハンドル。 */
     juce::Point<int> getFadeHandlePosition (juce::Rectangle<int> bounds, double fadeInSeconds, double fadeOutSeconds, bool fadeIn) const;
 
@@ -1692,7 +1771,12 @@ private:
 
         8.127：**既定を285から200へ**（Phase 163／本人の指定）。
         1.5倍（285）は広すぎたとのこと。**掴んで変えられる**ようになったので、
-        既定は控えめにして、要る人が広げる形にしてあります。 */
+        既定は控えめにして、要る人が広げる形にしてあります。
+
+        8.295：**200のままです**（Phase 288）。一度230へ上げましたが、
+        本人の指定で「i」と種類の絵が15pxになり、
+        **名前から`[Audio]`のような種別の文字が消えた**ので、
+        名前の場所はPhase 287より広くなりました。 */
     static constexpr int defaultTrackHeaderWidth = 200;
 
     /** **190より狭くしないこと。** Phase 58でこの幅にしたのは、
@@ -1791,8 +1875,17 @@ private:
     void showTrackColourPalette (int rowIndex);
 
 
-    /** 標準のトラック行の高さ。**行の高さを直に書かないこと**（`getRowHeight()`を通す）。 */
-    static constexpr int trackRowHeight = 60;
+    /** 標準のトラック行の高さ。**行の高さを直に書かないこと**（`getRowHeight()`を通す）。
+
+        8.295：**60から68へ**（Phase 288／改善案1）。本人の指定で
+        オートメーション・ソロ・ミュートを1.5倍にしたぶん、
+        中身が60pxに収まらなくなったためです
+        （名前24＋ボタン24＋フェーダー18＝66。残り2pxは今までと同じ余り）。
+
+        **本人から「ヘッダー全体が大きくなるのは構わない（見やすさ・押しやすさ優先）」
+        と指定があります。** 勝手に広げたのではありません——
+        1.5倍にすると必ずここが上がるので、**指定の一部**として扱っています。 */
+    static constexpr int trackRowHeight = 68;
 
     /** 仕様書5.2.3：コードトラックの行の高さ（Phase 58／8.1のC15）。
 
@@ -1845,8 +1938,30 @@ private:
         あちらも名前のぶんを自分で空ける必要があるので、
         ここに数字を書き写すと**片方だけずれます**（1.27）。 */
     static constexpr int headerNameRowHeight = TrackHeaderControls::nameRowHeight;
-    static constexpr int headerButtonSize = 15;
-    static constexpr int headerSoloMuteWidth = 17;
+
+    /** 8.295：**オートメーションとソロ・ミュートだけ1.5倍**
+        （15→23px／17→26px。Phase 288／改善案1。本人の指定）。
+
+        > **一度は●（録音待機）も上げましたが、本人の指定で戻しました。**
+        > 「同じ帯に並ぶものは揃える」と考えて巻き込みましたが、
+        > **●は他の3つと役目が違います**（録るかどうかは押す回数が少なく、
+        > 押し間違えたときの代償が大きい）。**指定の範囲に留めること**——
+        > 揃えるべきかどうかを決めるのは、並びではなく使い方です。 */
+    static constexpr int headerButtonSize = 23;
+    static constexpr int headerSoloMuteWidth = 26;
+
+    /** 8.295：**録音待機（●）は元の大きさのまま**（Phase 288／本人の指定）。
+
+        帯（24px）の中で縦中央に置くので、小さいままでも浮きません
+        （`placeInControlRow()`が高さを揃えます）。 */
+    static constexpr int headerArmButtonSize = 15;
+
+    /** 8.295：トラックの種類を示す絵の大きさ（Phase 288／改善案1）。
+
+        本人の指定で**●と同じ15pxの正方形**です。「i」（15x14）とも
+        高さがほぼ揃うので、名前の行に並べても目線が上下しません
+        （`getTrackTypeIconBounds()`）。 */
+    static constexpr int trackTypeIconSize = headerArmButtonSize;
 
     /** 8.61：ヘッダーの地に敷くトラック色の濃さ（Phase 99／改善案⑫）。
 
@@ -2097,6 +2212,29 @@ private:
     /** ヘッダーの部品の数と位置を、いまのトラック構成に合わせる。
         **`refreshHeaderMeters()`から毎回呼ぶ**ので、経路の拾い漏れがあっても直る。 */
     void layoutHeaderControls();
+
+    /** 8.295：種類の絵（Phase 288／改善案1）。**読んだものは持っておく**
+        ——行ごとに読むと、スクロールのたびにSVGを解析することになります。 */
+    TrackTypeIcons::Cached trackTypeIcons;
+
+    /** 8.295：いまGUIが出ているMIDIトラックのID（Phase 288）。
+
+        **変わったかどうかを見るためだけ**に持っています（`refreshHeaderMeters()`）。
+        窓はGUIの「×」でも閉じられるので、こちらから見に行かないと
+        オレンジが消えません。 */
+    juce::String openInstrumentEditorIds;
+
+    /** 8.295：オートメーションの「A」を絵に差し替えた（Phase 288／改善案1。本人が用意）。
+
+        **ボタンではなく、`drawTrackHeaderContents()`が直に描きます**
+        ——ヘッダーのボタンはもともと全部「描いてあるだけ」で、
+        当たり判定は`mouseDown`が矩形で見ています（`drawHeaderChip()`）。
+        ここだけ`juce::Button`にすると、**押せる場所の決め方が2通り**になります。 */
+    std::unique_ptr<juce::Drawable> automationIcon;
+    juce::Colour automationIconColour;
+
+    /** その色に塗った「A」の絵を返す（色が変わったときだけ作り直す）。 */
+    juce::Drawable* getAutomationIcon (juce::Colour colour);
     double dragOriginalStartTime = 0.0;
     double dragOriginalLength = 0.0;
     double dragOriginalOffset = 0.0;

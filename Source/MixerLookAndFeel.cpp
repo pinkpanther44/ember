@@ -8,32 +8,87 @@ void MixerLookAndFeel::drawRotarySlider (juce::Graphics& g, int x, int y, int wi
     // 正円で描く（幅と高さが違っても潰さない）。**中央に寄せる**
     const auto area = juce::Rectangle<int> (x, y, width, height).toFloat();
     const float diameter = juce::jmin (area.getWidth(), area.getHeight());
-    const auto circle = juce::Rectangle<float> (diameter, diameter).withCentre (area.getCentre());
+    const auto centre = area.getCentre();
 
-    const float radius = diameter * 0.5f;
     const float angle = rotaryStartAngle + sliderPosProportional * (rotaryEndAngle - rotaryStartAngle);
 
     const auto fillColour = slider.findColour (juce::Slider::rotarySliderFillColourId);
     const auto outlineColour = slider.findColour (juce::Slider::rotarySliderOutlineColourId);
 
-    // 地の円。**塗ること**：溝や下の文字が透けると、指針が読みにくくなる
+    //--------------------------------------------------------------------------
+    // 8.298：**弧を付けます**（Phase 291／本人の指定）。
+    //
+    // Phase 290までは「塗った円＋指針1本」でした。指針は**向きしか**示さないので、
+    // **どこまで回せるのか**と**いまどれくらい振ってあるのか**が、
+    // 数値（下の欄）を読むまで分かりません。
+    //
+    // 弧の描き方は**内蔵プラグインのつまみと同じ**です（`MantaKnobLookAndFeel`）
+    // ——同じ形のものが画面によって違う描かれ方をするのは避けます（1.27）。
+    // 色だけ`AppColours`から取ります（あちらは`MantaTheme`）。
+    //
+    // 本人の指定は「**弧を付ける分、ノブのサイズは縮小してみよう**」。
+    // 器の大きさは変えず、**本体の円を弧のぶん内側へ**引いてあります
+    // ——器を縮めると、下の数値やボタンとの間隔まで動きます。
+    const float arcRadius = diameter * 0.5f - arcThickness * 0.5f;
+    const float bodyRadius = juce::jmax (4.0f, arcRadius - arcThickness * 0.5f - arcGap);
+
+    // ① 弧の地（端から端まで）。**薄く残すこと**——
+    //    どこまで回せるのかが見えないと、端に当たったのか壊れたのか分からない
+    juce::Path track;
+    track.addCentredArc (centre.x, centre.y, arcRadius, arcRadius, 0.0f,
+                          rotaryStartAngle, rotaryEndAngle, true);
+
+    g.setColour (AppColours::border);
+    g.strokePath (track, juce::PathStrokeType (arcThickness, juce::PathStrokeType::curved,
+                                                juce::PathStrokeType::rounded));
+
+    // ② いまの値ぶんの弧。
+    //
+    // **真ん中が0のつまみは12時から伸ばします。** パンは-1〜+1で、
+    // 左端から塗ると「中央」が半分塗られた状態になり、**振っていないのに振って見えます**。
+    //
+    // 判定は**範囲から**します（`MantaKnobLookAndFeel`は呼ぶ側が印を付ける形ですが、
+    // こちらは`juce::Slider`をそのまま使うので、印を付け忘れる口を作りたくない）。
+    // 下端が負・上端が正で、**同じだけ振れる**ものが「真ん中が0」です
+    const double lo = slider.getMinimum();
+    const double hi = slider.getMaximum();
+    const bool bipolar = lo < 0.0 && hi > 0.0 && std::abs (lo + hi) < 1.0e-6;
+
+    const float originAngle = bipolar ? (rotaryStartAngle + rotaryEndAngle) * 0.5f : rotaryStartAngle;
+
+    if (std::abs (angle - originAngle) > 0.001f)
+    {
+        juce::Path value;
+        value.addCentredArc (centre.x, centre.y, arcRadius, arcRadius, 0.0f,
+                              juce::jmin (originAngle, angle), juce::jmax (originAngle, angle), true);
+
+        g.setColour (fillColour);
+        g.strokePath (value, juce::PathStrokeType (arcThickness, juce::PathStrokeType::curved,
+                                                    juce::PathStrokeType::rounded));
+    }
+
+    //--------------------------------------------------------------------------
+    // ③ 本体。**塗ること**：溝や下の文字が透けると、指針が読みにくくなる
+    const auto body = juce::Rectangle<float> (bodyRadius * 2.0f, bodyRadius * 2.0f).withCentre (centre);
+
     g.setColour (AppColours::panel);
-    g.fillEllipse (circle);
+    g.fillEllipse (body);
 
     // 外周。**塗りより暗い色**にして、小さくても輪郭が残るようにする
     g.setColour (outlineColour.isTransparent() ? AppColours::border : outlineColour);
-    g.drawEllipse (circle.reduced (0.75f), 1.5f);
+    g.drawEllipse (body.reduced (0.5f), 1.0f);
 
-    // 8.62：**中心から外へ伸びる指針**（Phase 100）。
+    //--------------------------------------------------------------------------
+    // ④ 8.62：**中心から外へ伸びる指針**（Phase 100）。
     // 扇形の塗りだと16px角ではつぶれて向きが読めないので、線1本にしてある
     juce::Path pointer;
-    const float pointerThickness = juce::jmax (1.6f, diameter * 0.11f);
+    const float pointerThickness = juce::jmax (1.6f, bodyRadius * 0.20f);
 
-    pointer.addRoundedRectangle (-pointerThickness * 0.5f, -radius * 0.82f,
-                                  pointerThickness, radius * 0.62f,
+    pointer.addRoundedRectangle (-pointerThickness * 0.5f, -bodyRadius * 0.86f,
+                                  pointerThickness, bodyRadius * 0.62f,
                                   pointerThickness * 0.5f);
     pointer.applyTransform (juce::AffineTransform::rotation (angle)
-                                .translated (circle.getCentreX(), circle.getCentreY()));
+                                .translated (centre.x, centre.y));
 
     g.setColour (fillColour);
     g.fillPath (pointer);

@@ -56,7 +56,17 @@ juce_add_binary_data(PluginPreviewAssets
 
         # 8.266：ブラウザの絵（`--icons`が色の差し替えを確かめます。Phase 269）
         "${DAW_ROOT}/Resources/Icons/browser_folder.svg"
-        "${DAW_ROOT}/Resources/Icons/browser_file.svg")
+        "${DAW_ROOT}/Resources/Icons/browser_file.svg"
+
+        # 8.295：トラックの種類の絵と、オートメーションのボタン（Phase 288）。
+        # **`--icons`が同じように確かめます**——もらった絵は黒一色なので、
+        # `replaceColour()`が効かないと**画面の中で真っ黒のまま**になります
+        # （ダークテーマでは、何も出ていないのと見分けがつきません）
+        "${DAW_ROOT}/Resources/Icons/track_midi.svg"
+        "${DAW_ROOT}/Resources/Icons/track_audio.svg"
+        "${DAW_ROOT}/Resources/Icons/track_vca.svg"
+        "${DAW_ROOT}/Resources/Icons/header_automation.svg"
+        "${DAW_ROOT}/Resources/Icons/track_send.svg")
 
 target_sources(PluginPreview
     PRIVATE

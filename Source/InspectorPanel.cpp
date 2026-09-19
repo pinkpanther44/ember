@@ -28,62 +28,19 @@ namespace
         return juce::String (seconds, 3) + " s";
     }
 
-    /** 音声を通すトラックか。ラックを出すかどうかの判断に使う
-        （ConsoleViewがストリップを並べる条件と揃えてあること）。 */
-    bool trackHasRack (const Track& track)
-    {
-        switch (track.getType())
-        {
-            case TrackType::Audio:
-            case TrackType::Midi:
-            case TrackType::Send:
-            case TrackType::DrumOut:  // 8.143：パラアウトの受け皿（Phase 181／改善案⑮）
-            case TrackType::Folder:   // 8.52：フォルダもバス（Phase 91。8.51）
-            case TrackType::VCA:  return true;
-            default:              return false; // コードトラックは信号経路を持たない
-        }
-    }
-
     /** 8.60：**音量フェーダーを出すトラックか**（Phase 97／改善案⑪）。
 
         コードトラックは音を通さないので、音量・パン・ソロ／ミュートのどれも意味を持ちません。
         それまでは種別を見ずに全部出していて、**動かしても何も起きないつまみ**が並んでいました。
 
-        **`ChannelStripComponent`の出し分けと揃えてあること**（VCAはフェーダーを持ち、
-        パンとメーターを持たない）。片方だけ直すと、Consoleとインスペクタで見え方が食い違います。 */
+        8.296：**残っているのはこれ1つ**（Phase 289）。パン・ソロ／ミュート・
+        メーター・ラックの出し分けは、**`ChannelStripComponent`の中へ移りました**
+        ——同じ判断を2箇所に書いていたので、片方だけ直すと
+        Consoleとインスペクタで見え方が食い違います（1.27）。
+        ここが残るのは、**ストリップを作るかどうか**を決めるためです。 */
     bool trackHasVolume (const Track& track)
     {
         return track.getType() != TrackType::Chord;
-    }
-
-    /** パンを出すトラックか。**VCAは持たない**（音声を通さないため。設計書2.3.2）。 */
-    bool trackHasPan (const Track& track)
-    {
-        const auto type = track.getType();
-
-        return type != TrackType::Chord && type != TrackType::VCA;
-    }
-
-    /** ソロ／ミュートを出すトラックか。**コードトラック以外はすべて持つ**
-        （VCAとフォルダはリンク先／中身へまとめて効く。`TimelineComponent`と同じ判断）。 */
-    bool trackHasSoloMute (const Track& track)
-    {
-        return track.getType() != TrackType::Chord;
-    }
-
-    /** レベルメーターを出すトラックか（Phase 59／8.1のC4）。
-
-        **ラックの条件とは別。** VCAはラックを持つ（リンク先の一覧を出す）が、
-        自分では音を通さないのでメーターは振れない。
-        `ChannelStripComponent`がVCAでメーターを隠しているのと同じ判断。 */
-    bool trackHasLevelMeter (const Track& track)
-    {
-        const auto type = track.getType();
-
-        // 8.52：フォルダは中身の音が通るのでメーターも振れる（Phase 91）
-        return type == TrackType::Audio || type == TrackType::Midi
-                || type == TrackType::Send || type == TrackType::Folder
-                || type == TrackType::DrumOut;   // 8.143（Phase 181／改善案⑮）
     }
 }
 
@@ -146,130 +103,17 @@ InspectorPanel::InspectorPanel (ProjectModel& projectToUse, SelectionState& sele
         content.addChildComponent (swatch);
     }
 
-    setUpCaption (volumeCaption, utf8 ("音量 (dB)"));
-    volumeSlider.setRange (-60.0, 6.0, 0.1);
-    volumeSlider.setTextBoxStyle (juce::Slider::TextBoxRight, false, 52, 18);
-
-    // Phase 62：ダブルクリックで0dBへ（Consoleのフェーダーと同じ扱い。8.22）。
-    // 数値入力は右のテキストボックスが受け持つので、`ValueEntrySlider`の
-    // 右クリックはそちらを開くだけになる
-    volumeSlider.setDoubleClickReturnValue (true, 0.0);
-    volumeSlider.setDefaultValueDescription ("0 dB");
-    volumeSlider.setTooltip (utf8 ("音量（dB）。数値を直接打ち込めます。ダブルクリックで0dB／右クリックでメニュー"));
-    volumeSlider.setColour (juce::Slider::trackColourId, AppColours::purple);
-    // 仕様書5.6：Touch/Latchは「つまみに触れたか」で記録の開始を決める（Phase 20）。
-    // **Phase 59でここにも足した。** Consoleとアレンジ画面のヘッダーは触れた時点で
-    // 記録が始まるのに、インスペクタだけ始まらないという食い違いがあった（8.19）
-    volumeSlider.onDragStart = [this]
-    {
-        project.beginAction (utf8 ("音量の変更"));
-
-        if (auto track = getSelectedTrack(); track.state.getParent().isValid())
-            audioEngine.beginAutomationTouch (track.getId(), AutomationTargets::volume);
-    };
-
-    volumeSlider.onDragEnd = [this]
-    {
-        if (auto track = getSelectedTrack(); track.state.getParent().isValid())
-            audioEngine.endAutomationTouch (track.getId(), AutomationTargets::volume);
-    };
-
-    volumeSlider.onValueChange = [this]
-    {
-        if (isUpdatingFromModel)
-            return;
-
-        auto track = getSelectedTrack();
-
-        if (track.state.getParent().isValid())
-        {
-            track.setVolumeDb ((float) volumeSlider.getValue(), &project.getUndoManager());
-            audioEngine.updateMixerSettings();
-        }
-    };
-    content.addChildComponent (volumeSlider);
-
-    setUpCaption (panCaption, utf8 ("パン"));
-    panSlider.setRange (-1.0, 1.0, 0.01);
-    panSlider.setTextBoxStyle (juce::Slider::TextBoxRight, false, 52, 18);
-    panSlider.setDoubleClickReturnValue (true, 0.0);   // ダブルクリックで中央へ（Phase 62／8.22）
-    panSlider.setDefaultValueDescription (utf8 ("中央"));
-
-    // 8.60：**表記は-100〜0〜100**（Phase 97／改善案⑥）。モデルは-1〜+1のまま
-    panSlider.setDisplayUnit (ValueEntrySlider::DisplayUnit::panPercent);
-    panSlider.setTooltip (utf8 ("パン（-100＝左、0＝中央、100＝右）。数値を直接打ち込めます。ダブルクリックで中央へ／右クリックでメニュー"));
-    panSlider.setColour (juce::Slider::trackColourId, AppColours::purple);
-    panSlider.onDragStart = [this]
-    {
-        project.beginAction (utf8 ("パンの変更"));
-
-        if (auto track = getSelectedTrack(); track.state.getParent().isValid())
-            audioEngine.beginAutomationTouch (track.getId(), AutomationTargets::pan);
-    };
-
-    panSlider.onDragEnd = [this]
-    {
-        if (auto track = getSelectedTrack(); track.state.getParent().isValid())
-            audioEngine.endAutomationTouch (track.getId(), AutomationTargets::pan);
-    };
-
-    panSlider.onValueChange = [this]
-    {
-        if (isUpdatingFromModel)
-            return;
-
-        auto track = getSelectedTrack();
-
-        if (track.state.getParent().isValid())
-        {
-            track.setPan ((float) panSlider.getValue(), &project.getUndoManager());
-            audioEngine.updateMixerSettings();
-        }
-    };
-    content.addChildComponent (panSlider);
-
-    // 仕様書5.7：レベルメーター（Phase 59／8.1のC4）。
-    // **Consoleのストリップと同じ部品**なので、ピークの保持もdB表示も同じに見える。
-    // 横向きなのは、インスペクタが縦に積む作りだから（縦向きだと1行ぶんの高さしか取れない）
-    setUpCaption (meterCaption, utf8 ("レベル"));
-    meter.setShowPeakText (true);
-    content.addChildComponent (meter);
-
-    muteButton.setClickingTogglesState (true);
-    muteButton.setColour (juce::TextButton::buttonOnColourId, AppColours::orange);
-    muteButton.onClick = [this]
-    {
-        if (isUpdatingFromModel)
-            return;
-
-        auto track = getSelectedTrack();
-
-        if (track.state.getParent().isValid())
-        {
-            project.beginAction (utf8 ("ミュートの切り替え"));
-            track.setMuted (muteButton.getToggleState(), &project.getUndoManager());
-            audioEngine.updateMixerSettings();
-        }
-    };
-    content.addChildComponent (muteButton);
-
-    soloButton.setClickingTogglesState (true);
-    soloButton.setColour (juce::TextButton::buttonOnColourId, AppColours::purple);
-    soloButton.onClick = [this]
-    {
-        if (isUpdatingFromModel)
-            return;
-
-        auto track = getSelectedTrack();
-
-        if (track.state.getParent().isValid())
-        {
-            project.beginAction (utf8 ("ソロの切り替え"));
-            track.setSoloed (soloButton.getToggleState(), &project.getUndoManager());
-            audioEngine.updateMixerSettings();
-        }
-    };
-    content.addChildComponent (soloButton);
+    // 8.296：**音量・パン・メーター・ミュート／ソロは、Consoleのストリップごと置きます**
+    // （Phase 289／本人の指定の絵）。
+    //
+    // Phase 288まで、ここには**同じ役目の部品がもう1組**ありました——
+    // 横向きのフェーダー、横向きのパン、横向きのメーター、M と S。
+    // 値も操作もConsoleと同じになるように、**2箇所を見比べながら**直していました
+    // （8.19・8.61で同じことをやっています）。
+    //
+    // いまは`ChannelStripComponent`を1つ置くだけです。作り直すのは
+    // `rebuildForSelection()`——担当トラックはコンストラクタで決まる作りなので、
+    // 付け替えより作り直しのほうが購読の外し忘れが起きません（ラックと同じ）。
 
     //==========================================================================
     // Phase 33：トラックの削除。
@@ -436,8 +280,11 @@ InspectorPanel::~InspectorPanel()
 bool InspectorPanel::shouldRunMeter() const
 {
     // **見えていないときに回さない**（ConsoleViewと同じ方針）。
-    // パネルを閉じている間もエンジンへ問い合わせ続けるのは無駄
-    return isVisible() && meter.isVisible();
+    // パネルを閉じている間もエンジンへ問い合わせ続けるのは無駄。
+    //
+    // 8.296：見るのは**ストリップがあるかどうか**（Phase 289）。
+    // メーターを持つかどうかの判断はストリップの中にあります
+    return isVisible() && strip != nullptr;
 }
 
 void InspectorPanel::updateMeterTimer()
@@ -455,17 +302,21 @@ void InspectorPanel::visibilityChanged()
 
 void InspectorPanel::timerCallback()
 {
-    auto track = getSelectedTrack();
-
-    if (! track.state.getParent().isValid())
-    {
-        meter.setLevels (0.0f, 0.0f);
+    if (strip == nullptr)
         return;
-    }
 
     // 並び順ではなくtrackIdでエンジンへ問い合わせる（ConsoleViewと同じ理由）
-    meter.setLevels (audioEngine.getTrackLevel (track.getId(), 0),
-                      audioEngine.getTrackLevel (track.getId(), 1));
+    const auto trackId = strip->getTrackId();
+
+    strip->setLevels (audioEngine.getTrackLevel (trackId, 0),
+                       audioEngine.getTrackLevel (trackId, 1));
+
+    // 8.295：音源GUIが出ているかどうか（Phase 288）。
+    // **窓は画面の外で閉じられます**ので、こちらから見に行きます
+    strip->refreshInstrumentEditorState();
+
+    // 仕様書5.7.1：レイテンシもここで読み直す（ConsoleViewと同じ経路）
+    strip->refreshLatencyDisplay();
 }
 
 Track InspectorPanel::getSelectedTrack() const
@@ -558,6 +409,12 @@ void InspectorPanel::setPlayheadSeconds (double seconds)
 
     playheadSeconds = seconds;
 
+    // 8.296：**ストリップへも渡すこと**（Phase 289）。
+    // フェーダーとパンを持っているのはあちらで、**素通りできるかの判断も
+    // あちらが持っています**（`ChannelStripComponent::setPlayheadSeconds()`）
+    if (strip != nullptr)
+        strip->setPlayheadSeconds (seconds);
+
     // 8.54：**オートメーションのあるトラックを選んでいるときだけ**引き直す（Phase 93）。
     // 再生中は毎フレーム来るので、無条件に流し込むと選択中の値が毎回書き直される
     auto track = getSelectedTrack();
@@ -597,20 +454,28 @@ void InspectorPanel::rebuildForSelection()
         subscribedProjectState.addListener (this);
     }
 
-    // Phase 29：ラックは担当トラックをコンストラクタで決める作りなので、
-    // 選択が変わったら作り直す（付け替えより購読の外し忘れが起きにくい）。
-    rack.reset();
+    // 8.296：**Consoleのストリップごと作り直す**（Phase 289／本人の指定）。
+    //
+    // 担当トラックはコンストラクタで決まる作りなので、選択が変わったら作り直します
+    // （付け替えより購読の外し忘れが起きにくい。ラックのときと同じ判断）。
+    //
+    // **音量を持たないトラック（コード）には出しません**——
+    // フェーダーもパンもメーターも意味が無く、素通しにすると空白だけが伸びます（8.60）
+    strip.reset();
 
-    if (hasTrack && trackHasRack (track))
+    if (hasTrack && trackHasVolume (track))
     {
-        rack = std::make_unique<TrackRackComponent> (track, project, audioEngine,
-                                                      TrackRackComponent::Layout::Inspector);
-        rack->onMixerValueChanged = [this] { audioEngine.updateMixerSettings(); };
+        strip = std::make_unique<ChannelStripComponent> (track, project, audioEngine,
+                                                          ChannelStripComponent::Layout::Inspector);
 
-        // スロットが増減すると必要な高さが変わる。Viewportの中身の高さを取り直す
-        rack->onPreferredHeightChanged = [this] { resized(); };
+        strip->onMixerValueChanged = [this] { audioEngine.updateMixerSettings(); };
 
-        content.addAndMakeVisible (rack.get());
+        // スロットが増減すると必要な高さが変わる。置き直す
+        strip->onPreferredHeightChanged = [this] { resized(); };
+
+        // 8.297：**スクロールの外**（Phase 290／本人の指定で下端に固定）。
+        // `content`（Viewportの中身）ではなく、こちらの子にすること
+        addAndMakeVisible (strip.get());
     }
 
     const bool showTrack = hasTrack;
@@ -627,28 +492,9 @@ void InspectorPanel::rebuildForSelection()
     colourCaption.setVisible (showNameAndColour);
     resetLaneColourButton.setVisible (hasLane);
 
-    // 8.60：**種別に無いものは出さない**（Phase 97／改善案⑪）。
-    // コードトラックには音量・パン・ソロ／ミュートのどれも意味が無い
-    const bool showVolume = showTrack && trackHasVolume (track);
-    const bool showPan = showTrack && trackHasPan (track);
-    const bool showSoloMute = showTrack && trackHasSoloMute (track);
-
-    volumeCaption.setVisible (showVolume);
-    volumeSlider.setVisible (showVolume);
-    panCaption.setVisible (showPan);
-    panSlider.setVisible (showPan);
-    muteButton.setVisible (showSoloMute);
-    soloButton.setVisible (showSoloMute);
-
-    // 仕様書5.7：レベルメーター（Phase 59）。**音を通すトラックにだけ出す**
-    // （コード・フォルダ・VCAには振れるものが無い。Consoleのストリップと同じ扱い）
-    const bool showMeter = showTrack && trackHasLevelMeter (track);
-    meterCaption.setVisible (showMeter);
-    meter.setVisible (showMeter);
-
-    if (! showMeter)
-        meter.setLevels (0.0f, 0.0f);   // 1.28：止まっている間の値を残さない
-
+    // 8.296：**出し分けはストリップが自分でやります**（Phase 289）。
+    // VCAならパンとメーターを持たない、コードなら作らない——
+    // Consoleとまったく同じ判断が、同じコードで効きます（`ChannelStripComponent`）
     updateMeterTimer();
 
     // Phase 33：トラックの削除。
@@ -793,16 +639,8 @@ void InspectorPanel::updateControlsFromModel()
         return;
     }
 
-    // 8.54：**その再生位置で効いている値**を出す（Phase 93）。Consoleと同じ関数を通す。
-    // 掴んでいる最中のつまみは動かさない（触っている人が優先）
-    if (! volumeSlider.isMouseButtonDown())
-        volumeSlider.setValue (track.getEffectiveVolumeDbAt (playheadSeconds), juce::dontSendNotification);
-
-    if (! panSlider.isMouseButtonDown())
-        panSlider.setValue (track.getEffectivePanAt (playheadSeconds), juce::dontSendNotification);
-
-    muteButton.setToggleState (track.isMuted(), juce::dontSendNotification);
-    soloButton.setToggleState (track.isSoloed(), juce::dontSendNotification);
+    // 8.296：**音量・パン・ミュート／ソロはストリップが自分で合わせます**（Phase 289）。
+    // あちらもトラックのツリーを購読していて、再生位置は`setPlayheadSeconds()`で届きます
 
     // 8.84：MIDIの入力設定（Phase 124/改善案⑯）。**IDは値+1**（0＝すべて／そのまま）
     midiInputChannelBox.setSelectedId (track.getMidiInputChannel() + 1, juce::dontSendNotification);
@@ -986,8 +824,12 @@ void InspectorPanel::itemDropped (const SourceDetails& details)
     TrackRackComponent::handlePluginDrop (audioEngine, track, details.description,
         [this]
         {
-            if (rack != nullptr)
-                rack->refreshAll();
+            // 8.296：ラックはストリップの中（Phase 289）
+            if (strip != nullptr)
+            {
+                strip->refreshInsertSlots();
+                strip->refreshVcaAssignment();
+            }
         });
 }
 
@@ -1029,6 +871,30 @@ void InspectorPanel::resized()
 
     titleLabel.setBounds (area.removeFromTop (20));
     area.removeFromTop (8);
+
+    // 8.297：**Consoleの部分は下端に張り付けます**（Phase 290／本人の指定）。
+    //
+    // Phase 289では、名前・色・MIDI入力…に続けて縦に流していました。つまり
+    // **上に何行あるかでフェーダーの位置が変わり**、MIDIトラック（入力の設定が3行ある）と
+    // オーディオトラックを行き来するたびに、**同じものが上下に動いて**いました。
+    //
+    // 下端に固定すれば、**どのトラックを選んでも同じ場所**です
+    // （本人の言葉：「その方がトラックごとの見た目のずれも少なくなる」）。
+    //
+    // **スクロールの外へ出しています**（`content`の子ではなく、こちらの子）。
+    // 中に入れたままだと、上が長いトラックでは**スクロールしないと出てきません**。
+    if (strip != nullptr)
+    {
+        // **欲しい高さは渡すが、画面より高くはしない。** 低い画面では
+        // フェーダーが縮みます（`ChannelStripComponent::layOutForInspector()`が
+        // 最低の高さまでで受け止める）
+        const int wanted = strip->getPreferredHeight (area.getWidth());
+        const int stripHeight = juce::jmin (wanted, juce::jmax (0, area.getHeight()
+                                                                    - minimumViewportHeight));
+
+        strip->setBounds (area.removeFromBottom (stripHeight));
+        area.removeFromBottom (8);
+    }
 
     viewport.setBounds (area);
 
@@ -1106,40 +972,8 @@ int InspectorPanel::layOutContents (int width, bool apply)
 
     area.removeFromTop (10);
 
-    // 8.60：**出していないものには場所を取らせない**（Phase 97／改善案⑪）。
-    //
-    // コードトラックには音量もパンもソロ／ミュートも無いので、
-    // ここを素通しにすると**用の無い空白だけが縦に伸びます**。
-    // 判断は`rebuildForSelection()`が済ませてあるので、ここは`isVisible()`を見るだけ
-    if (volumeSlider.isVisible())
-    {
-        place (volumeCaption, area.removeFromTop (captionHeight));
-        place (volumeSlider, area.removeFromTop (22));
-        area.removeFromTop (4);
-    }
-
-    if (panSlider.isVisible())
-    {
-        place (panCaption, area.removeFromTop (captionHeight));
-        place (panSlider, area.removeFromTop (22));
-        area.removeFromTop (4);
-    }
-
-    // 仕様書5.7：レベルメーター（Phase 59）。音量・パンの下に置く
-    if (meter.isVisible())
-    {
-        place (meterCaption, area.removeFromTop (captionHeight));
-        place (meter, area.removeFromTop (20));
-        area.removeFromTop (8);
-    }
-
-    if (muteButton.isVisible())
-    {
-        auto buttonRow = area.removeFromTop (24);
-        place (muteButton, buttonRow.removeFromLeft (44));
-        buttonRow.removeFromLeft (6);
-        place (soloButton, buttonRow.removeFromLeft (44));
-    }
+    // 8.296：**音量・パン・メーター・ミュート／ソロはストリップの中**（Phase 289）。
+    // 置くのは下（MIDIの設定と削除より後）——本人の指定の絵の並びです
 
     // 8.84：MIDIの入力設定（Phase 124/改善案⑯）。
     // **出ていないときは場所も取らない**（`isVisible()`で飛ばす。8.60と同じ話）
@@ -1167,13 +1001,8 @@ int InspectorPanel::layOutContents (int width, bool apply)
         place (deleteTrackButton, area.removeFromTop (24).removeFromRight (52));
     }
 
-    // Phase 29：Consoleと同じラック（音源・インサート・センド・VCA・書き込みモード）。
-    // 高さの計算はラック自身が持っているので、スロットが増えてもここは直さなくてよい。
-    if (rack != nullptr)
-    {
-        area.removeFromTop (12);
-        place (*rack, area.removeFromTop (rack->getPreferredHeight (width)));
-    }
+    // 8.297：**ストリップはここに置きません**（Phase 290／本人の指定）。
+    // スクロールの外で、パネルの下端に固定しています（`resized()`）
 
     if (! clipStartLabel.isVisible())
         return area.getY();

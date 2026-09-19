@@ -21,7 +21,15 @@ namespace
         if (layout == TrackRackComponent::Layout::Inspector)
             return { 16, 22, 20, 18, 8 };
 
-        return { 0, 20, 16, 14, 6 };
+        // 8.297：**ストリップにも見出しを出します**（Phase 290／本人の指定）。
+        //
+        // 16ではなく14なのは、幅が104pxしかないぶん縦も詰めるためです
+        // （文字は11pxなので、14でも切れません）。
+        //
+        // **種類の変わり目の間隔は6から2へ。** 見出しが**それ自体で区切り**になるので、
+        // 上に空白まで足すと二重です——足したぶん（3つで42px）を、
+        // 見出しの無かったころと同じ高さに収めるための引き算でもあります
+        return { 14, 20, 16, 14, 2 };
     }
 }
 
@@ -1197,10 +1205,58 @@ int TrackRackComponent::getPreferredHeight (int width)
 
 void TrackRackComponent::resized()
 {
+    // 8.296：**分けて置くよう頼まれていれば、そちら**（Phase 289）
+    if (splitting)
+    {
+        auto attributes = splitAttributesArea;
+        auto chain = splitChainArea;
+
+        layOutAttributes (attributes, true);
+        layOutChain (chain, true);
+        return;
+    }
+
     layOutContents (getLocalBounds(), true);
 }
 
+void TrackRackComponent::setSplitAreas (juce::Rectangle<int> attributesArea,
+                                         juce::Rectangle<int> chainArea)
+{
+    splitAttributesArea = attributesArea;
+    splitChainArea = chainArea;
+    splitting = true;
+
+    resized();
+}
+
+int TrackRackComponent::getAttributesHeight (int width)
+{
+    juce::Rectangle<int> area { 0, 0, width, 100000 };
+
+    return layOutAttributes (area, false);
+}
+
+int TrackRackComponent::getChainHeight (int width)
+{
+    juce::Rectangle<int> area { 0, 0, width, 100000 };
+
+    return layOutChain (area, false);
+}
+
 int TrackRackComponent::layOutContents (juce::Rectangle<int> area, bool apply)
+{
+    // 8.296：**縦一列は、2つを続けて呼ぶだけ**（Phase 289）。
+    // 順番も間隔も`layOutAttributes()`／`layOutChain()`の中にあるので、
+    // 縦一列と2列で食い違いようがありません（1.27）
+    const int top = area.getY();
+
+    layOutAttributes (area, apply);
+    layOutChain (area, apply);
+
+    return area.getY() - top;
+}
+
+int TrackRackComponent::layOutAttributes (juce::Rectangle<int>& area, bool apply)
 {
     const auto m = metricsFor (layout);
     const int top = area.getY();
@@ -1243,6 +1299,22 @@ int TrackRackComponent::layOutContents (juce::Rectangle<int> area, bool apply)
 
         place (instrumentButton, takeRow (m.slot));
     }
+
+    return area.getY() - top;
+}
+
+int TrackRackComponent::layOutChain (juce::Rectangle<int>& area, bool apply)
+{
+    const auto m = metricsFor (layout);
+    const int top = area.getY();
+
+    auto place = [apply] (juce::Component& c, juce::Rectangle<int> bounds)
+    {
+        if (apply)
+            c.setBounds (bounds);
+    };
+
+    auto takeRow = [&area] (int height) { return area.removeFromTop (height); };
 
     // 仕様書5.7・設計書2.3.2：インサートスロットは縦に並べる
     if (addInsertButton.isVisible())

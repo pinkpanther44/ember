@@ -303,41 +303,65 @@ void MasterStripComponent::itemDropped (const SourceDetails& details)
 
 void MasterStripComponent::resized()
 {
-    auto area = getLocalBounds().reduced (6);
+    auto area = getLocalBounds().reduced (ConsoleLayout::stripMargin);
 
-    nameLabel.setBounds (area.removeFromTop (20));
-    area.removeFromTop (4);
+    // 8.296：**「Master」は下端へ**（Phase 289／本人の指定）。
+    //
+    // トラックのストリップは**名前が下端**です（Phase 61／8.1のC5——
+    // フェーダーとメーターを見ている目線の近くに置くため）。
+    // マスターだけ上に残っていたので、**横に並べたときに名前の行が揃いません**でした。
+    //
+    // **いちばん先に取ること。** 下から取る順番は 名前 → dB表示 で、
+    // トラック側とまったく同じです（`ChannelStripComponent::resized()`）
+    nameLabel.setBounds (area.removeFromBottom (ConsoleLayout::nameRowHeight));
 
     // 仕様書5.6：書き込みモード（Phase 20）
     automationModeBox.setBounds (area.removeFromTop (20));
-    area.removeFromTop (4);
+    area.removeFromTop (ConsoleLayout::rowGap);
 
-    // 仕様書5.7.1：PDCの補正量（Phase 12e）
-    latencyLabel.setBounds (area.removeFromTop (14));
-    area.removeFromTop (6);
+    //==========================================================================
+    // 8.299：**下から順に取ります**（Phase 292／本人の指定）。
+    //
+    // 本人の言葉：「マスターのフェーダーとメーター、VCAのフェーダーの
+    // **最大縦幅サイズを他のトラックと揃えて、同じスピードで伸縮できるように**しよう」。
+    //
+    // Phase 291まで、フェーダーは「そのストリップの残り」でした。マスターには
+    // パンもミュート／ソロも無いので、**そのぶん（63px）だけ長かった**わけです。
+    //
+    // いまは`ConsoleLayout::getFaderAreaHeightFor()`——**全ストリップ共通**——で
+    // 先に決め、**ラックが残りを取ります**（マスターのラックはそのぶん背が高くなる）。
 
-    // 8.69：マスターのインサート（Phase 108／D6）。
-    // **フェーダーとメーターのぶんは必ず残す**（`ChannelStripComponent`と同じ決まり。
-    // 8.1のC14）。狭いときは折半して、スロットが1つも見えない状態を避ける
+    // 8.295：**トラックのストリップと同じ高さ**（Phase 288。`ConsoleLayout.h`）。
+    // あちらは右端に種類の絵が入って16→18になりました。マスターに絵は出ませんが、
+    // **ここを16のままにすると、隣り合ったメーターの行が2pxずれます**（8.283と同じ形）
+    volumeValueLabel.setBounds (area.removeFromBottom (ConsoleLayout::volumeReadoutRowHeight));
+
+    auto faderArea = area.removeFromBottom (ConsoleLayout::getFaderAreaHeightFor (getHeight()));
+
+    // 仕様書5.7.1：PDCの補正量（Phase 12e）。8.295でフェーダーの真上へ
+    latencyLabel.setBounds (area.removeFromBottom (ConsoleLayout::latencyRowHeight));
+
+    // 8.69：マスターのインサート（Phase 108／D6）。**残りを全部**もらう
     if (rack != nullptr)
     {
-        // 8.283：**トラックのストリップと同じ高さ**（Phase 276／本人の要望）。
-        // マスターだけ違う高さだと、**隣に並んだメーターの行がずれます**（`ConsoleLayout.h`）
-        const int rackHeight = ConsoleLayout::getRackHeightFor (area.getHeight());
+        area.removeFromBottom (ConsoleLayout::resizerHeight);   // 境目のぶん（掴むのはトラック側）
+
+        const int rackHeight = juce::jmax (0, area.getHeight());
         const int wantedRackHeight = rack->getPreferredHeight (area.getWidth());
 
         rackViewport.setBounds (area.removeFromTop (rackHeight));
 
         // **中身の高さは「欲しい高さ」のまま**にすること。枠に合わせて縮めると
-        // スクロールしても下のスロットへ届かない（1.21）
-        rack->setSize (rackViewport.getMaximumVisibleWidth(), wantedRackHeight);
+        // スクロールしても下のスロットへ届かない（1.21）。
+        // 8.297：スクロールバーのぶんは自分で引く（`ChannelStripComponent`と同じ理由）
+        const bool willScroll = wantedRackHeight > rackHeight;
+        const int rackWidth = rackViewport.getWidth()
+                                - (willScroll ? rackViewport.getScrollBarThickness() : 0);
 
-        area.removeFromTop (ConsoleLayout::resizerHeight);
+        rack->setSize (juce::jmax (1, rackWidth), wantedRackHeight);
     }
 
-    volumeValueLabel.setBounds (area.removeFromBottom (16));
-
-    meter.setBounds (area.removeFromRight (30));   // Phase 59：ピーク表示ぶん広げた
-    area.removeFromRight (4);
-    volumeSlider.setBounds (area);
+    meter.setBounds (faderArea.removeFromRight (30));   // Phase 59：ピーク表示ぶん広げた
+    faderArea.removeFromRight (4);
+    volumeSlider.setBounds (faderArea);
 }

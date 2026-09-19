@@ -5,10 +5,15 @@
 #include "DragAndDropIds.h"
 
 ChannelStripComponent::ChannelStripComponent (const Track& trackToControl, ProjectModel& projectToUse,
-                                                AudioEngine& audioEngineToUse)
+                                                AudioEngine& audioEngineToUse, Layout layoutToUse)
     : track (trackToControl), project (projectToUse), audioEngine (audioEngineToUse),
-      rack (trackToControl, projectToUse, audioEngineToUse, TrackRackComponent::Layout::Strip),
-      isVca (trackToControl.getType() == TrackType::VCA)
+      // 8.296：**ラックの見た目は置き場所に合わせる**（Phase 289）。
+      // インスペクタでは幅に余裕があるので、見出し（「インサート」「センド」）が出ます
+      rack (trackToControl, projectToUse, audioEngineToUse,
+             layoutToUse == Layout::Inspector ? TrackRackComponent::Layout::Inspector
+                                               : TrackRackComponent::Layout::Strip),
+      isVca (trackToControl.getType() == TrackType::VCA),
+      layout (layoutToUse)
 {
     nameLabel.setJustificationType (juce::Justification::centred);
     nameLabel.setFont (juce::FontOptions (12.0f, juce::Font::bold));
@@ -23,7 +28,12 @@ ChannelStripComponent::ChannelStripComponent (const Track& trackToControl, Proje
     // （欄はラベルの子として出るため）。ラベル自身は今までどおり透明なので、
     // 名前を掴んでの並べ替えはそのまま効きます
     nameLabel.setInterceptsMouseClicks (false, true);
-    nameLabel.setTooltip (utf8 ("ドラッグでトラックを並べ替え／ダブルクリックで名前を変更"));
+
+    // 8.296：**インスペクタでは並べ替えません**（Phase 289。`mouseDrag()`）。
+    // 出来ないことを説明に書かないこと——**押して初めて違うと分かる**のがいちばん困ります
+    nameLabel.setTooltip (layoutToUse == Layout::Inspector
+                            ? utf8 ("ダブルクリックで名前を変更")
+                            : utf8 ("ドラッグでトラックを並べ替え／ダブルクリックで名前を変更"));
 
     // 8.162：確定したら書く（Phase 200）。**空なら書かない**——
     // 名前の無いトラックは一覧でも書き出しでも指し示せなくなる
@@ -187,28 +197,60 @@ ChannelStripComponent::ChannelStripComponent (const Track& trackToControl, Proje
     // 仕様書5.3/5.7/5.2.2/5.2.4/5.6：ラック（Phase 29）。
     // 中身の出し分け（音源はMIDIのみ、VCAは持たない等）はラック側が判断する。
     rack.onMixerValueChanged = [this] { notifyChanged(); };
-    rack.onPreferredHeightChanged = [this] { resized(); };
+    rack.onPreferredHeightChanged = [this]
+    {
+        resized();
+
+        // 8.296：**インスペクタでは自分の高さも変わります**（Phase 289）。
+        // Consoleは枠の中でスクロールするので、外へ知らせる必要がありません
+        if (layout == Layout::Inspector && onPreferredHeightChanged != nullptr)
+            onPreferredHeightChanged();
+    };
 
     // 仕様書5.7：ラックはスクロールできる枠に入れる（Phase 66／8.1のC14）。
     // **横スクロールは出さない**：ストリップの幅は固定で、ラックはその幅に合わせて
     // 高さを決める作りなので、横に溢れることは無い（出すと幅を食うだけ）。
-    rackViewport.setViewedComponent (&rack, false);
-    rackViewport.setScrollBarsShown (true, false);
-    rackViewport.setScrollBarThickness (8);
-    addAndMakeVisible (rackViewport);
-
-    // 8.283：ラックの高さを変える境目（Phase 276／本人の要望）。
-    // **決めるのはConsoleView**（全ストリップへ同時に効かせるため）
-    rackResizer.setTooltip (utf8 ("ドラッグすると、ラックの高さが変わります\n"
-                                   "（すべてのストリップに同じ高さが効きます）"));
-
-    rackResizer.onHeightDragged = [this] (int newHeight)
+    if (layout == Layout::Inspector)
     {
-        if (onRackAreaHeightDragged != nullptr)
-            onRackAreaHeightDragged (newHeight);
-    };
+        // 8.296：**枠に入れず、そのまま置きます**（Phase 289／本人の指定）。
+        // インスペクタ自身が縦にスクロールするので、枠の中でもう一度
+        // スクロールさせる理由がありません（スクロールが二重になると、
+        // どちらが動くのか押すまで分かりません）。
+        //
+        // **いちばん後ろへ置くこと。** ラックの矩形は「属性（全幅）」と
+        // 「インサート・センド（右列）」の**両方を含む**ので、
+        // 左列（フェーダー）と重なります。前に居ると、
+        // **地の部分がフェーダーへのクリックを飲み込みます**
+        addAndMakeVisible (rack);
+        rack.toBack();
+    }
+    else
+    {
+        rackViewport.setViewedComponent (&rack, false);
+        rackViewport.setScrollBarsShown (true, false);
+        rackViewport.setScrollBarThickness (8);
+        addAndMakeVisible (rackViewport);
 
-    addAndMakeVisible (rackResizer);
+        // 8.283：ラックとフェーダーの境目（Phase 276／本人の要望）。
+        // **決めるのはConsoleView**（全ストリップへ同時に効かせるため）。
+        //
+        // 8.302：**動かすのはフェーダーの高さ**（Phase 295／本人の指定）。
+        // 窓を伸ばしてもフェーダーは動かず、伸びたぶんはラックへ行きます
+        faderResizer.setTooltip (utf8 ("ドラッグすると、フェーダーとメーターの高さが変わります\n"
+                                       "（すべてのストリップに同じ高さが効きます）"));
+
+        // 8.300：**掴む起点は、いま出ている高さ**（Phase 293／本人の報告）。
+        // 覚えている値から掴むと、届かない数字に足され続けて**掴んでも動かなく**なります
+        faderResizer.getCurrentHeight = [this] { return volumeSlider.getHeight(); };
+
+        faderResizer.onHeightDragged = [this] (int newHeight)
+        {
+            if (onFaderAreaHeightDragged != nullptr)
+                onFaderAreaHeightDragged (newHeight);
+        };
+
+        addAndMakeVisible (faderResizer);
+    }
 
     // 設計書2.3.2：VCAトラックはフェーダー以外の要素を持たない簡易表示にする。
     // 音声を通さないため、パンとメーターはどちらも意味を持たない。
@@ -243,7 +285,6 @@ void ChannelStripComponent::refreshLatencyDisplay()
     if (samples == lastShownLatencySamples)
         return; // 変わっていなければ何もしない（タイマーから毎回呼ばれるため）
 
-    const bool wasVisible = latencyLabel.isVisible();
     lastShownLatencySamples = samples;
 
     if (samples > 0)
@@ -258,20 +299,92 @@ void ChannelStripComponent::refreshLatencyDisplay()
 
     latencyLabel.setVisible (samples > 0);
 
-    // 表示の有無が変わったときだけ並べ直す（出ていない間は場所を取らせないため）
-    if (latencyLabel.isVisible() != wasVisible)
-        resized();
+    // 8.295：**並べ直しは要りません**（Phase 288）。
+    // 行は出ていても出ていなくても空けてあるので（`ConsoleLayout::latencyRowHeight`）、
+    // 変わるのは文字の有無だけです——**出し入れでフェーダーの高さが動きません**
+}
+
+void ChannelStripComponent::refreshInstrumentEditorState()
+{
+    // 8.295：**MIDIトラックだけ**（Phase 288）。他の種類では窓そのものがありません
+    const bool open = track.getType() == TrackType::Midi
+                       && audioEngine.isTrackInstrumentEditorOpen (track.getId());
+
+    if (open == instrumentEditorOpen)
+        return;   // 変わっていなければ何もしない（タイマーから毎回呼ばれるため）
+
+    instrumentEditorOpen = open;
+
+    // **絵のところだけ描き直す**。ストリップ全部を塗り直すと、
+    // 開け閉めのたびにフェーダーやラックまで巻き込みます
+    repaint (typeIconBounds.expanded (2));
 }
 
 //==============================================================================
 // 仕様書4.4・6章：ブラウザからのドラッグ&ドロップ（Phase 21）
 //==============================================================================
 
+void ChannelStripComponent::setSelected (bool shouldBeSelected)
+{
+    if (isSelected == shouldBeSelected)
+        return;
+
+    isSelected = shouldBeSelected;
+    repaint();
+}
+
+void ChannelStripComponent::mouseDown (const juce::MouseEvent& e)
+{
+    // 8.301：**押されたら選ぶ**（Phase 294／本人の要望）。
+    //
+    // 本人の言葉：「Console上のトラックを選択することで、**Arrangeのトラックと
+    // 連動して選択される**。Inspectorにも内容が表示される仕様」。
+    //
+    // **選択を持っているのは`SelectionState`**（設計書2.3.7）で、
+    // アレンジ画面もインスペクタも**そこを見ています**
+    // ——ここが書けば、両方とも勝手に付いてきます。
+    //
+    // **絵を押したときも選びます**（下で早期に戻る前に）。
+    // 音源のGUIを出すなら、そのトラックを選んでおくほうが自然です。
+    if (onSelected != nullptr)
+        onSelected();
+
+    // 8.295：**dB表示の右の絵で、音源のGUIを出す／しまう**（Phase 288／改善案1）。
+    //
+    // アレンジのトラックヘッダーと同じ働きです（本人の指定は「Consoleにも表示」
+    // でしたが、**同じ絵が片方でだけ押せる**ほうが分かりにくいと判断しました）。
+    //
+    // フォルダの絵は押せません——Consoleには畳む／開くという状態がないためです。
+    if (track.getType() != TrackType::Midi || ! typeIconBounds.contains (e.getPosition()))
+        return;
+
+    if (audioEngine.isTrackInstrumentEditorOpen (track.getId()))
+    {
+        audioEngine.closeTrackInstrumentEditor (track.getId());
+        refreshInstrumentEditorState();
+        return;
+    }
+
+    // 音源が挿さっていなければ何もしない。**すぐ下のラックにスロットがある**ので、
+    // ここから選択ダイアログを出す必要はありません（出口を2つ作らない。8.12）
+    if (! audioEngine.trackHasInstrument (track.getId()))
+        return;
+
+    audioEngine.openTrackInstrumentEditor (track.getId());
+    refreshInstrumentEditorState();
+}
+
 void ChannelStripComponent::mouseDrag (const juce::MouseEvent& e)
 {
     // 8.67：少し動かしたら並べ替えのドラッグを始める（Phase 106／改善案㉛）。
     // **すぐには始めない**：空きを押しただけで線が出ると、
     // 「押しただけなのに何か起きた」に見える（ラックのスロットと同じ決まり。8.66）
+    // 8.296：**インスペクタでは並べ替えません**（Phase 289）。
+    // 並びを持っているのはConsole（とアレンジ画面）で、
+    // ここには「どこへ動かしたか」を受け取る相手が居ません
+    if (layout == Layout::Inspector)
+        return;
+
     if (e.getDistanceFromDragStart() <= 4)
         return;
 
@@ -482,6 +595,17 @@ void ChannelStripComponent::notifyChanged()
 
 void ChannelStripComponent::paint (juce::Graphics& g)
 {
+    // 8.296：**インスペクタでは板を敷きません**（Phase 289／本人の指定の絵）。
+    //
+    // Consoleでは**1本ずつの境目**を示すために板と枠が要りますが、
+    // インスペクタに並ぶのは1本だけです。板を敷くと、
+    // **上の「名前」「色」などと地の色が変わって、そこだけ別の画面に見えます**
+    if (layout == Layout::Inspector)
+    {
+        drawTypeIcon (g);
+        return;
+    }
+
     auto area = getLocalBounds().toFloat().reduced (2.0f);
 
     g.setColour (AppColours::panel);
@@ -503,81 +627,287 @@ void ChannelStripComponent::paint (juce::Graphics& g)
         g.fillRoundedRectangle (area, AppColours::corner (4.0f));
     }
 
-    g.setColour (isDragOver ? AppColours::purple : AppColours::border);
-    g.drawRoundedRectangle (area.reduced (0.5f), AppColours::corner (4.0f), isDragOver ? 2.0f : 1.0f);
+    // 8.301：**選ばれているストリップは、地をパープルに**（Phase 294／本人の要望）。
+    //
+    // **アレンジ画面のヘッダーと同じ塗り方**（`AppColours::purple`の0.18＋2pxの枠。
+    // `drawTrackHeaderContents()`）——同じ「選ばれている」が、
+    // 画面によって違う見え方をするのは避けます。
+    //
+    // **ドラッグ中の合図より下に塗ること。** 落とし先の合図は
+    // 「いま何が起きているか」で、選択より優先して見えるべきです
+    if (isSelected && ! isDragOver)
+    {
+        g.setColour (AppColours::purple.withAlpha (0.18f));
+        g.fillRoundedRectangle (area, AppColours::corner (4.0f));
+    }
+
+    const bool outlined = isDragOver || isSelected;
+
+    g.setColour (outlined ? AppColours::purple : AppColours::border);
+    g.drawRoundedRectangle (area.reduced (0.5f), AppColours::corner (4.0f), outlined ? 2.0f : 1.0f);
+
+    drawTypeIcon (g);
+}
+
+void ChannelStripComponent::drawTypeIcon (juce::Graphics& g)
+{
+    // 8.295：**トラックの種類を示す絵**（Phase 288／改善案1。本人の指定）。
+    //
+    // アレンジのトラックヘッダーと同じ絵・同じ色・同じ大きさです（`TrackTypeIcons`）。
+    // **押せるのはMIDIだけ**ですが、**見た目では区別しません**（本人の指定）
+    // ——Consoleにはフォルダを畳む場所もありません（`mouseDown()`）
+    typeIcon.draw (g, typeIconBounds, track.getType(), instrumentEditorOpen);
+}
+
+int ChannelStripComponent::getPreferredHeight (int width)
+{
+    return layOutForInspector ({ 0, 0, width, 100000 }, false);
+}
+
+int ChannelStripComponent::layOutForInspector (juce::Rectangle<int> area, bool apply)
+{
+    // 8.296：**インスペクタの2列**（Phase 289／本人の指定の絵）。
+    //
+    //   ┌─────────────────┐
+    //   │ Read                        │ ← ラックの「属性」側（全幅）
+    //   │ VCA: -                      │
+    //   │ 音源 ／ Orangutan Drums     │
+    //   ├──────┬──────┤
+    //   │  パン ◎      │ インサート  B │ ← 左＝フェーダー／右＝ラックの「信号」側
+    //   │   0          │ Manta EQ     │
+    //   │  [M] [S]     │ Manta Comp   │
+    //   │  0.0 ms      │ + Insert     │
+    //   │  ▮  ▮        │              │
+    //   │  ▮  ▮        │ センド     B │
+    //   │ -6.0 dB [絵] │ + Send       │
+    //   ├──────┴──────┤
+    //   │        トラック名            │ ← **1つだけ**（本人の指定）
+    //   └─────────────────┘
+    //
+    // **測るときと置くときで同じ関数を通します**（`apply`だけが違う）。
+    // 2つ書くと必ずずれます（`TrackRackComponent`と同じ作り）。
+    const int top = area.getY();
+
+    auto place = [apply] (juce::Component& c, juce::Rectangle<int> bounds)
+    {
+        if (apply)
+            c.setBounds (bounds);
+    };
+
+    //--------------------------------------------------------------------------
+    // ①ラックの「属性」側（書き込みモード・VCA・音源）を全幅で。
+    //
+    // **ラックの矩形は①と③の両方を含みます**（1つのコンポーネントなので）。
+    // 中の置き場所は`setSplitAreas()`でローカル座標で渡します
+    const int attributesHeight = rack.getAttributesHeight (area.getWidth());
+
+    const int columnWidth = (area.getWidth() - inspectorColumnGap) / 2;
+    const int chainHeight = rack.getChainHeight (columnWidth);
+
+    //--------------------------------------------------------------------------
+    // ②左の列に要る高さ。**出ていないものは数えません**（8.60と同じ）
+    int leftFixed = 0;
+
+    if (panSlider.isVisible())
+        leftFixed += panKnobHeight + panReadoutHeight + rowGap;
+
+    leftFixed += buttonRowHeight + rowGap;                // ミュート／ソロ
+    leftFixed += ConsoleLayout::latencyRowHeight;         // 8.295：遅延（常に空ける）
+    leftFixed += ConsoleLayout::volumeReadoutRowHeight;   // dB表示＋種類の絵
+
+    // 8.297：**画面が低いときはフェーダーを縮めます**（Phase 290）。
+    //
+    // 下端に固定したので、**欲しい高さが必ず入るとは限りません**
+    // （`InspectorPanel::resized()`が上へ残す高さを優先する）。
+    //
+    // `area`の高さは、測るときは十分大きく（10万）、置くときは実際の高さです。
+    // **同じ式で両方を出せます**——測れば「欲しい高さ」、置けば「入る高さ」
+    const int wantedColumnsHeight = juce::jmax (chainHeight, leftFixed + inspectorFaderHeight);
+
+    const int availableForColumns = area.getHeight()
+                                      - attributesHeight
+                                      - (attributesHeight > 0 ? inspectorColumnGap : 0)
+                                      - 6 - 20;   // 下の余白とトラック名
+
+    const int columnsHeight = juce::jlimit (leftFixed + inspectorMinimumFaderHeight,
+                                             wantedColumnsHeight,
+                                             availableForColumns);
+
+    //--------------------------------------------------------------------------
+    // ③置く
+
+    const int rackTop = area.getY();
+
+    auto attributesArea = area.removeFromTop (attributesHeight);
+
+    if (attributesHeight > 0)
+        area.removeFromTop (inspectorColumnGap);
+
+    auto columnsArea = area.removeFromTop (columnsHeight);
+    auto leftColumn = columnsArea.removeFromLeft (columnWidth);
+    auto chainArea = columnsArea.removeFromRight (columnWidth);
+
+    if (apply)
+    {
+        // **ラックは①と③を含む矩形**。中の位置はローカル座標で渡す
+        const juce::Rectangle<int> rackBounds { area.getX(), rackTop, area.getWidth(),
+                                                 columnsArea.getBottom() - rackTop };
+
+        rack.setBounds (rackBounds);
+        rack.setSplitAreas (attributesArea.withPosition (attributesArea.getPosition()
+                                                           - rackBounds.getPosition()),
+                             chainArea.withPosition (chainArea.getPosition()
+                                                       - rackBounds.getPosition()));
+    }
+
+    //--------------------------------------------------------------------------
+    // ④左の列（Consoleと同じ順番）
+
+    if (panSlider.isVisible())
+    {
+        place (panSlider, leftColumn.removeFromTop (panKnobHeight));
+        place (panReadout, leftColumn.removeFromTop (panReadoutHeight));
+        leftColumn.removeFromTop (rowGap);
+    }
+
+    auto buttonRow = leftColumn.removeFromTop (buttonRowHeight);
+    place (muteButton, buttonRow.removeFromLeft (buttonRow.getWidth() / 2).reduced (2, 0));
+    place (soloButton, buttonRow.reduced (2, 0));
+    leftColumn.removeFromTop (rowGap);
+
+    place (latencyLabel, leftColumn.removeFromTop (ConsoleLayout::latencyRowHeight));
+
+    auto valueRow = leftColumn.removeFromBottom (ConsoleLayout::volumeReadoutRowHeight);
+
+    auto iconBounds = valueRow.removeFromRight (typeIconSize)
+                               .withSizeKeepingCentre (typeIconSize, typeIconSize);
+
+    if (apply)
+        typeIconBounds = iconBounds;
+
+    valueRow.removeFromRight (3);
+    place (volumeValueLabel, valueRow);
+
+    if (meter.isVisible())
+    {
+        place (meter, leftColumn.removeFromRight (28));
+        leftColumn.removeFromRight (4);
+    }
+
+    place (volumeSlider, leftColumn);
+
+    //--------------------------------------------------------------------------
+    // ⑤名前は**1つだけ**、いちばん下に全幅で（本人の指定「ラベルは1つに結合」）
+
+    area.removeFromTop (6);
+    place (nameLabel, area.removeFromTop (nameRowHeight));
+
+    return area.getY() - top;
 }
 
 void ChannelStripComponent::resized()
 {
-    auto area = getLocalBounds().reduced (6);
+    // 8.296：インスペクタは2列（Phase 289／本人の指定）
+    if (layout == Layout::Inspector)
+    {
+        layOutForInspector (getLocalBounds(), true);
+        return;
+    }
+
+    auto area = getLocalBounds().reduced (stripMargin);
 
     // 設計書2.3.2：**トラック名はストリップの下端**（Phase 61／8.1のC5）。
     // Phase 60までは上端に置いていたが、**フェーダーとメーターを見ている目線から遠く**、
     // 「いまどのトラックを触っているか」を確かめるのに視線が往復していた。
     // 一般的なミキサーと同じく、下のdB表示のさらに下へ移してある。
-    nameLabel.setBounds (area.removeFromBottom (20));
+    nameLabel.setBounds (area.removeFromBottom (nameRowHeight));
 
-    // 仕様書5.7.1：レイテンシはトラック名のすぐ上（そのトラックの属性として並べて読める）
-    if (latencyLabel.isVisible())
-        latencyLabel.setBounds (area.removeFromBottom (13));
+    // 8.295：**レイテンシは下から外しました**（Phase 288／本人の指定）。
+    // 置くのは**フェーダーの真上**です（下の`latencyLabel.setBounds()`）
 
     // 仕様書5.2.4：VCAはパンを持たない（音声を通さないため）
     if (panSlider.isVisible())
     {
-        panSlider.setBounds (area.removeFromTop (42));
+        panSlider.setBounds (area.removeFromTop (panKnobHeight));
 
         // 8.63：**ノブの下に数値**（Phase 101／改善案⑦）。
         // dB表示と同じで、**クリックで打ち込める**入口でもある
-        panReadout.setBounds (area.removeFromTop (13));
-        area.removeFromTop (4);
+        panReadout.setBounds (area.removeFromTop (panReadoutHeight));
+        area.removeFromTop (rowGap);
     }
 
-    auto buttonRow = area.removeFromTop (24);
+    auto buttonRow = area.removeFromTop (buttonRowHeight);
     muteButton.setBounds (buttonRow.removeFromLeft (buttonRow.getWidth() / 2).reduced (2, 0));
     soloButton.setBounds (buttonRow.reduced (2, 0));
 
-    area.removeFromTop (4);
+    area.removeFromTop (rowGap);
 
-    // Phase 29：ラックには必要なぶんだけ渡し、残りをフェーダーへ回す。
-    // 高さの計算はラック自身が持っているので、スロットが増えてもここは直さなくてよい。
+    //==========================================================================
+    // 8.299：**下から順に取ります**（Phase 292／本人の指定）。
     //
-    // **Phase 66（8.1のC14）：フェーダーとメーターのぶんは必ず残す。**
-    // 以前はラックが欲しいだけ取っていたので、インサートを何段か挿すと
-    // メーターが数ピクセルまで縮んで読めなくなっていた。
-    // 入り切らないラックは`rackViewport`の中でスクロールできる。
-    // **狭いときは折半する。** 「フェーダーぶんを必ず引く」だけにすると、
-    // ストリップが低いときにラックの取り分が0になり、スロットが1つも見えなくなる
-    // （下部パネルを縮めたときに起きる）
-    // 8.283：**高さは中身で決めません**（Phase 276／本人の要望）。
+    // Phase 291まではラックを先に取り、**残りをフェーダーへ**回していました。
+    // つまりフェーダーの高さは「そのストリップの残り」で決まり、
+    // **パンやミュート／ソロを持たないマスターとVCAでは長く**なっていました。
     //
-    // Phase 275まで、ラックの高さは`jmin(欲しい高さ, 残り)`でした。つまり
-    // **インサートの数でストリップごとに違う高さ**になり、そのぶん
-    // フェーダーとメーターの高さも揃いませんでした（`ConsoleLayout.h`）。
+    // いまは**フェーダーの高さを先に決め**（`getFaderAreaHeightFor()`——
+    // 全ストリップ共通）、**ラックが残りを取ります**。
+    // マスターとVCAではラックがそのぶん背が高くなります。
     //
-    // いまは**全ストリップ共通の1つの数字**で、入り切らないぶんはスクロールです。
-    const int rackHeight = ConsoleLayout::getRackHeightFor (area.getHeight());
+    // **`getPreferredHeight()`は枠に合わせて縮めないこと**（1.21）。
+    // 入り切らないぶんは`rackViewport`の中でスクロールします（8.283）。
+
+    // 下端：トラック名（上で取ってある）→ dB表示 → フェーダー → 遅延 → 境目
+    auto valueRow = area.removeFromBottom (ConsoleLayout::volumeReadoutRowHeight);
+    auto faderArea = area.removeFromBottom (ConsoleLayout::getFaderAreaHeightFor (getHeight()));
+
+    latencyLabel.setBounds (area.removeFromBottom (ConsoleLayout::latencyRowHeight));
+
+    // 8.283：境目は**掴んで動かせます**（Phase 276）
+    faderResizer.setBounds (area.removeFromBottom (ConsoleLayout::resizerHeight));
+
+    const int rackHeight = juce::jmax (0, area.getHeight());
     const int wantedRackHeight = rack.getPreferredHeight (area.getWidth());
 
     rackViewport.setBounds (area.removeFromTop (rackHeight));
 
     // **中身の高さは「欲しい高さ」のまま**にすること。枠に合わせて縮めると
     // スクロールしても下のスロットへ届かない（1.21と同じ話）。
-    // 縦スクロールバーが出るぶん、幅はビューポートに聞く
-    rack.setSize (rackViewport.getMaximumVisibleWidth(), wantedRackHeight);
+    //
+    // 8.297：**縦スクロールバーのぶんは自分で引きます**（Phase 290）。
+    //
+    // `getMaximumVisibleWidth()`に聞いていましたが、あれは**いま出ているか**を
+    // 答えるもので、これから出るぶんは入っていません——中身の高さを決めるのは
+    // この次の行なので、**1回目は必ず「出ていない」と答えます**。
+    // 結果、スクロールする行では**右端がバーの下に隠れて**いました
+    // （インサートの一括バイパス（B）が見出しの右端に来たので、それが隠れました）。
+    const bool willScroll = wantedRackHeight > rackHeight;
+    const int rackWidth = rackViewport.getWidth()
+                            - (willScroll ? rackViewport.getScrollBarThickness() : 0);
 
-    // 8.283：境目は**掴んで動かせます**（Phase 276）。ここで場所を取るので、
-    // 下のフェーダーは`minimumFaderAreaHeight`を割りません（`getRackHeightFor()`）
-    rackResizer.setBounds (area.removeFromTop (ConsoleLayout::resizerHeight));
-    volumeValueLabel.setBounds (area.removeFromBottom (16));
+    rack.setSize (juce::jmax (1, rackWidth), wantedRackHeight);
+
+    // 8.295：**dB表示の右に、種類の絵**（Phase 288／改善案1。本人の指定）。
+    //
+    // 「ボリュームメーターの下、ボリューム量数値の右」——メーターとフェーダーは
+    // この行の**上**にあるので、ここがちょうどその場所になります。
+    // 行を16pxから18pxへ上げてあるのは、絵が小さすぎて読めないため
+    // （文字のdB表示は11pxのフォントなので、18pxの行でも詰まりません）
+    //
+    // **縦は中央へ。** 行は18px、絵は15pxなので、そのまま取ると上に寄ります
+    typeIconBounds = valueRow.removeFromRight (typeIconSize)
+                              .withSizeKeepingCentre (typeIconSize, typeIconSize);
+    valueRow.removeFromRight (3);
+
+    volumeValueLabel.setBounds (valueRow);
 
     // フェーダーとメーターを横に並べる（メーターは右側）。
     // VCAはメーターを持たないので、フェーダーが幅いっぱいに広がる。
     if (meter.isVisible())
     {
         // Phase 59：ピークのdB表示を入れるぶん少し広げた（22→28）
-        meter.setBounds (area.removeFromRight (28));
-        area.removeFromRight (4);
+        meter.setBounds (faderArea.removeFromRight (28));
+        faderArea.removeFromRight (4);
     }
 
-    volumeSlider.setBounds (area);
+    volumeSlider.setBounds (faderArea);
 }

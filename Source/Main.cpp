@@ -9,6 +9,7 @@
 #include "SnapGridSelfTest.h"   // 8.271：刻み（3連符）の寄せ先（Phase 272）
 #include "DrumMapPresetSelfTest.h" // 8.284：ドラムマップのプリセット（Phase 277）
 #include "StorageSelfTest.h"   // 8.286：プロジェクトの置き場所（Phase 279）
+#include "TrackHeaderLayoutSelfTest.h" // 8.295：ヘッダーの並び（Phase 288）
 #include "SplashWindow.h"        // 8.151：起動画面（Phase 189／改善案⑰）
 #include "ProjectChooser.h"      // 8.151：プロジェクト選択画面（Phase 189／改善案⑰）
 #include "Utf8.h"
@@ -87,6 +88,15 @@ public:
 
         // 8.286：`--storage-selftest`も窓を出しません（Phase 279）
         if (StorageSelfTest::runIfRequested (commandLine))
+        {
+            quit();
+            return;
+        }
+
+        // 8.295：`--header-selftest`も窓を出しません（Phase 288）。
+        // **`TimelineComponent`は作りますが、画面には出しません**
+        // ——位置を聞くだけなので、ピア（OSの窓）は要りません
+        if (TrackHeaderLayoutSelfTest::runIfRequested (commandLine))
         {
             quit();
             return;
