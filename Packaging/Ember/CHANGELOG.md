@@ -6,6 +6,83 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.8.0] - 2026-09-20
+
+### Added
+
+- **Track headers say what kind of track it is with a picture.** MIDI, audio,
+  VCA and send tracks each have their own; folders borrow the one the browser
+  uses, and a drum out track shows the MIDI picture, because the sound it
+  carries comes from a MIDI track's instrument. The word in brackets after the
+  name is gone, which gives that room back to the name. Chord tracks have no
+  picture — there is only ever one of them
+
+- **Pressing the MIDI picture opens and closes the instrument's window**, and
+  it turns orange while that window is showing, so the instrument being edited
+  can be found without hunting through windows. The folder picture collapses
+  and expands the folder. The console strips carry the same pictures beside
+  their level readout, and the MIDI one works there too
+
+- **Clicking a console strip selects that track.** The arrange view and the
+  inspector follow, since all three read the same selection. Only the strip's
+  background and its name select it; the fader, the knobs, the buttons and the
+  rack keep doing what they did, so reaching for the volume does not move the
+  selection. The console also notices tracks being added and removed while it
+  is open, where before a new strip only appeared after switching away and back
+
+- **The rack in a console strip is labelled** — instrument, inserts, sends —
+  with the button that bypasses every insert at the right of the insert
+  heading, where the inspector has always had it. Until now the three "+"
+  buttons simply followed one another with nothing to say where one kind ended
+  and the next began
+
+- **Pan knobs have an arc.** It grows from twelve o'clock, because the middle
+  of the range is the middle of the knob, so a knob turned left and a knob
+  turned right are told apart at a glance. The pointer alone gave the
+  direction but not how far, which had to be read from the number below
+
+### Changed
+
+- **The inspector holds a console strip** rather than a second set of the same
+  controls. It used to have its own fader, pan, meter and mute and solo
+  buttons, and its own rack, which meant two of everything to keep in step by
+  hand. The strip sits in two columns — the fader and its knobs on the left,
+  inserts and sends on the right, with the write mode, VCA and instrument
+  across the full width above them — and is pinned to the bottom of the panel,
+  so it stays where it is when a MIDI track's extra input settings push
+  everything else down. The panel's width no longer changes, and the handle for
+  changing it is gone: a handle that moves nothing is worse than none
+
+- **Fader and meter are half again as tall as their old minimum**, and the same
+  height in every strip, master and VCA included. Those two carry neither pan
+  nor mute and solo, so they used to end up some sixty pixels longer than the
+  rest. The console panel now has a minimum height of its own, which follows
+  from the meter not being allowed to shrink any further; at that minimum the
+  rack disappears, which is the right thing to lose, since a rack can be
+  scrolled and a meter cannot
+
+- **The fader's height only changes when the divider above it is dragged.**
+  Resizing the console gives the extra room to the rack and leaves the fader
+  where it is. The divider also takes its starting point from the height on
+  screen and will not remember a position that cannot be shown; before this,
+  each drag added to a number that could no longer be reached, until the
+  divider appeared to do nothing at all
+
+- **The automation, mute and solo buttons in a track header are half again as
+  large** and sit together as a group, in the console's order — mute, then
+  solo. The two screens disagreed, and pressing the wrong one either silences
+  the track or silences every other one. Record, input monitor and the
+  inspector button stayed the size they were: what earns the extra room is
+  being pressed often. The button that opens the inspector moved to the left of
+  the track name, and on a folder it sits directly above the collapse triangle
+
+- **Plugin latency in a console strip is shown just above the fader** and keeps
+  its row whether or not there is anything to show, so a track with a plugin is
+  no longer a few pixels shorter than one without. Master's name moved to the
+  bottom of its strip, level with the track names beside it
+
+---
+
 ## [0.7.0] - 2026-09-19
 
 ### Added
