@@ -6,6 +6,61 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.7.0] - 2026-09-19
+
+### Added
+
+- **Orangutan Drums**, a sixteen-pad drum synthesizer. Every pad takes any of
+  sixteen engines — kick, 808 sub, snare, clap, rim, tom, conga, closed and
+  open hat, cymbal, cowbell, shaker, snap, zap, a noise sweep and a stick — and
+  has its own tune, decay, tone, snap, level, pan and reverb send. Nothing is
+  sampled: each engine is built from oscillators, noise and filters, so the
+  knobs reach further than a sampled kit would. The closed hat chokes the open
+  one, as on the machine this comes from, and it does so whichever pads the two
+  are on, since the choke group belongs to the engine. Pads are MIDI notes 36
+  to 51, laid out like an MPC with pad 1 at the bottom left. Ten factory kits
+  come with it, and a master section with drive, glue compression, a reverb the
+  pads send to, and a soft limiter
+
+- **Any drum pad can leave on its own output**, to be picked up by a drum out
+  track, instead of going into the main mix. A pad routed that way skips the
+  master section entirely, so it is also not sent to the reverb. Pads whose
+  output has not been made yet fall back to the main mix rather than going
+  quiet — being audible in the wrong place is easier to understand than not
+  being audible at all — and the screen says so while that is the case
+
+- **Kakapo**, which tells you which scale you are playing in. It scores
+  twenty-four candidates — twelve roots, major and natural minor — by counting
+  the notes that fit and subtracting the ones that do not, so a chromatic run
+  cannot fit everything at once, and shows one major and one minor with the
+  notes each contains and how well it matches. Where the two are relative keys,
+  C major and A minor for instance, the notes are identical and no score can
+  separate them; the note played most decides which one it leans towards. The
+  twelve pitch classes are drawn as bars, so the notes pulling the verdict can
+  be seen rather than guessed. It listens to either the last few notes or the
+  last few seconds, whichever you choose, and a Reset button clears what it is
+  holding
+
+- **Kakapo has a simple lead voice built in**, so a phrase can be checked by
+  ear without routing MIDI to another track. It plays one note at a time, the
+  last one pressed, and its sound is fixed: the only thing to set is its volume
+
+### Changed
+
+- **Knob values now read 0.0 to 10.0** in Racco Guitar, Java Rhino Bass and
+  Orangutan Drums, showing how far round the knob is. The ranges behind them
+  differ from knob to knob — nought to one here, nought to one and a half there
+  — so the number by itself said little about the position. Where the number
+  itself is the point it has been left alone: sustain stays in seconds, tune in
+  semitones and pan reads zero in the middle
+
+- **The right-hand edge of the control rows** in Racco Guitar, Java Rhino Bass
+  and Kakapo now has the same margin as the left. The boxes and the controls
+  beside them ran right up to the panel border while the left had a margin,
+  which showed up as soon as the two sides were looked at together
+
+---
+
 ## [0.6.0] - 2026-09-18
 
 ### Added
