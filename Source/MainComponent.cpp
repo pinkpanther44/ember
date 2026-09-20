@@ -345,6 +345,15 @@ MainComponent::MainComponent()
 
     // 仕様書5.9：ピアノロールのルーラーからの要求（Phase 72／8.33）。
     // **アレンジ画面と同じ入口を通す**ので、どちらの画面から触っても結果が揃う
+    // 8.305：**Editorの左の一覧で選んだら、画面ぜんぶが揃う**（Phase 298／本人の指定）。
+    // アレンジ画面・インスペクタ・Consoleは`SelectionState`を見ているので、
+    // ここで1本だけ選び直せば、あとは勝手に付いてきます（8.301と同じ形）
+    pianoRollView.onTrackSelected = [this] (const juce::String& trackId)
+    {
+        if (trackId.isNotEmpty())
+            selection.selectTrack (trackId);
+    };
+
     pianoRollView.onSeekRequested = [this] (double timelineSeconds) { seekTo (timelineSeconds); };
     pianoRollView.onLoopChanged = [this] { applyLoopSettings(); };
 

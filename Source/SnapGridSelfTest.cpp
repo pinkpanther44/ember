@@ -216,6 +216,131 @@ namespace SnapGridSelfTest
         }
 
         //----------------------------------------------------------------------
+        // ⑥ 8.304：**コード区間の縁**（Phase 297／本人の報告）。
+        //
+        // 「Writeで出るコードが1つ古いまま」の正体は⑤と同じ**比べ方**でした。
+        // ここは**コード区間まで組んで**、カーソルが区間の頭へ来る2本の道を
+        // それぞれ通します。**どちらも必ず手前側へ落ちる**のが肝で、
+        // 手前へ落ちると答えは「1つ前のコード」になります。
+
+        say ("--- landing on a chord flag (what the Write button does)");
+
+        {
+            ProjectModel song;
+            song.setTempo (167.0, nullptr);          // 本人のプロジェクトのテンポ
+            song.setTimeSignature ("4/4", nullptr);
+
+            auto chords = song.addTrack ("Chords", TrackType::Chord);
+
+            Chord fSharpMinor;
+            fSharpMinor.root = 6;                     // F#
+            fSharpMinor.type = ChordType::Min;
+
+            Chord bMajor;
+            bMajor.root = 11;                         // B
+            bMajor.type = ChordType::Maj;
+
+            // **小節の途中でコードが変わる形**（本人の発生条件）。
+            // 155拍目＝39小節4拍目で F#m → B
+            const double joinBeats = 155.0;
+
+            chords.addChordRegionBeats (fSharpMinor, 152.0, joinBeats - 152.0, nullptr);
+            chords.addChordRegionBeats (bMajor, joinBeats, 4.0, nullptr);
+
+            const double joinSeconds = song.getTimeForBeatPosition (joinBeats);
+
+            check (chords.findChordRegionAt (joinSeconds).getChord().getName() == "B",
+                    "the flag itself is B");
+
+            // 道1：**Writeが秒を足して進める。** 区間の頭は拍から換算されるので、
+            // 足し算の答えとは最後の桁が合いません
+            {
+                const double from = song.getTimeForBeatPosition (joinBeats - 2.0);
+                const double stepped = from + 2.0 * song.getBeatSecondsAt (from);   // 2分音符1個ぶん
+
+                // **最後の1ビットの話**なので、ナノ秒でも0と出ます。並べて出すこと
+                check (stepped < joinSeconds,
+                        "adding two beats in seconds lands short of the flag  ("
+                          + juce::String (stepped, 15) + " / " + juce::String (joinSeconds, 15) + ")");
+
+                check (chords.findChordRegionAt (stepped).getChord().getName() == "B",
+                        "...and the Write target is still B, not the chord before it");
+            }
+
+            // 道2：**再生カーソルはサンプルで切り捨て**（`AudioEngine::setPlayheadSeconds()`）。
+            // こちらは**桁違いに大きい**（20.8マイクロ秒）うえ、**必ず起きます**
+            {
+                const double sampleRate = 48000.0;
+                const double truncated = std::floor (joinSeconds * sampleRate) / sampleRate;
+                const double gap = joinSeconds - truncated;
+
+                check (gap > 0.0 && gap < 1.0 / sampleRate,
+                        "the playhead truncated to samples sits just before the flag  ("
+                          + juce::String (gap * 1.0e6, 3) + " us)");
+
+                check (chords.findChordRegionAt (truncated).getChord().getName() == "B",
+                        "...and the chord there is B, not the chord before it");
+            }
+
+            // **1ミリ秒より先は、まだ手前のコード。** 許容を広げすぎていないこと
+            check (chords.findChordRegionAt (joinSeconds - 0.01).getChord().getName() == "F#m",
+                    "10ms before the flag is still the chord before it");
+
+            // 区間の**終わりは含まない**（縁に立つと次のものが答え）
+            check (chords.findChordRegionAt (song.getTimeForBeatPosition (159.0)).state.isValid() == false,
+                    "the end of the last region belongs to nothing, not to that region");
+        }
+
+        //----------------------------------------------------------------------
+        // ⑦ 8.305：**目盛りから外れたノートを、外れたまま動かす**（Phase 298／本人の指定・動画）。
+
+        say ("--- snapping that also remembers where a free note sat");
+
+        {
+            ProjectModel song;
+            song.setTempo (120.0, nullptr);          // 1拍 = 0.5秒
+            song.setTimeSignature ("4/4", nullptr);
+            song.setSnapGrid (SnapGrid::eighth);     // 1/8 = 0.25秒
+
+            const double onGridNote = 1.0;           // 目盛りの上
+            const double freeNote   = 1.07;          // **0.07秒だけ後ろ**（手で置いた音）
+
+            // **目盛りの上のノートは、今までと同じ。** ここが変わると、
+            // 「揃えて打ち込んだものが揃わなくなる」という最悪の壊れ方になります
+            for (const double wanted : { 1.2, 1.4, 1.51, 1.99 })
+                checkNear (song.snapTimeRelativeTo (wanted, onGridNote), song.snapTime (wanted),
+                            "a note that sits on the grid snaps exactly as before  ("
+                              + juce::String (wanted, 2) + "s)");
+
+            // **ずれたノートは、ずれたまま1目盛り動ける**（動画のやりたいこと）
+            checkNear (song.snapTimeRelativeTo (freeNote + 0.25, freeNote), freeNote + 0.25,
+                        "a free note moves by exactly one grid step, keeping its offset");
+
+            checkNear (song.snapTimeRelativeTo (freeNote + 0.24, freeNote), freeNote + 0.25,
+                        "...and a little short of it still lands there");
+
+            // **元の位置そのものにも戻れる**（同じタイミングの別の音を作れる）
+            checkNear (song.snapTimeRelativeTo (freeNote + 0.02, freeNote), freeNote,
+                        "it can land back exactly where it was");
+
+            // **目盛りのほうが近ければ、目盛りへ。** 片方だけになると、
+            // ずれたノートを目盛りへ乗せ直せなくなります
+            checkNear (song.snapTimeRelativeTo (1.51, freeNote), 1.5,
+                        "but near a grid line the grid still wins");
+
+            check (song.snapTimeRelativeTo (1.51, freeNote) != freeNote + 0.5,
+                    "...so both kinds of stop exist, not just the offset one");
+
+            // 0秒より手前へは行かない（`snapTime()`と同じ約束）
+            check (song.snapTimeRelativeTo (-5.0, freeNote) >= 0.0, "it never goes before zero");
+
+            // **フリー（寄せない）ではそのまま**
+            song.setSnapGrid (SnapGrid::off);
+            checkNear (song.snapTimeRelativeTo (1.234, freeNote), 1.234,
+                        "with snapping off, nothing moves");
+        }
+
+        //----------------------------------------------------------------------
         say ("--- " + juce::String (problems) + " problem(s) ---");
 
         // **`JUCEApplicationBase`のほうを使うこと**（`JUCEApplication`は`juce_gui_basics`）

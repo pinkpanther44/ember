@@ -213,8 +213,11 @@ ChordPadPanel::ChordPadPanel (ProjectModel& projectToUse, SelectionState& select
 
     // 8.72：**押すのは「カーソル上の1コード」だけ**（Phase 112／D12）。
     // 進行まるごとは右クリックのメニューに残してある
+    // 8.305：**「重ねます」と書いてあること**（Phase 298）。
+    // 消さなくなったのはここからは見えないので、説明のほうも直しておきます（1.27）
     writeButton.setTooltip (utf8 ("再生位置のコードをMIDIノートにして、選んだトラックへ書き込みます"
                                    "（音価を選んでいればその1個ぶん）。"
+                                   "すでにあるノートは消さずに重ねます。"
                                    "書き出したぶんだけカーソルが進むので、押し続けると刻みが組めます。"
                                    "右クリックで「進行をまとめて書き込む」"));
     writeButton.onClick = [this] { writeChordAtCursorToTrack(); };
@@ -639,10 +642,15 @@ const Chord* ChordPadPanel::getPreviousChord() const
     // | Emの**途中** | **Em**（いま鳴っているコード） |
     // | 区間と区間の**隙間** | 手前の区間 |
     //
-    // **1マイクロ秒ぶん手前から探すこと。** 区間の頭ちょうどに置いたつもりでも、
+    // **少し手前から探すこと。** 区間の頭ちょうどに置いたつもりでも、
     // 拍と秒の往復でカーソルが髪の毛ほど後ろに落ちることがあります。
-    // そのとき「差し替える対象そのもの」が直前として出てしまいます
-    auto previous = track.findChordRegionBefore (at - 1.0e-6);
+    // そのとき「差し替える対象そのもの」が直前として出てしまいます。
+    //
+    // 8.304：**その「少し」は`MusicalTime`の値**（Phase 297）。Phase 178では
+    // `1.0e-6`と直に書いていましたが、**サンプル1つ（48kHzで20.8マイクロ秒）より
+    // 短い**ので、カーソルがサンプルの切れ目のぶん後ろへ落ちた場合は素通りします
+    // ——「同じ位置と言える近さ」は1箇所で決めること（8.277）
+    auto previous = track.findChordRegionBefore (at - MusicalTime::samePositionSeconds);
 
     // 8.74：枠に出すぶんも一緒に覚える（Phase 114）。**探し直しを2箇所に書かない**（8.2）
     previousChordRegion = previous;
@@ -1043,17 +1051,22 @@ ChordRegion ChordPadPanel::findChordRegionAtCursor() const
     if (! chordTrack.state.getParent().isValid())
         return ChordRegion (juce::ValueTree());
 
+    // 8.304：**「乗っているか」を決めるのはモデルの1箇所**（Phase 297／本人の報告）。
+    //
+    // ここには同じ判定がもう1つ書いてありました（`>=`と`<`を生で並べたもの）。
+    // 中身は`Track::findChordRegionAt()`とそっくりでしたが、**あちらを直しても
+    // Writeの行き先はこちらの古い比べ方のまま**になる形です（8.2）。
+    auto containing = chordTrack.findChordRegionAt (insertPositionSeconds);
+
+    if (containing.state.isValid())
+        return containing;
+
     ChordRegion best { juce::ValueTree() };   // ※ 丸括弧だと関数宣言に取られる（most vexing parse）
     double bestStart = -1.0;
 
     for (int r = 0; r < chordTrack.getNumChordRegions(); ++r)
     {
         auto region = chordTrack.getChordRegion (r);
-
-        // 中に入っていれば、それで決まり
-        if (insertPositionSeconds >= region.getStartTime()
-             && insertPositionSeconds < region.getEndTime())
-            return region;
 
         // 8.72：**入っていないときは、手前でいちばん近い区間**（Phase 112）。
         // パッドを押すと挿入位置は次の小節へ進むので（8.9）、
@@ -1069,7 +1082,7 @@ ChordRegion ChordPadPanel::findChordRegionAtCursor() const
 }
 
 void ChordPadPanel::writeChordToTrack (const Chord& chord, double startSeconds, double lengthSeconds,
-                                        Track& targetTrack, bool tile)
+                                        Track& targetTrack)
 {
     // 拍の長さは**書き始める場所**で測る（8.98／Phase 138）
     const double secondsPerBeat = project.getBeatSecondsAt (startSeconds);
@@ -1077,36 +1090,45 @@ void ChordPadPanel::writeChordToTrack (const Chord& chord, double startSeconds, 
     if (secondsPerBeat <= 0.0 || lengthSeconds <= 0.0)
         return;
 
-    const double endSeconds = startSeconds + lengthSeconds;
-
     // 8.91：**書き足し先はトラックそのもの**（Phase 131）。
     // Phase 130までは「その頭を含んでいるクリップ」を探して、無ければ作っていました
     // ——クリップという入れ物が無くなったので、探す手間ごと消えています。
     const double contentStart = startSeconds;
-    const double contentEnd   = endSeconds;
 
-    // 8.72：**書く範囲のノートだけ差し替える**（Phase 112）。
-    // 消さないと、押し直すたびに同じコードが重なって積み上がります。
-    // **範囲の外は触りません**——手で直した隣のコードが消えないように
-    for (int n = targetTrack.getNumNotes(); --n >= 0;)
-    {
-        auto note = targetTrack.getNote (n);
-
-        if (MusicalTime::isWithinRange (note.getStartTime(), contentStart, contentEnd))
-            targetTrack.removeNote (note, &project.getUndoManager());
-    }
+    // 8.305：**消さずに重ねます**（Phase 298／本人の指定）。
+    //
+    // Phase 112からは「書く範囲のノートを先に消す」形でした（8.72）。
+    // **押し直したときに積み上がらないため**の手当てで、
+    // 「同じところを押し直す」を主な使いかたと見ていたからです。
+    //
+    // 本人の使いかたは違いました——**重ねるために押します**
+    // （コードの上にメロディやベースを足す、転回を重ねる、
+    // 同じ位置に別の音価で刻みを足す）。消す作りだと、
+    // **先に置いたものが黙って消えます**。消えたことは、
+    // 弾いてみるまで分かりません（8.4の「耳で分かるもの」の逆）。
+    //
+    // | どちらが困るか | |
+    // |---|---|
+    // | 重なって積み上がる | **見えます**（重なった音符がそこにある）。Undoで戻せます |
+    // | 黙って消える | **見えません**。戻すには思い出す必要があります |
+    //
+    // **「進行をまとめて書き込む」は今までどおり置き換えます**
+    // （`writeNotesToTrack()`。メニューにも「前のクリップは置き換え」と書いてあり、
+    // あちらは**進行ぜんぶを書き直す**操作なので、積み上げる意味がありません）。
 
     auto performance = getPerformance();
 
     // 8.73：**敷き詰めるかどうかは呼び出し側が決める**（Phase 113）。
+    // ここは「1個だけ書く」ほうの入り口なので、**敷き詰めません**
+    // （まとめて敷き詰めるのは`writeNotesToTrack()`。あちらは`getPerformance()`を
+    // そのまま使います）。
     //
     // `generateChordNotes()`は「`hitLengthBeats`が0より大きければ、渡した長さを
     // その音価で敷き詰める」作りです。1個だけ書きたいときは
     // **渡す長さを音価と同じにする**のではなく、**敷き詰めを止めます**——
     // 長さを合わせるやり方だと、GT%やストロークのずれで端が丸まったときに
     // 敷き詰めの回数が1回になったり2回になったりして、読めない挙動になります。
-    if (! tile)
-        performance.hitLengthBeats = 0.0;
+    performance.hitLengthBeats = 0.0;
 
     const double lengthBeats = lengthSeconds / secondsPerBeat;
 
@@ -1116,12 +1138,6 @@ void ChordPadPanel::writeChordToTrack (const Chord& chord, double startSeconds, 
                               contentStart + note.startBeats * secondsPerBeat,
                               note.lengthBeats * secondsPerBeat,
                               &project.getUndoManager());
-}
-
-void ChordPadPanel::writeChordRegionToTrack (const ChordRegion& region, Track& targetTrack)
-{
-    // まとめ書き（右クリック）から呼ばれる。**区間まるごとを、音価で敷き詰める**
-    writeChordToTrack (region.getChord(), region.getStartTime(), region.getLength(), targetTrack, true);
 }
 
 void ChordPadPanel::writeChordAtCursorToTrack()
@@ -1155,7 +1171,7 @@ void ChordPadPanel::writeChordAtCursorToTrack()
         return;
 
     project.beginAction (utf8 ("コードをMIDIノートへ書き込み"));
-    writeChordToTrack (region.getChord(), startSeconds, lengthSeconds, targetTrack, false);
+    writeChordToTrack (region.getChord(), startSeconds, lengthSeconds, targetTrack);
 
     // 8.73：**カーソルを書き出したものの直後へ進める**（Phase 113）。
     // Writeを押すだけで次のコードが続けて出せるようにするため

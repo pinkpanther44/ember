@@ -3735,8 +3735,116 @@ void PianoRollComponent::mouseDown (const juce::MouseEvent& e)
     repaint();
 }
 
+void PianoRollComponent::shiftDragAnchorsX (int pixels)
+{
+    if (pixels == 0)
+        return;
+
+    // **部品座標で覚えている「掴んだ場所」は全部**。1つ忘れると、
+    // そのドラッグだけスクロール中に行き先がずれます
+    dragStartPosition.x -= pixels;
+    rangeSelectAnchor.x -= pixels;
+    laneRangeAnchor.x   -= pixels;
+    pencilPendingPosition.x -= pixels;
+}
+
+void PianoRollComponent::autoScrollWhileDragging (const juce::MouseEvent& e)
+{
+    // **効かせるドラッグを名指しすること**（宣言の説明）。
+    // なぞり書き（消しゴム・ベロシティ・レーン）まで追いかけると、
+    // 画面の外でも書き続けることになります——**見えないところを書き換えない**
+    const bool wanted = rangeSelecting || laneRangeSelecting
+                         || dragMode == DragMode::Move
+                         || dragMode == DragMode::ResizeLeft
+                         || dragMode == DragMode::ResizeRight;
+
+    if (! wanted)
+        return;
+
+    // 8.305：**マウスが止まっていても呼ばれ続けるようにする**（Phase 298）。
+    //
+    // これが無いと、画面の外でカーソルを止めた瞬間にスクロールも止まります
+    // ——「外へ出したら、出したぶんだけ流れ続ける」が欲しい形です。
+    // **ドラッグが終われば自動で止まります**（JUCEがボタンを離した時点で解く）。
+    //
+    // **効かせるドラッグの中だけで頼むこと。** `mouseDrag()`の頭で一律に呼ぶと、
+    // なぞり書き（ベロシティ・レーン・消しゴム）でも**同じ場所へ書き続けます**
+    juce::Component::beginDragAutoRepeat (16);
+
+    // **外へ出たぶんだけ**。縁の内側では動かしません——縁の手前から効かせると、
+    // 端のノートを触っているだけで画面が流れます
+    const auto position = e.getPosition();
+
+    const auto stepFor = [] (int overshoot)
+    {
+        return juce::jlimit (1, autoScrollMaxStepPixels, 2 + overshoot / 3);
+    };
+
+    //--------------------------------------------------------------------------
+    // 横：**この部品の中身が流れる**ので、起点も一緒に動かす
+
+    const int gridLeft = keyboardWidth;
+    const int gridRight = getWidth();
+
+    int wantedPixels = 0;
+
+    if (position.x < gridLeft)
+        wantedPixels = -stepFor (gridLeft - position.x);
+    else if (position.x > gridRight)
+        wantedPixels = stepFor (position.x - gridRight);
+
+    if (wantedPixels != 0 && pixelsPerSecond > 0.0)
+    {
+        // **先に何ピクセル動けるかを決めてから動かすこと。**
+        // 動かしてから差を測ると、端で丸めた半端なピクセルが残り、
+        // 起点の直しと食い違います（＝掴んだ場所が少しずつずれる）
+        const double maxStart = juce::jmax (0.0, getScrollableLengthSeconds() - getVisibleSeconds());
+        const double target = juce::jlimit (0.0, maxStart,
+                                             scrollStartSeconds + (double) wantedPixels / pixelsPerSecond);
+        const int applied = juce::roundToInt ((target - scrollStartSeconds) * pixelsPerSecond);
+
+        if (applied != 0)
+        {
+            setScrollStartSeconds (scrollStartSeconds + (double) applied / pixelsPerSecond);
+            shiftDragAnchorsX (applied);
+        }
+    }
+
+    //--------------------------------------------------------------------------
+    // 縦：**ビューポートが動く**ので、起点は触らない（部品ごと動くため）。
+    //
+    // 下端は**レーンの上**まで。レーンは見えている範囲の下端に貼り付いていて
+    // （8.36）、その下に中身が潜っているので、レーンの上に出たら「画面の外」です
+
+    // **レーンの範囲選択では、縦は動かしません。** 下端に取ってあるのは
+    // 「レーンの上」で、レーンの中で選んでいるあいだは**常にその下**にいます
+    // ——動かすと、レーンを触っているだけで画面が流れ続けます
+    if (laneRangeSelecting)
+        return;
+
+    if (auto* view = findParentComponentOfClass<juce::Viewport>())
+    {
+        const int visibleTop = visibleScrollOffsetY;
+        const int visibleBottom = getLaneBounds().getY();
+
+        int wantedY = 0;
+
+        if (position.y < visibleTop)
+            wantedY = -stepFor (visibleTop - position.y);
+        else if (position.y > visibleBottom)
+            wantedY = stepFor (position.y - visibleBottom);
+
+        if (wantedY != 0)
+            view->setViewPosition (view->getViewPositionX(),
+                                    view->getViewPositionY() + wantedY);
+    }
+}
+
 void PianoRollComponent::mouseDrag (const juce::MouseEvent& e)
 {
+    // 8.305：掴んだまま画面の外まで行けるようにする（Phase 298／本人の指定）
+    autoScrollWhileDragging (e);
+
     // 8.122：レーンの高さ（Phase 157／改善案36）。
     //
     // **上へ引くと広がる**（掴んでいるのは上端なので、動かした向きと一致する）。
@@ -3912,7 +4020,16 @@ void PianoRollComponent::mouseDrag (const juce::MouseEvent& e)
         // 移動量ではない（移動量を寄せると、拍から外れたノートは外れたまま動く）。
         // まとめて動かすときのずらし量はここから計算されるので、
         // 選択中の他のノートも同じだけ動く（8.13のA2）
-        dragPreviewStartTime = juce::jmax (0.0, project.snapTime (dragOriginalStartTime + deltaSeconds));
+        // 8.305：**元のずれも止まり先にする**（Phase 298／本人の指定・動画）。
+        //
+        // 目盛りから外れたところに置いたノートは、Snapを入れたまま動かすと
+        // **目盛りにしか止まりません**でした——同じタイミングの別の音を作るには
+        // Snapを切って手で合わせるしかない（動画のとおり）。
+        //
+        // **目盛りの上にあるノートでは、今までと1ビットも変わりません**
+        // （ずれが0なら候補が1つに重なる。`snapTimeRelativeTo()`）
+        dragPreviewStartTime = juce::jmax (0.0,
+            project.snapTimeRelativeTo (dragOriginalStartTime + deltaSeconds, dragOriginalStartTime));
         dragPreviewPitch = yToPitch (e.getPosition().y);
 
         // 8.121：**動かしている最中も鳴らす**（Phase 156／改善案23）。
@@ -3935,8 +4052,10 @@ void PianoRollComponent::mouseDrag (const juce::MouseEvent& e)
     }
     else if (dragMode == DragMode::ResizeRight)
     {
-        // 伸縮も「終端の位置」を寄せる（クリップのトリムと同じ考え方）
-        const double end = project.snapTime (dragOriginalStartTime + dragOriginalLength + deltaSeconds);
+        // 伸縮も「終端の位置」を寄せる（クリップのトリムと同じ考え方）。
+        // 8.305：**基準は元の終端**——長さを変えずに戻せるようにするため
+        const double end = project.snapTimeRelativeTo (dragOriginalStartTime + dragOriginalLength + deltaSeconds,
+                                                        dragOriginalStartTime + dragOriginalLength);
         dragPreviewLength = juce::jmax (minNoteLength, end - dragOriginalStartTime);
 
         // 8.239／Phase 253：**ペンで置いた直後は、離すまで上下にも動かせる。**
@@ -3984,7 +4103,8 @@ void PianoRollComponent::mouseDrag (const juce::MouseEvent& e)
         // 8.29の表：**左端の伸縮**（Phase 69）。**終わりは動かさない。**
         // 始まりだけを寄せて、そのぶん長さを増減させる（クリップのTrimLeftと同じ形）
         const double end = dragOriginalStartTime + dragOriginalLength;
-        const double start = juce::jmin (project.snapTime (dragOriginalStartTime + deltaSeconds),
+        const double start = juce::jmin (project.snapTimeRelativeTo (dragOriginalStartTime + deltaSeconds,
+                                                                      dragOriginalStartTime),
                                           end - minNoteLength);
 
         dragPreviewStartTime = juce::jmax (0.0, start);

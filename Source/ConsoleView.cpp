@@ -18,6 +18,11 @@ ConsoleView::ConsoleView (ProjectModel& projectToUse, SelectionState& selectionT
                          juce::dontSendNotification);
     addAndMakeVisible (emptyLabel);
 
+    // 8.305：**ストリップの右の空きも「空いているところ」**（Phase 298／本人の指定）。
+    // 器が押されたら、そのままConsole本体の`mouseDown()`へ渡します
+    // （`StripContainer`の宣言に、素通りさせない理由を書いてあります）
+    stripContainer.onMouseDown = [this] (const juce::MouseEvent& e) { mouseDown (e); };
+
     // トラックが増えると横に伸びるため、横スクロールできるようにしておく
     viewport.setViewedComponent (&stripContainer, false);
     viewport.setScrollBarsShown (false, true);
@@ -433,8 +438,11 @@ void ConsoleView::mouseDown (const juce::MouseEvent& e)
 {
     // 8.60：**空いているところの右クリックだけ**（Phase 97／改善案㉚）。
     //
-    // ストリップの上はストリップ自身が受けるので、ここへは落ちてこない
-    // （落ちてくるのは、並びの右側の余白やViewportの地の上を押したとき）
+    // ストリップの上はストリップ自身が受けるので、ここへは落ちてこない。
+    //
+    // 8.305：**ストリップの右の空きからも来ます**（Phase 298／本人の指定）。
+    // あそこは`stripContainer`のもので、Phase 297まで**押されても
+    // 何も起きないまま飲み込んで**いました（`StripContainer`の説明）
     if (! e.mods.isPopupMenu())
         return;
 

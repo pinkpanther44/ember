@@ -1950,6 +1950,15 @@ private:
     static constexpr int headerButtonSize = 23;
     static constexpr int headerSoloMuteWidth = 26;
 
+    /** 8.305：オートメーションの絵が、枠から取る余白（Phase 298／本人の指定）。
+
+        **ボタンの大きさは変えず、中身だけ小さくします**——隣のM・Sは
+        字なので枠との間が空いており、**絵だけが枠いっぱい**でした。
+
+        絵は横長なので、**この値は横で効いて、縦は勝手に付いてきます**
+        （`drawAutomationButton()`の表）。 */
+    static constexpr float automationIconMargin = 6.0f;
+
     /** 8.295：**録音待機（●）は元の大きさのまま**（Phase 288／本人の指定）。
 
         帯（24px）の中で縦中央に置くので、小さいままでも浮きません

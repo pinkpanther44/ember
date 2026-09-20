@@ -259,7 +259,7 @@
     { "Vel：MIDIベロシティ", "Vel: MIDI velocity", true },
     { "拍", " beats", false },
     { "Dev：ストローク時の、音同士のずらし幅", "Dev: how far apart the notes are spread when strumming", true },
-    { "再生位置のコードをMIDIノートにして、選んだトラックへ書き込みます（音価を選んでいればその1個ぶん）。書き出したぶんだけカーソルが進むので、押し続けると刻みが組めます。右クリックで「進行をまとめて書き込む」", "Turns the chord at the playhead into MIDI notes on the chosen track (one note length if you picked one). The cursor moves on by what was written, so holding it down builds a rhythm. Right-click for \"Write the whole progression\"", true },
+    { "再生位置のコードをMIDIノートにして、選んだトラックへ書き込みます（音価を選んでいればその1個ぶん）。すでにあるノートは消さずに重ねます。書き出したぶんだけカーソルが進むので、押し続けると刻みが組めます。右クリックで「進行をまとめて書き込む」", "Turns the chord at the playhead into MIDI notes on the chosen track (one note length if you picked one). Notes already there are kept, and the chord is layered on top. The cursor moves on by what was written, so holding it down builds a rhythm. Right-click for \"Write the whole progression\"", true },
     { "進行をまとめて書き込む（前のクリップは置き換え）", "Write the whole progression (replaces the previous clip)", false },
     { "ルート音", "Root note", false },
     { "コードタイプ（全22種）", "Chord type (22 in all)", false },

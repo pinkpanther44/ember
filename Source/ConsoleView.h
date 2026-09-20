@@ -196,7 +196,33 @@ private:
     // 中にもう一度出すと、その40pxぶんストリップが縮むだけでした（8.32）
     juce::Label emptyLabel;
 
-    juce::Component stripContainer; // ストリップを横に並べる器（Viewportの中身）
+    /** 8.305：**器の地を押したぶんも、Console本体へ渡す**（Phase 298／本人の指定）。
+
+        Phase 97から「空いているところの右クリックでトラックを追加」は
+        入っていましたが（8.60）、**届いていたのはConsole自身の地だけ**でした
+        ——上下の余白（8px）とマスターとの隙間（8px）です。
+
+        **ストリップの右の空きは、この器のもの**です。器は幅を
+        `jmax(Viewportの幅, ストリップの数 × 幅)`で取るので、
+        トラックが少ないときは**余ったぶんがそのまま器の地**になります。
+        器はただの`juce::Component`で、押されても何もしないまま飲み込んでいました。
+
+        > **`setInterceptsMouseClicks(false)`ではありません。**
+        > 素通りさせると、次に受けるのは**Viewport**です（あちらも既定では
+        > 受け取って何もしない）ので、結局同じ場所で止まります。
+        > **渡し先を名指しするほうが、どこへ行くのかが読めます。** */
+    struct StripContainer : public juce::Component
+    {
+        std::function<void (const juce::MouseEvent&)> onMouseDown;
+
+        void mouseDown (const juce::MouseEvent& e) override
+        {
+            if (onMouseDown != nullptr)
+                onMouseDown (e);
+        }
+    };
+
+    StripContainer stripContainer; // ストリップを横に並べる器（Viewportの中身）
     juce::Viewport viewport;
     juce::OwnedArray<ChannelStripComponent> strips;
     MasterStripComponent masterStrip { project, audioEngine };

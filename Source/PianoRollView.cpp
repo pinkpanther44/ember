@@ -818,6 +818,16 @@ void PianoRollView::trackSelectionChanged (const juce::String& trackId)
     trackList.setSelectedTrackId (selectedTrackId);
     refreshClipSelection();
     updateInstrumentLabel();
+
+    // 8.305：**画面ぜんぶに伝える**（Phase 298／本人の指定）。
+    //
+    // **自分の中を整えてから呼ぶこと。** これを受けたMainComponentは
+    // `refreshEditorContent()`を通ってここへ戻ってきます
+    // （`showTrack()`→`trackSelectionChanged()`）。先に呼ぶと、
+    // 戻ってきたときの`selectedTrackId`がまだ古く、
+    // **同じ値で弾く入口（上の`return`）が効きません**
+    if (onTrackSelected != nullptr)
+        onTrackSelected (selectedTrackId);
 }
 
 

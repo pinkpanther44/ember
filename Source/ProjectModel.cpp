@@ -1681,7 +1681,20 @@ ChordRegion Track::findChordRegionAt (double timeSeconds) const
     {
         auto region = getChordRegion (i);
 
-        if (timeSeconds >= region.getStartTime() && timeSeconds < region.getEndTime())
+        // 8.304：**位置の比べ方は`MusicalTime`のものを使う**（Phase 297／本人の報告）。
+        //
+        // 生の`>=`／`<`だと、**区間の頭ちょうどに置いたつもりのカーソルが
+        // 髪の毛ほど手前にいるだけで「入っていない」**ことになります。
+        // 実際に手前へ落ちる道が2本あります：
+        //
+        // | 落ちる元 | ずれ |
+        // |---|---|
+        // | 再生カーソルは**サンプルで切り捨て**（`AudioEngine::setPlayheadSeconds()`） | 最大20.8マイクロ秒（48kHz） |
+        // | Writeやパッドが**秒を足して**進める（区間の頭は拍から換算） | 数e-15秒 |
+        //
+        // どちらも**必ず手前側**なので、外れたときは**1つ前の区間**が答えになります
+        // ——コードパッドでは「Writeで出るコード」が1つ古いまま出ていました（8.277と同じ形）
+        if (MusicalTime::isWithinRange (timeSeconds, region.getStartTime(), region.getEndTime()))
             return region;
     }
 
@@ -5150,6 +5163,38 @@ double ProjectModel::snapTime (double seconds) const
 double ProjectModel::snapTimeDown (double seconds) const
 {
     return snapToGridPosition (*this, seconds, true);
+}
+
+double ProjectModel::snapTimeRelativeTo (double seconds, double referenceSeconds) const
+{
+    // 8.305：止まり先は**目盛り**と**ずれを保った位置**の2つ（Phase 298／宣言の説明）
+    const double time = juce::jmax (0.0, seconds);
+
+    if (getSnapGrid() == SnapGrid::off)
+        return time;
+
+    const double onGrid = snapTime (time);
+
+    // **ずれは拍で測る**（宣言の説明）。`snapTimeDown()`が返すのは
+    // 基準の「手前の目盛り」なので、差がそのまま「目盛りからのずれ」になります
+    const double reference = juce::jmax (0.0, referenceSeconds);
+    const double offsetBeats = getBeatPositionAt (reference)
+                                 - getBeatPositionAt (snapTimeDown (reference));
+
+    // **ずれが無ければ、目盛りと同じ。** 目盛りの上に置いたノートでは
+    // ここから先を通っても同じ値になりますが、**通さずに返しておくこと**——
+    // 拍と秒を2往復するぶん、値が最後の桁でぶれます（8.304）
+    if (offsetBeats <= MusicalTime::samePositionBeats)
+        return onGrid;
+
+    // **ずれを引いてから寄せて、また足す。** こうすると小節・拍・3連の
+    // どの刻みでも同じ式で済みます（`snapTime()`が刻みごとの違いを知っている）
+    const double shifted = getTimeForBeatPosition (juce::jmax (0.0, getBeatPositionAt (time) - offsetBeats));
+    const double relative = juce::jmax (0.0,
+        getTimeForBeatPosition (getBeatPositionAt (snapTime (shifted)) + offsetBeats));
+
+    // **近いほうへ。** 同じ距離なら目盛り（迷ったときは、揃っているほうが読みやすい）
+    return (std::abs (time - onGrid) <= std::abs (time - relative)) ? onGrid : relative;
 }
 
 int ProjectModel::getBeatsPerBar() const

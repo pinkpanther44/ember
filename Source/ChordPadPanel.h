@@ -222,10 +222,6 @@ private:
         **いま入れたコードが対象にならない**。 */
     ChordRegion findChordRegionAtCursor() const;
 
-    /** 区間1つぶんのノートを、書き足し先のクリップへ入れる。
-        **Undoの区切りは呼び出し側で切ること**（まとめ書きは1回で戻したい）。 */
-    void writeChordRegionToTrack (const ChordRegion& region, Track& targetTrack);
-
     /** 8.72：カーソル上の1コードだけ書き込む（Writeボタン。Phase 112）。 */
     void writeChordAtCursorToTrack();
 
@@ -261,9 +257,10 @@ private:
     double getSingleHitLengthSeconds (double atTime) const;
 
     /** コード1つを、指定の位置・長さで書き込み先のクリップへ入れる。
-        `tile`がtrueなら、その長さを音価で敷き詰める（まとめ書き用）。 */
+        **敷き詰めはしません**——渡した長さぶんを1個だけ出します。
+        進行をまとめて音価で敷き詰めるのは`writeNotesToTrack()`のほう。 */
     void writeChordToTrack (const Chord& chord, double startSeconds, double lengthSeconds,
-                             Track& targetTrack, bool tile);
+                             Track& targetTrack);
 
     /** 8.73：**次にWriteで出るコード**（Phase 113）。無ければ`state.isValid()`がfalse。 */
     ChordRegion getWriteTargetRegion() const;

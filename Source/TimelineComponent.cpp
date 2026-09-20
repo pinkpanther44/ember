@@ -4443,10 +4443,21 @@ void TimelineComponent::drawAutomationButton (juce::Graphics& g, juce::Rectangle
     g.drawRoundedRectangle (bounds.toFloat(), AppColours::corner (3.0f), 1.0f);
 
     // 塗りつぶしたときだけ白。**地の色に合わせて自動では決めない**（1.34。上と同じ）
-    // **余白は3px**。絵は横長（元は1338x1090）なので、23pxのボタンで4px取ると
-    // 縦が12pxまで落ちて、3つの点が潰れます
+    //
+    // 8.305：**余白はM・Sに合わせる**（Phase 298／本人の指定「ボタンサイズは変えない」）。
+    //
+    // Phase 288では3pxでした——**枠いっぱいに絵があり、隣のM・Sだけが
+    // 余白を持っている**状態です。同じ帯に3つ並ぶので、絵だけが大きく見えます。
+    //
+    // | | 中身の大きさ | 上下の余白 |
+    // |---|---|---|
+    // | M・S（11.5pxの太字） | 約9.5 x 8px | 約7.4px |
+    // | 絵（3px取っていたころ） | 17 x 13.9px | 4.6px |
+    // | 絵（いま） | **11 x 9px** | **7.0px** |
+    //
+    // **絵は横長（1338x1090）なので、取る値は横で効きます**——縦は勝手に付いてきます
     if (auto* icon = getAutomationIcon (isOn ? juce::Colours::white : AppColours::textSecondary))
-        icon->drawWithin (g, bounds.toFloat().reduced (3.0f),
+        icon->drawWithin (g, bounds.toFloat().reduced (automationIconMargin),
                            juce::RectanglePlacement::centred, 1.0f);
 }
 
@@ -5062,6 +5073,26 @@ void TimelineComponent::mouseDown (const juce::MouseEvent& e)
         {
             if (onAddTrackClicked != nullptr)
                 onAddTrackClicked (localAreaToGlobal (getAddTrackRowBounds()));
+
+            return;
+        }
+
+        // 8.305：**その下の空きも、右クリックで同じメニュー**（Phase 298／本人の指定）。
+        //
+        // Consoleの「空いているところの右クリック」（8.60）と同じ考え方です
+        // ——**トラックを足したくなる場所は、たいてい並びの終わり**なので、
+        // 「+ Track」ボタンまで目を戻さずに済みます。
+        //
+        // **境目は「+ 新しいトラック」の行の下端**にすること。行番号
+        //（`getTrackIndexForY()`）で「トラックが無いところ」を見ると、
+        // オートメーションを出しているときの**マスター行まで空きに数えます**。
+        //
+        // **左クリックは何もしません**（8.161）。押して初めて分かる飾りを作らないため、
+        // 空きに見えるところは空きのままにしておきます
+        if (e.mods.isPopupMenu() && e.y >= getAddTrackRowBounds().getBottom())
+        {
+            if (onAddTrackClicked != nullptr)
+                onAddTrackClicked ({ e.getScreenX(), e.getScreenY(), 1, 1 });
 
             return;
         }

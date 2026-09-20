@@ -51,6 +51,20 @@ public:
         両方へ同じものを配る（8.11）。 */
     std::function<void (EditTool)> onEditToolSelected;
 
+    /** 8.305：**左の一覧で選んだトラックを、画面ぜんぶへ伝える**
+        （Phase 298／本人の指定）。
+
+        アレンジ画面やConsoleで選ぶと、こちらの一覧は付いてきていました
+        （`MainComponent::refreshEditorContent()`が`SelectionState`を見て
+        `showTrack()`を呼ぶ）。**逆だけが繋がっていません**でした——
+        一覧で打ち込む先を変えても、アレンジ画面のヘッダーもインスペクタも
+        前のトラックのままです。
+
+        **`SelectionState`はここからは見えない**ので、
+        MainComponentへ返して、あちらで`selectTrack()`してもらいます
+        （8.301のConsoleのストリップと同じ形）。 */
+    std::function<void (const juce::String& trackId)> onTrackSelected;
+
     //==========================================================================
     // 仕様書5.9：ルーラーからの要求（Phase 72／8.33）。
     // **どれもMainComponentの入口へ返す**（アレンジ画面と同じものを通す）
