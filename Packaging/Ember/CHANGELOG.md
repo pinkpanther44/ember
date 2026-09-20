@@ -6,6 +6,74 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.9.0] - 2026-09-20
+
+### Added
+
+- **Right-clicking empty space offers the menu for adding a track** — to the
+  right of the strips in the console, and below the track headers in the
+  arrange view. The console had offered this since the menu was added, but only
+  on the few pixels of its own background: the space beside the strips belongs
+  to the component that holds them, and that component was swallowing the
+  click. Left-clicking there still does nothing, so empty space stays empty
+
+- **Dragging notes past the edge of the editor scrolls to follow the pointer**,
+  for moving, copying and selecting alike, and keeps scrolling while the
+  pointer is held outside. Until now a note had to be dropped, the view
+  scrolled, and the note picked up again — and a selection box cannot be picked
+  up again at all, so a range wider than the screen could not be drawn
+
+- **Snapping has a second kind of stop for notes that do not sit on the grid.**
+  Dragging one with snapping on could only put it on grid lines, so a note
+  placed by hand could not be doubled at its own timing without turning
+  snapping off and aiming by eye. The stops are now the grid and the dragged
+  note's own offset carried forward in whole grid steps, whichever is nearer,
+  so the note can equally be put back on the grid. A note that starts on the
+  grid behaves exactly as it did, because the two kinds of stop then fall in
+  the same places
+
+### Changed
+
+- **Write layers its notes over whatever is already there** instead of clearing
+  the range first. Clearing made sense while pressing the same spot twice was
+  the thing to protect against, but the button is used to build a part up — a
+  counter melody over the chord, an inversion on top, the same position again
+  at a different note length — and notes that disappear cannot be seen to have
+  disappeared until it is played back. Notes that pile up can. Writing the
+  whole progression from the right-click menu still replaces, as it always said
+  it would
+
+- **Selecting a track in the editor's list selects it everywhere else as well.**
+  The other direction already worked, so the list would follow the arrange view
+  but never lead it, and changing which track was being typed into left the
+  inspector and the console showing the last one
+
+- **Notes on other tracks are drawn a little more solidly.** The watermark was
+  faint enough to satisfy "not mistakable for the notes being edited", which is
+  only half of what it is for
+
+- **The picture on the automation button is smaller**, so that it has the same
+  margin as the mute and solo buttons beside it; the button is the size it was.
+  Those two are letters and had always sat clear of their frames, while the
+  picture filled its own to the edges, which made one of the three look larger
+  than the others
+
+### Fixed
+
+- **The chord pad could write the chord before the one under the cursor.**
+  Whether the cursor counted as being inside a chord region was decided with a
+  plain greater-or-equal and less-than, so a cursor that had landed a hair
+  short of a region's start was read as outside it and the answer fell back to
+  the region before — the name beside the Write button showed that chord, and
+  pressing it wrote that chord. Two things put the cursor a hair short, and
+  both only ever undershoot: the playhead is truncated to whole samples, and
+  the Write button advances by adding seconds while a region's start is
+  converted from beats. Clicking elsewhere and back appeared to fix it because
+  that path hands the chord pad the snapped time itself. Comparisons against a
+  chord region now go through the same tolerance every other range test uses
+
+---
+
 ## [0.8.0] - 2026-09-20
 
 ### Added
