@@ -463,6 +463,10 @@ MainComponent::MainComponent()
     // **入口はアレンジ画面とピアノロールの2つ**あるので、ツールと同じく
     // 「決めるのはここ1箇所、両方へ配る」形にしてある（1.27・8.15）。
     // 片方だけを更新すると、もう片方のコンボボックスに古い値が残る。
+    // 8.308：小節の挿入・削除（Phase 301／本人の要望）。
+    // **窓を出すのはMainComponent**——境目に使う再生カーソルを知っているのがここだから
+    arrangeView.onBarEditRequested = [this] (bool inserting) { showBarEditDialog (inserting); };
+
     arrangeView.onSnapGridSelected  = [this] (SnapGrid newGrid) { applySnapGrid (newGrid); };
     pianoRollView.onSnapGridSelected = [this] (SnapGrid newGrid) { applySnapGrid (newGrid); };
 
@@ -1026,6 +1030,38 @@ void MainComponent::popOutEditor()
     refreshEditorContent();
 }
 
+
+
+//==============================================================================
+// 8.311：前に開いていた窓を覚えて、開き直したときも出す（Phase 304／本人の要望）
+
+void MainComponent::captureOpenWindowsIntoProject()
+{
+    audioEngine.captureOpenEditorWindowsIntoProject();
+
+    // **エディタパネルが別窓になっていたか。** 位置と大きさは今までどおり
+    // `AppSettings`が覚えています（`editorWindowBoundsKey`）——
+    // **どこに置いたかは人ごとの好みで、プロジェクトの中身ではない**ためです。
+    //
+    // 「別窓にしていたか」のほうはプロジェクトごとに違います
+    // （打ち込み中の曲では出しっぱなし、ミックス中の曲では畳んだまま、など）
+    if (editorWindow != nullptr)
+        project.getState().setProperty (IDs::editorPoppedOut, true, nullptr);
+    else
+        project.getState().removeProperty (IDs::editorPoppedOut, nullptr);
+}
+
+void MainComponent::restoreOpenWindowsFromProject()
+{
+    audioEngine.restoreOpenEditorWindowsFromProject();
+
+    if (! (bool) project.getState().getProperty (IDs::editorPoppedOut, false))
+        return;
+
+    // **既に別窓なら何もしない**（`popOutEditor()`が前面に出すだけで済ませます）。
+    // 出す中身は`refreshEditorContent()`が決めるので、ここでは窓を作るだけ
+    popOutEditor();
+}
 
 void MainComponent::dockEditor()
 {
@@ -2407,6 +2443,12 @@ void MainComponent::updateTransportForPlayhead (double seconds)
 {
     transportBar.setPlayheadSeconds (seconds);
 
+    // 8.307：**小節・拍もここで配る**（Phase 300／本人の指定）。
+    // テンポも拍子も途中で変わるので、**割り算で出さずにモデルへ訊くこと**（8.98）
+    const auto position = project.getBarBeatAt (seconds);
+
+    transportBar.setBarBeat (position.bar, position.beat);
+
     // **入口はここ1つ**（1.27）。`setPlayheadSeconds()`を直に呼ぶ場所が9つあり、
     // そのうち何か所かで値の更新を忘れる、という形の抜けを作らないため
     const auto values = project.getValuesInForceAt (seconds);
@@ -2639,6 +2681,70 @@ void MainComponent::loopToSelectedClip()
     applyLoopSettings();
 }
 
+
+//==============================================================================
+// 8.308：小節の挿入・削除（Phase 301／本人の要望）
+
+void MainComponent::showBarEditDialog (bool inserting)
+{
+    // **境目は再生カーソルのいる小節の頭**（本人の指定：「カーソル位置(○○小節)の前に」）。
+    //
+    // 右クリックした場所ではありません——メニューは入口にすぎず、
+    // **どこに挿すかはカーソルが決めます**。窓に小節番号を出すので、
+    // 「どこへ入るのか」は押す前に読めます。
+    //
+    // 8.309：**`getCursorBarIndex()`のほうを使うこと**（Phase 302／本人の報告）。
+    // 素の`getBarIndexAt()`だと、**小節線の上に置いたカーソルで1つ前の小節**が返ります
+    const int atBar = project.getCursorBarIndex (audioEngine.getPlayheadSeconds());
+
+    auto* window = new juce::AlertWindow (inserting ? utf8 ("小節の挿入") : utf8 ("小節の削除"),
+                                           juce::String (atBar + 1) + utf8 ("小節目")
+                                             + (inserting ? utf8 ("の前に挿し込む小節の数")
+                                                          : utf8 ("から取り除く小節の数")),
+                                           juce::MessageBoxIconType::NoIcon);
+
+    window->addTextEditor ("bars", "1", utf8 ("小節数"));
+
+    // **補足はここに書く。** 「何が動くのか」は押してみるまで分からないと、
+    // 試しに押すことになります（Undoできるとしても、一度は驚きます）
+    window->addTextBlock (inserting
+                            ? utf8 ("後ろにあるものは、すべて同じだけ後ろへ下がります"
+                                     "（クリップ・ノート・マーカー・テンポ・拍子・キー・コード）。"
+                                     "挿す位置をまたぐクリップやノートは、そこで2つに割れます。")
+                            : utf8 ("取り除く範囲にあるものは消え、後ろにあるものはすべて同じだけ前へ詰まります"
+                                     "（クリップ・ノート・マーカー・テンポ・拍子・キー・コード）。"));
+
+    window->addButton (utf8 ("実行"), 1, juce::KeyPress (juce::KeyPress::returnKey));
+    window->addButton (utf8 ("キャンセル"), 0, juce::KeyPress (juce::KeyPress::escapeKey));
+
+    window->enterModalState (true, juce::ModalCallbackFunction::create (
+        [this, window, inserting, atBar] (int result)
+        {
+            std::unique_ptr<juce::AlertWindow> owned (window);
+
+            if (result != 1)
+                return;
+
+            const int numBars = owned->getTextEditorContents ("bars").getIntValue();
+
+            if (numBars <= 0)
+                return;
+
+            project.beginAction (inserting ? utf8 ("小節の挿入") : utf8 ("小節の削除"));
+
+            const bool changed = inserting ? project.insertBars (atBar, numBars, &project.getUndoManager())
+                                           : project.removeBars (atBar, numBars, &project.getUndoManager());
+
+            if (! changed)
+                return;
+
+            // **画面もエンジンも作り直す。** 動いたのはノートだけではありません
+            // ——テンポの表が変わっているので、メトロノームもルーラーも見直しが要ります
+            refreshAllViews (true);
+            audioEngine.updateMetronomeTiming (project.getTempoMap());
+        }), false);
+}
+
 void MainComponent::undo()
 {
     if (! project.getUndoManager().undo())
@@ -2648,6 +2754,29 @@ void MainComponent::undo()
     // 自動では描き直されない。モデルが外から変わったときと同じ扱いで作り直す。
     // 選択は残す：プロジェクトは同じなので、覚えているtrackIdは有効なまま（Phase 34）。
     refreshAllViews (true);
+
+    // 8.310：**Undoしたら、時間範囲は畳む**（Phase 303／本人の報告2回目）。
+    //
+    // 塊やクリップを動かすと、**掛けてあった範囲も一緒に動きます**（8.95）。
+    // Undoで中身だけが元へ戻るので、**動かした先に枠だけが残ります**
+    // ——選んでいるつもりのものが、もうそこに無い。
+    //
+    // ### 8.308では「空なら畳む」にしていました
+    //
+    // 中身が残っているなら選び直さずに済む、という判断でしたが、
+    // **本人からもう一度同じ報告が来ました**。条件付きでは漏れます：
+    //
+    // | 漏れていた形 | |
+    // |---|---|
+    // | **全トラックの範囲** | 8.124で「空でも残す」と決めてある（マーカーで選んだ区間のため） |
+    // | 動かした先に**別の音があった**とき | 空ではないので残る。枠は別のものを囲っている |
+    //
+    // **条件を足していくのをやめました。** Undoは「さっきの状態へ戻す」操作で、
+    // **範囲はさっきの並びを指している**のだから、一緒に畳むのが素直です。
+    //
+    // 引き換えに、範囲を選んで消してUndoしたときは**選び直し**になります
+    // ——枠だけが残って混乱するより、そちらのほうがましだという判断です。
+    arrangeView.clearTimeRange();
 
     // 仕様書5.7：フェーダー操作が巻き戻った場合、音にも反映する必要がある
     audioEngine.updateMixerSettings();
@@ -2659,6 +2788,7 @@ void MainComponent::redo()
         return;
 
     refreshAllViews (true); // undo()と同じ理由で選択は残す
+    arrangeView.clearTimeRange();   // 8.310（Phase 303）。undo()と同じ理由
     audioEngine.updateMixerSettings();
 }
 
@@ -2705,6 +2835,14 @@ void MainComponent::offerAutoSaveRecovery()
 
             const auto pluginErrors = audioEngine.restorePluginsFromProject();
             refreshAllViews();
+
+            // 8.311：**復元でも窓を出し直す**（Phase 304）。
+            // 落ちる前の続きから始められるように——ここが「開き直し」そのものです。
+            //
+            // **控えるほうは自動保存では行いません**：ValueTreeへ書くと
+            // **触っていないのに「未保存」の印が付きます**（定期的に走るため）。
+            // 出るのは「最後に手で保存したときの窓」です
+            restoreOpenWindowsFromProject();
 
             arrangeView.showStatusMessage (utf8 ("自動保存から復元しました。内容を確認して保存してください。"));
 
@@ -3045,6 +3183,13 @@ void MainComponent::loadProjectFile (const juce::File& file)
 
     refreshAllViews();
 
+    // 8.311：**前に開いていた窓を出し直す**（Phase 304／本人の要望）。
+    //
+    // **`refreshAllViews()`より後**で呼ぶこと——あちらが
+    // `flushPendingTrackRebuild()`を通して音源を載せ終えます。
+    // 先に呼ぶと、まだ載っていないプラグインの窓を開こうとして何も起きません
+    restoreOpenWindowsFromProject();
+
     if (! pluginErrors.isEmpty())
     {
         juce::NativeMessageBox::showAsync (
@@ -3071,6 +3216,11 @@ void MainComponent::saveProject (std::function<void (bool)> onComplete)
     // 設計書3.8：保存の直前に、ロード中プラグインの内部状態を取り込む。
     // ここで取らないと、読み込んだ後につまみを動かした結果が保存されない。
     audioEngine.capturePluginStatesIntoProject();
+
+    // 8.311：**開いている窓も、保存の直前に控える**（Phase 304／本人の要望）。
+    // ここで取るのは、**開け閉てのたびに書くと「未保存」の印が付く**ためです
+    // （プラグインの内部状態と同じ扱い。設計書3.8）
+    captureOpenWindowsIntoProject();
 
     const auto file = project.getCurrentFile();
     const bool saved = project.saveToFile (file);

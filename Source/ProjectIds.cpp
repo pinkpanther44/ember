@@ -68,6 +68,12 @@ namespace IDs
     const juce::Identifier midiInputDevice   { "midiInputDevice" };
     const juce::Identifier midiInputChannel  { "midiInputChannel" };
     const juce::Identifier midiOutputChannel { "midiOutputChannel" };
+    const juce::Identifier midiDelayMs { "midiDelayMs" };   // 8.307（Phase 300）
+
+    // 8.311：前に開いていた窓（Phase 304）
+    const juce::Identifier instrumentEditorOpen { "instrumentEditorOpen" };
+    const juce::Identifier insertEditorOpen { "insertEditorOpen" };
+    const juce::Identifier editorPoppedOut { "editorPoppedOut" };
     const juce::Identifier volume     { "volume" };
     const juce::Identifier pan        { "pan" };
 

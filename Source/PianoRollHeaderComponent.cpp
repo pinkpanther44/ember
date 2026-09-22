@@ -57,6 +57,19 @@ void PianoRollHeaderComponent::mouseWheelMove (const juce::MouseEvent& e,
         return;
     }
 
+    // 8.308：**Ctrl＋ホイールは縦の拡大・縮小**（Phase 301／本人の指定）。
+    // アレンジ画面と同じ割り当てです（`TimelineComponent::mouseWheelMove`）。
+    //
+    // **軸は画面の中ほど**にします。この帯には鍵盤が無いので、
+    // 「マウスの下の音」が決まりません——本体の見えている範囲の真ん中を渡して、
+    // **いま見ている音域が真ん中に留まる**ようにしています
+    if (e.mods.isCommandDown())
+    {
+        pianoRoll.zoomVertically (wheel.deltaY > 0.0f ? 1.2 : 1.0 / 1.2,
+                                   pianoRoll.getVisibleVerticalCentreY());
+        return;
+    }
+
     // **刻みは本体が持っている**（ボタンと同じ量になる）。ここで数を書かないこと
     if (wheel.deltaY > 0.0f)
         pianoRoll.zoomIn (e.x);
@@ -255,7 +268,15 @@ void PianoRollHeaderComponent::drawMarkers (juce::Graphics& g)
         g.setColour (AppColours::purple.withAlpha (isDragged ? 0.9f : 0.7f));
         g.fillRect (bounds);
 
-        g.setColour (AppColours::textPrimary);
+        // 8.308：**アレンジ画面と同じ白**（Phase 301／本人の指定）。
+        //
+        // Phase 300までは`textPrimary`でした——**旗の地はどちらもパープル**なのに、
+        // 字だけが画面によって違う色で出ていました
+        // （ライトでは黒っぽく、ダークでは白っぽく）。
+        //
+        // **塗りつぶした上の字は白**、が決めごとです（1.34）。
+        // 地の色に合わせて自動で決めると、テーマによって読めたり読めなかったりします
+        g.setColour (juce::Colours::white);
         g.drawText (project.getMarker (i).getName(), bounds.reduced (3, 0),
                      juce::Justification::centredLeft, false);
     }

@@ -276,6 +276,15 @@ public:
         縦にスクロールしたときに一緒に流れて消える）。 */
     void setVisibleVerticalRange (int scrollOffsetY, int visibleHeight);
 
+    /** 8.308：見えている範囲の縦の真ん中（この部品の座標。Phase 301）。
+
+        縦の拡大の軸に使います。**鍵盤の無い場所（ルーラー）から頼むとき**、
+        「マウスの下の音」が決まらないので、ここを軸にします。 */
+    int getVisibleVerticalCentreY() const
+    {
+        return visibleScrollOffsetY + (visibleHeight > 0 ? visibleHeight : getHeight()) / 2;
+    }
+
     //==========================================================================
     // 8.1のD5／G4：他のMIDIトラックのノートを透かす（Phase 73）
 
@@ -353,7 +362,11 @@ public:
         そこは表示の切り替えより前に決まるためです。 */
     static int getYForPitchTop (int pitch)
     {
-        return (highestPitch - juce::jlimit (lowestPitch, highestPitch, pitch)) * noteRowHeight;
+        // 8.308：**元の高さで答えます**（Phase 301）。行の高さは倍率で変わるように
+        // なりましたが、ここを呼ぶのは**部品を作った直後の1回だけ**で、
+        // そのとき倍率はまだ1.0です（`PianoRollView`のコンストラクタ）。
+        // **インスタンスを持たない場所から呼べる**ことのほうが大事なので、静的なままにしてあります
+        return (highestPitch - juce::jlimit (lowestPitch, highestPitch, pitch)) * baseNoteRowHeight;
     }
 
     //==========================================================================
@@ -895,7 +908,53 @@ private:
     void valueTreeChildRemoved (juce::ValueTree&, juce::ValueTree&, int) override;
     void valueTreeParentChanged (juce::ValueTree&) override;
 
-    static constexpr int noteRowHeight = 12;
+    //==========================================================================
+public:
+    /** 8.308：**縦の拡大・縮小**（Phase 301／本人の要望）。
+
+        > 「ArrangeやEditor画面の縦尺を拡大・縮小できるものがないので追加。
+        > **小節レーン上をctrl＋マウスホイールスクロール**で対応しよう」
+
+        Phase 300まで、行の高さは**固定の12px**（ドラムは16px）でした。
+        広い音域を見渡したいときも、細かく置きたいときも、同じ高さです。
+
+        ### 元の値は残してあります
+
+        `noteRowHeight`と`drumRowHeight`は**倍率を掛けた結果**で、
+        元の値は`baseNoteRowHeight`・`baseDrumRowHeight`のほうです。
+        こうすると、**この2つを読んでいる14箇所を1つも直さずに**済みます
+        （行の高さを聞く口は既に`getRowHeight()`に集まっていますが、
+        鍵盤や地を描くところは直に読んでいます）。
+
+        ### 端は「読めなくなる手前」で止める
+
+        小さいほうは**6px**——これより低いと、ノートが線にしか見えません。
+        大きいほうは**40px**（ドラムは行の名前が入る必要があるので、
+        同じ倍率でも元が大きいぶん先に上限へ着きます）。 */
+    void zoomVertically (double factor, int anchorY);
+
+    double getVerticalZoom() const { return verticalZoom; }
+
+    /** 8.308：縦の倍率が変わったときに呼ばれる（Phase 301）。
+
+        引数は**ビューポートに足してほしいスクロール量**（px）。
+        縦に動かすのはビュー側の仕事なので、ここでは頼むだけです
+        （`PianoRollView`が`viewport.setViewPosition()`する）。 */
+    std::function<void (int deltaY)> onVerticalZoomChanged;
+
+private:
+    static constexpr int baseNoteRowHeight = 12;
+    static constexpr int baseDrumRowHeight = 16;
+
+    static constexpr int minimumRowHeight = 6;
+    static constexpr int maximumRowHeight = 40;
+
+    double verticalZoom = 1.0;
+
+    /** 倍率から2つの行の高さを出し直す。**`verticalZoom`を変えたら必ず呼ぶこと。** */
+    void applyVerticalZoom();
+
+    int noteRowHeight = baseNoteRowHeight;
     //==========================================================================
     /** 8.282：**鍵盤はMIDIの全域を出します**（Phase 275／本人の要望）。
 
@@ -989,7 +1048,7 @@ private:
 
     // 仕様書5.3.2：ドラムエディター（Phase 25）。
     // パート名を読める高さが要るので、鍵盤の行より少し高くしてある。
-    static constexpr int drumRowHeight = 16;
+    int drumRowHeight = baseDrumRowHeight;   // 8.308：倍率を掛けた結果（Phase 301）
 
     /** 8.60：**ドラムのノートは▶で描く**（Phase 97／D13。仕様書5.3.2）。
 
@@ -1195,6 +1254,24 @@ private:
 
     /** 横スクロールしたぶん、ドラッグの起点を動かす（上の表の右列）。 */
     void shiftDragAnchorsX (int pixels);
+
+    /** 8.310：このドラッグはレーンの中で始まったか（Phase 303）。
+
+        **縦の追いかけを止めるのに使います**（`autoScrollWhileDragging()`）。
+        「いまどこに居るか」ではなく「どこで掴んだか」で決めること。 */
+    /** 8.310：**Ctrlで掴んだが、まだ選択に足していない**（Phase 303）。
+
+        Ctrlは「選択に足す」と「ドラッグで複製」の両方に使うので、
+        掴んだ時点では決まりません。**動かし始めたら1つへ畳み**、
+        動かさずに離したなら足します（アレンジ画面のクリップと同じ形。8.154）。 */
+    bool ctrlClickPendingSelection = false;
+
+    /** 8.310：いま引いている枠は、**いまの選択に足す**ためのものか（Phase 303）。
+
+        Ctrlを押しながら引き始めたときだけtrue。`applyRangeSelection()`が見ます。 */
+    bool rangeSelectAdds = false;
+
+    bool dragStartedInLane = false;
 
     /** 1回ぶんのスクロール量。**外へ出たぶんに比例**させて、上限で止める。
 

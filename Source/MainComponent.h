@@ -122,6 +122,12 @@ private:
     /** 仕様書4.2：エディタを別ウィンドウへ出す（マルチモニター対応）。 */
     void popOutEditor();
 
+    /** 8.311：開いている窓をプロジェクトへ控える（保存の直前。Phase 304）。 */
+    void captureOpenWindowsIntoProject();
+
+    /** 8.311：控えてあった窓を開き直す（プロジェクトを開いた直後。Phase 304）。 */
+    void restoreOpenWindowsFromProject();
+
     /** 別ウィンドウのエディタを、メインウィンドウ下部へ戻す（設計書2.5）。 */
     void dockEditor();
 
@@ -333,6 +339,9 @@ private:
     void getAllCommands (juce::Array<juce::CommandID>& commands) override;
     void getCommandInfo (juce::CommandID commandID, juce::ApplicationCommandInfo& result) override;
     bool perform (const InvocationInfo& info) override;
+
+    /** 8.308：小節の挿入・削除の窓を出す（Phase 301／本人の要望）。 */
+    void showBarEditDialog (bool inserting);
 
     void undo();
     void redo();

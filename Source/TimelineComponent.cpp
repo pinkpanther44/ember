@@ -351,7 +351,7 @@ int TimelineComponent::getTrackAreaHeight (int rowIndex) const
     // `getRowHeight()`を積んで求めているので（8.18のC15でそう作った）、
     // 0を返せば描画・クリック・並べ替えのすべてから自然に外れます。
     if (project.isTrackHiddenByCollapsedFolder (track))
-        return 0;
+        return 0;   // 8.308：**掛けないこと**（掛けると1pxの行が現れます）
 
     const auto type = track.getType();
 
@@ -368,17 +368,59 @@ int TimelineComponent::getTrackAreaHeight (int rowIndex) const
     // **まとめて音を触るというフォルダの用途が果たせなくなります**（8.51）。
     // 変わるのは三角の向き（▼→▶）だけにしてあります
     if (type == TrackType::Chord && track.isCollapsed())
-        return collapsedRowHeight;
+        return scaleRowHeight (collapsedRowHeight);
 
     // 8.62：**手で決めた高さがあればそれ**（Phase 100）。
     // ヘッダーの下端をドラッグして決めたもの。**種別ごとの既定より優先**します
+    //
+    // 8.308：**倍率は最後に掛ける**（Phase 301）。手で決めた高さの比率が保たれます
     if (const int custom = track.getCustomRowHeight(); custom > 0)
-        return juce::jlimit (minimumTrackRowHeight, maximumTrackRowHeight, custom);
+        return scaleRowHeight (juce::jlimit (minimumTrackRowHeight, maximumTrackRowHeight, custom));
 
     // 8.51：**フォルダは通常の高さ**（Phase 90／D2）。
     // ソロ・ミュート・パン・メーターを持つようになったので、下段が要ります。
     // 仕様書5.2.3：コードトラックだけ半分（中身が「名前だけ」なので）
-    return type == TrackType::Chord ? chordRowHeight : trackRowHeight;
+    return scaleRowHeight (type == TrackType::Chord ? chordRowHeight : trackRowHeight);
+}
+
+int TimelineComponent::scaleRowHeight (int height) const
+{
+    // 8.308：縦の倍率（Phase 301／本人の要望）
+    if (height <= 0 || juce::approximatelyEqual (verticalZoom, 1.0))
+        return height;
+
+    // **下限は名前が読める高さ**（宣言の説明）。上限は今までどおり
+    return juce::jlimit (TrackHeaderControls::nameRowHeight, maximumTrackRowHeight,
+                          (int) std::lround (height * verticalZoom));
+}
+
+void TimelineComponent::zoomVertically (double factor)
+{
+    if (factor <= 0.0)
+        return;
+
+    const double wanted = juce::jlimit (0.3, 3.0, verticalZoom * factor);
+
+    if (juce::approximatelyEqual (wanted, verticalZoom))
+        return;
+
+    // **見た目が変わらないなら、倍率も動かさないこと**（8.300と同じ話）。
+    // 全部の行が下限・上限に貼り付いているのに数字だけ育つと、
+    // **戻すときに何回も回すことになります**
+    const int before = getContentHeightPixels();
+
+    verticalZoom = wanted;
+
+    if (getContentHeightPixels() == before)
+    {
+        verticalZoom = wanted / factor;
+        return;
+    }
+
+    if (onModelChanged != nullptr)
+        onModelChanged();   // スクロール範囲を組み直してもらう
+
+    repaint();
 }
 
 int TimelineComponent::getPinnedRowIndex() const
@@ -803,6 +845,21 @@ void TimelineComponent::zoomToFit()
 
 void TimelineComponent::mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel)
 {
+    // 8.308：**小節レーンの上でCtrl＋ホイールは、縦の拡大・縮小**
+    //        （Phase 301／本人の指定）。
+    //
+    // **Ctrlの分岐より先に見ること。** 後ろに置くと、下の「どこでも横の拡大」に
+    // 先に拾われます。
+    //
+    // ここでだけ意味が変わるのは、**ルーラーの上では修飾キー無しのホイールが
+    // 既に横の拡大**だからです（8.123）——同じ場所に2つの尺があり、
+    // Ctrlで「もう片方」へ切り替わる、と読めます。
+    if (e.mods.isCommandDown() && getRulerArea().contains (e.getPosition()))
+    {
+        zoomVertically (std::pow (zoomStepFactor, wheel.deltaY > 0.0f ? 1.0 : -1.0));
+        return;
+    }
+
     // Ctrl（Macではcommand）+ホイールで拡大縮小。多くのDAW・エディタ共通の操作。
     if (e.mods.isCommandDown())
     {
@@ -2701,12 +2758,29 @@ void TimelineComponent::showToolMenu (const juce::MouseEvent& e)
     menu.addItem (4, utf8 ("カット（割る）"), true, current == EditTool::cut);
     menu.addItem (5, utf8 ("消しゴム（触れたものを消す）"), true, current == EditTool::eraser);
 
+    // 8.308：**小節の挿入・削除**（Phase 301／本人の要望）。
+    //
+    // **入口はこことトラックヘッダーのメニュー**（本人の指定）。
+    // どちらも「いま見ているところで右クリック」で届きます
+    menu.addSeparator();
+    menu.addSectionHeader (utf8 ("小節"));
+    menu.addItem (10, utf8 ("小節を挿入..."));
+    menu.addItem (11, utf8 ("小節を削除..."));
+
     menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this)
                             .withTargetScreenArea ({ e.getScreenX(), e.getScreenY(), 1, 1 }),
         [this] (int result)
         {
             if (result <= 0)
                 return;
+
+            if (result == 10 || result == 11)
+            {
+                if (onBarEditRequested != nullptr)
+                    onBarEditRequested (result == 10);
+
+                return;
+            }
 
             const auto tool = result == 2 ? EditTool::pencil
                             : result == 4 ? EditTool::cut
@@ -4390,19 +4464,31 @@ juce::Rectangle<int> TimelineComponent::getTrackTypeIconBounds (int rowIndex) co
 }
 
 void TimelineComponent::drawHeaderChip (juce::Graphics& g, juce::Rectangle<int> bounds,
-                                         const juce::String& text, bool isOn, juce::Colour onColour)
+                                         const juce::String& text, ChipState state,
+                                         juce::Colour onColour)
 {
     if (bounds.isEmpty())
         return;
 
-    g.setColour (isOn ? onColour : AppColours::background);
+    const bool isOn = (state != ChipState::off);
+
+    // 8.314：**借りている点灯は薄く**（Phase 307／宣言の説明）
+    const auto fill = state == ChipState::borrowed ? onColour.withAlpha (AppColours::borrowedOnAlpha)
+                                                   : onColour;
+
+    g.setColour (isOn ? fill : AppColours::background);
     g.fillRoundedRectangle (bounds.toFloat(), AppColours::corner (3.0f));
-    g.setColour (isOn ? onColour : AppColours::border);
+    g.setColour (isOn ? fill : AppColours::border);
     g.drawRoundedRectangle (bounds.toFloat(), AppColours::corner (3.0f), 1.0f);
 
     // 塗りつぶしたときだけ白文字。**地の色に合わせて自動では決めない**
     // （パープル／オレンジの上は、ライトでもダークでも白が読みやすい。1.34）
-    g.setColour (isOn ? juce::Colours::white : AppColours::textSecondary);
+    //
+    // 8.314：**借りているときは字も薄い地に乗る**ので、白では読めません。
+    // いつもの文字色のままにします
+    g.setColour (state == ChipState::on ? juce::Colours::white
+               : state == ChipState::borrowed ? AppColours::textPrimary
+                                              : AppColours::textSecondary);
 
     // 8.295：**字の大きさはボタンの高さから**（Phase 288／改善案1）。
     //
@@ -4745,7 +4831,7 @@ void TimelineComponent::drawTrackHeaderContents (juce::Graphics& g, int rowIndex
     // **選択も同時に移す**ので、押したトラックの設定がそのまま出ます。
     //
     // 8.295：**名前の左へ移りました**（Phase 288／改善案1。本人の指定）
-    drawHeaderChip (g, getInspectorButtonBounds (rowIndex), "i", false, AppColours::purple);
+    drawHeaderChip (g, getInspectorButtonBounds (rowIndex), "i", ChipState::off, AppColours::purple);
 
     // 8.295：**「i」が居た場所に、トラックの種類を示す絵**（Phase 288／改善案1）。
     //
@@ -4770,7 +4856,8 @@ void TimelineComponent::drawTrackHeaderContents (juce::Graphics& g, int rowIndex
         // ためのものなので、録り先が決まっていないトラックに出しても意味がない
         const bool monitoring = isInputMonitoringEnabled != nullptr && isInputMonitoringEnabled();
 
-        drawHeaderChip (g, getMonitorButtonBounds (rowIndex), "IN", monitoring, AppColours::orange);
+        drawHeaderChip (g, getMonitorButtonBounds (rowIndex), "IN",
+                         monitoring ? ChipState::on : ChipState::off, AppColours::orange);
     }
 
     // 8.44：畳む／開くの三角（Phase 84／C12）。**名前の手前**に置き、そのぶん名前を寄せる
@@ -4827,8 +4914,19 @@ void TimelineComponent::drawTrackHeaderContents (juce::Graphics& g, int rowIndex
     // ——それでも並べ替えてあるのは、読んだときに画面と同じ順に見えるようにするためです
     if (trackTypeHasSoloMute (type))
     {
-        drawHeaderChip (g, getMuteButtonBounds (rowIndex), "M", track.isMuted(), AppColours::orange);
-        drawHeaderChip (g, getSoloButtonBounds (rowIndex), "S", track.isSoloed(), AppColours::purple);
+        // 8.314：**フォルダから借りている点灯**（Phase 307／本人の要望）。
+        // **判定はモデルの1箇所**（`getFolderInfluenceFor()`。音の判定と同じものを見る）
+        const auto folder = project.getFolderInfluenceFor (track);
+
+        const auto chipState = [] (bool own, bool borrowed)
+        {
+            return own ? ChipState::on : borrowed ? ChipState::borrowed : ChipState::off;
+        };
+
+        drawHeaderChip (g, getMuteButtonBounds (rowIndex), "M",
+                         chipState (track.isMuted(), folder.muted), AppColours::orange);
+        drawHeaderChip (g, getSoloButtonBounds (rowIndex), "S",
+                         chipState (track.isSoloed(), folder.soloed), AppColours::purple);
     }
 }
 
@@ -5975,6 +6073,42 @@ void TimelineComponent::mouseDown (const juce::MouseEvent& e)
             project.beginAction (utf8 ("クリップの削除"));
             eraseClipAt (e.getPosition());
             dragMode = DragMode::None;
+            return;
+        }
+    }
+
+    // 8.308：**Alt＋ドラッグは、クリップの上でも範囲を引く**（Phase 301／本人の要望）。
+    //
+    // > 「クリップや塊を部分選択したい場合、上下にクリップや塊で挟まれている場合、
+    // > 選択が難しい。**クリップや塊を掴まず範囲選択できる**仕様にできるかな？」
+    //
+    // 範囲は「音の無いところ」からしか引けませんでした（下の`allowCreate`）。
+    // 上下を埋められた行では**引き始める場所が無く**、部分選択ができません。
+    //
+    // **Altにしたのは、Ctrlが埋まっているから**です（クリップの上でのCtrl＋ドラッグは
+    // Phase 52からずっと複製で、手が覚えている操作です）。Altはクリップの**端**で
+    // ストレッチに使っていますが、**真ん中では空いています**——
+    // 端の判定（`DragMode::StretchRight`）はこの下にあるので、そちらが先に効きます。
+    //
+    // **矢印ツールのときだけ**。ペンや消しゴムでAltを押しても、
+    // それらの仕事のほうが先です（上で`return`しています）
+    //
+    // **範囲が意味を持つのはMIDIトラックだけ**（`handleTimeRangeMouseDown()`の下半分と
+    // 同じ決まり）。オーディオの行でAltを押しても、いつもどおりの操作へ落とします
+    // ——**押せるのに何も起きない**より、今までどおりのほうがよい（8.161）
+    if (e.mods.isAltDown() && ! e.mods.isPopupMenu() && editTool == EditTool::arrow
+         && getTimelineArea().contains (e.getPosition())
+         && ! findAutomationRowAtY (e.y).isValid())
+    {
+        // **行はYから引くこと。** この上の`trackIndex`はまだ-1です
+        // （埋めるのは下の`hitTestClip()`で、そこまで落ちてきません）
+        const int rowIndex = getTrackIndexForY (e.y);
+
+        if (juce::isPositiveAndBelow (rowIndex, project.getNumTracks())
+             && project.getTrack (rowIndex).getType() == TrackType::Midi)
+        {
+            beginTimeRangeCreation (rowIndex, xToTime (e.x));
+            repaint();
             return;
         }
     }
@@ -8843,6 +8977,12 @@ bool TimelineComponent::handleTimeRangeMouseDown (const juce::MouseEvent& e, boo
     if (! allowCreate || e.mods.isPopupMenu())
         return false;   // 範囲の外：作れるのは空いている場所だけ（右クリックはツールのメニュー）
 
+    beginTimeRangeCreation (trackIndex, time);
+    return true;
+}
+
+void TimelineComponent::beginTimeRangeCreation (int trackIndex, double time)
+{
     // 8.96：**MIDIトラックの空きを押したときも、そのトラックを選ぶ**（Phase 136）。
     // 非MIDIのトラックは`mouseDown`の空き処理が同じことをしています
     clearClipSelection();
@@ -8863,8 +9003,6 @@ bool TimelineComponent::handleTimeRangeMouseDown (const juce::MouseEvent& e, boo
     timeRangeAnchorTime = time;
     timeRangeStart = time;
     timeRangeEnd = time;
-
-    return true;
 }
 
 void TimelineComponent::startTimeRangeDrag (const juce::MouseEvent& e)
@@ -9923,19 +10061,37 @@ void TimelineComponent::clearTimeRangeIfEmpty()
     if (timeRangeAllTracks)
         return;
 
-    const int primaryTrackIndex = getPrimaryTimeRangeTrackIndex();
-
-    if (! hasTimeRange || ! juce::isPositiveAndBelow (primaryTrackIndex, project.getNumTracks()))
+    if (! hasTimeRange)
         return;
 
-    auto track = project.getTrack (primaryTrackIndex);
-
-    for (int n = 0; n < track.getNumNotes(); ++n)
+    // 8.308：**掛かっている行を全部見る**（Phase 301／本人の報告）。
+    //
+    // Phase 300までは**先頭の1行のノートだけ**を見ていました。
+    // オーディオのクリップは数えていなかったので、
+    // **クリップを動かしてUndoすると、枠だけがそこに残りました**
+    // （本人の絵。8.96で「枠だけが宙に浮く」と書いたのと同じことが、
+    // 別の道から起きていた）。
+    for (const auto& trackId : timeRangeTrackIds)
     {
-        auto note = track.getNote (n);
+        auto track = project.findTrackById (trackId);
 
-        if (isWithinRange (note.getStartTime(), timeRangeStart, timeRangeEnd))
-            return;   // まだ中身がある
+        if (! track.state.getParent().isValid())
+            continue;
+
+        for (int n = 0; n < track.getNumNotes(); ++n)
+            if (isWithinRange (track.getNote (n).getStartTime(), timeRangeStart, timeRangeEnd))
+                return;   // まだ中身がある
+
+        // **クリップは「範囲と重なっているか」で見ること。** 頭が範囲の手前でも、
+        // 中まで伸びていれば中身です（ノートは短いので頭だけで足ります）
+        for (int c = 0; c < track.getNumClips(); ++c)
+        {
+            auto clip = track.getClip (c);
+            const double start = clip.getStartTime();
+
+            if (start < timeRangeEnd && start + clip.getLength() > timeRangeStart)
+                return;
+        }
     }
 
     clearTimeRange();
@@ -10776,13 +10932,14 @@ void TimelineComponent::drawAutomationRowHeader (juce::Graphics& g, AutomationRo
 
     // 8.59：**「B」でバイパス**（Phase 96）。点は消さずに効かせるのをやめる。
     // 入っているときはオレンジ（インサートのバイパスと同じ意味の色）
-    drawHeaderChip (g, getAutomationBypassButtonBounds (ref), "B", lane.isBypassed(),
+    drawHeaderChip (g, getAutomationBypassButtonBounds (ref), "B",
+                     lane.isBypassed() ? ChipState::on : ChipState::off,
                      AppColours::orange);
 
     // 8.56：**行の右端の「x」で閉じる**（Phase 94）。
     // ヘッダーの「A」まで戻らずに畳めるようにしておく。
     // 1.30：**記号文字は使わない**（この環境のフォントに無い）ので、小文字のxで描く
-    drawHeaderChip (g, getAutomationCloseButtonBounds (ref), "x", false, AppColours::purple);
+    drawHeaderChip (g, getAutomationCloseButtonBounds (ref), "x", ChipState::off, AppColours::purple);
 }
 
 void TimelineComponent::drawAutomationCurve (juce::Graphics& g, AutomationRowRef ref)

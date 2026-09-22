@@ -3,6 +3,8 @@
 #include "ChordModel.h"   // 仕様書5.11.1：pitchClassName（Phase 63）
 #include "Utf8.h"
 
+#include <cmath>   // 8.307：タップテンポの丸め（Phase 300）
+
 namespace
 {
     /** 設計書2.6：開いているパネルのボタンはパープルで示す。 */
@@ -60,6 +62,16 @@ TransportBarComponent::TransportBarComponent()
     timeLabel.setTextColour (AppColours::textPrimary);
     addAndMakeVisible (timeLabel);
     setPlayheadSeconds (0.0);
+
+    // 8.307：**小節・拍のカウンタ**（Phase 300／本人の指定）。
+    //
+    // **秒より一回り小さく、色も一段落とす**——並べたときに
+    // 「どちらを見ればいいか」が分かれていないと、2つとも読めません。
+    // 大きいほう（秒）が主で、こちらは添えもの、という見え方にしてあります
+    barLabel.setPlainFontHeight (16.0f);
+    barLabel.setTextColour (AppColours::textSecondary);
+    addAndMakeVisible (barLabel);
+    setBarBeat (0, 0);
 
     // 仕様書5.4・設計書2.6：録音関連はオレンジで示す
     recordButton.setColour (juce::TextButton::buttonColourId, AppColours::background);
@@ -138,6 +150,27 @@ TransportBarComponent::TransportBarComponent()
     tempoCaption.setFont (juce::FontOptions (11.0f));
     tempoCaption.setJustificationType (juce::Justification::centredRight);
     tempoCaption.setColour (juce::Label::textColourId, AppColours::textSecondary);
+
+    // 8.307：**この字を叩くとテンポが決まる**（Phase 300／本人の指定）。
+    // 見た目は変えません——**押せることは、叩いたときに色が変わることで伝わります**
+    tempoCaption.setTooltip (utf8 ("拍に合わせて続けて叩くと、そこのテンポになります"
+                                    "（2回目から効きます。2秒空けると数え直し）"));
+
+    tempoCaption.onTempoTapped = [this] (double tappedTempo)
+    {
+        // **丸めるのはここ**（`onTextChange`と同じ範囲・同じ刻み）。
+        // 小数第2位まで残すと、叩くたびに末尾がちらついて読めません
+        const double limited = juce::jlimit (20.0, 300.0, std::floor (tappedTempo + 0.5));
+
+        // **自分の表示も先に合わせる。** モデルから戻ってくるのを待つと、
+        // 叩いたのに1拍ぶん変わらない、という見え方になります
+        tempoLabel.setText (juce::String (limited, 2).trimCharactersAtEnd ("0").trimCharactersAtEnd ("."),
+                             juce::dontSendNotification);
+
+        if (onTempoChanged != nullptr)
+            onTempoChanged (limited);
+    };
+
     addAndMakeVisible (tempoCaption);
 
     tempoLabel.setFont (juce::FontOptions (14.0f, juce::Font::bold));
@@ -269,6 +302,65 @@ void TransportBarComponent::setMasterVolumeDb (float volumeDb)
     masterVolumeSlider.setValue (volumeDb, juce::dontSendNotification);
 }
 
+//==============================================================================
+// 8.307：タップテンポ（Phase 300／本人の指定）
+
+void TransportBarComponent::TapTempoLabel::mouseDown (const juce::MouseEvent&)
+{
+    const double now = juce::Time::getMillisecondCounterHiRes() * 0.001;
+    const double sinceLast = now - lastTapSeconds;
+
+    lastTapSeconds = now;
+
+    // **2秒空いたら数え直し**（宣言の説明）。1回目もここを通ります
+    if (sinceLast > 2.0)
+        intervals.clear();
+    else
+        intervals.push_back (sinceLast);
+
+    // **叩いているあいだは副カラー**（本人の指定）。
+    // 止まったら戻すので、タイマーを掛け直しておく
+    setColour (juce::Label::textColourId, AppColours::orange);
+    repaint();
+    startTimer (2000);
+
+    if (intervals.empty())
+        return;   // 1回目。間隔がまだ測れていない
+
+    // **古いぶんは捨てる。** 叩き続けるほど重くなるのを防ぐだけでなく、
+    // **走り出しのふらつきを引きずらない**ため（最初の1〜2回は必ず荒い）
+    while (intervals.size() > 7)
+        intervals.erase (intervals.begin());
+
+    double total = 0.0;
+
+    for (const auto interval : intervals)
+        total += interval;
+
+    const double average = total / (double) intervals.size();
+
+    if (average <= 0.0)
+        return;
+
+    if (onTempoTapped != nullptr)
+    {
+        // **入る範囲へ丸めるのは受け取る側**（`onTextChange`と同じ20〜300）。
+        // ここで丸めると、同じ決まりが2箇所に書かれます（1.27）
+        onTempoTapped (60.0 / average);
+    }
+}
+
+void TransportBarComponent::TapTempoLabel::timerCallback()
+{
+    stopTimer();
+
+    // **色だけ戻します。** 間隔は`mouseDown()`が時間で捨てるので、
+    // ここで消すと「2秒より少し前に叩いた1回」の扱いが2箇所に分かれます
+    setColour (juce::Label::textColourId, AppColours::textSecondary);
+    repaint();
+}
+
+//==============================================================================
 void TransportBarComponent::setPlayheadSeconds (double seconds)
 {
     // 再生中は毎フレーム呼ばれるので、表示が変わらないときは何もしない
@@ -287,6 +379,28 @@ void TransportBarComponent::setPlayheadSeconds (double seconds)
          << "." << juce::String (tenths % 10);
 
     timeLabel.setText (text);
+}
+
+juce::String TransportBarComponent::formatBarBeat (int barIndex, int beatIndex)
+{
+    // **画面に出る番号は1始まり**（宣言の説明）
+    const int bar = juce::jmax (1, barIndex + 1);
+    const int beat = juce::jmax (1, beatIndex + 1);
+
+    return juce::String (bar).paddedLeft ('0', 3) + "." + juce::String (beat);
+}
+
+void TransportBarComponent::setBarBeat (int barIndex, int beatIndex)
+{
+    // 再生中は毎フレーム呼ばれるので、**文字が変わらないときは何もしない**
+    // （`setPlayheadSeconds()`が1/10秒で弾いているのと同じ理由）
+    auto text = formatBarBeat (barIndex, beatIndex);
+
+    if (text == lastShownBarBeat)
+        return;
+
+    lastShownBarBeat = text;
+    barLabel.setText (text);
 }
 
 void TransportBarComponent::setTempoAndTimeSignature (double tempo, const juce::String& timeSignature)
@@ -463,6 +577,33 @@ void TransportBarComponent::resized()
     area.removeFromLeft (14);
 
     timeLabel.setBounds (area.removeFromLeft (96));
+
+    // 8.307：**あいだを空けること**（Phase 300）。
+    //
+    // 文字で描くManta Studioでは、字の両脇の余白が効いて離れて見えます。
+    // **Emberは棒で描くので余白がありません**（`SegmentDisplay.h`）——
+    // 詰めて置くと`00:59.6042.2`と**ひとつながりの数字**に見えました。
+    //
+    // **片方のブランドだけで見ていると気づきません。** 絵は両方で撮ること
+    area.removeFromLeft (10);
+
+    // 8.307：**小節・拍は秒のすぐ右**（Phase 300／本人の指定）。
+    //
+    // **入らないときは消すこと**（この帯の決まり。下の`placeGroup()`と同じ）。
+    // 細くすると桁が欠けて、**33小節目が3小節目に見えます**——
+    // 読み違える表示は、無いほうがましです
+    constexpr int barCounterWidth = 74;
+
+    if (area.getWidth() > barCounterWidth + 200)
+    {
+        barLabel.setVisible (true);
+        barLabel.setBounds (area.removeFromLeft (barCounterWidth));
+    }
+    else
+    {
+        barLabel.setVisible (false);
+    }
+
     area.removeFromLeft (10);
 
     //==========================================================================

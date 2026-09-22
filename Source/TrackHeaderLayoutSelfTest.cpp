@@ -9,6 +9,7 @@
 #include "InspectorPanel.h"
 #include "AudioEngine.h"
 #include "AppColours.h"
+#include "ExportOptions.h"    // 8.307：ステム一覧の見切れ（Phase 300）
 
 #include <juce_events/juce_events.h>
 #include <juce_graphics/juce_graphics.h>
@@ -420,6 +421,11 @@ namespace TrackHeaderLayoutSelfTest
         {
             folder.setCollapsed (false);   // 畳んだままだと中身が写りません
 
+            // 8.314：**借りている点灯を絵に写す**（Phase 307／本人の要望）。
+            // フォルダを黙らせて撮ると、**中のMが薄く点いている**ところが見られます
+            // ——濃さの差は数では出ないので、絵で見るしかありません
+            folder.setMuted (true, nullptr);
+
             timeline.setTrackHeaderWidth (230);   // 既定の幅（`defaultTrackHeaderWidth`）
 
             // **ヘッダーだけ**を大きめに撮る。アレンジ側（クリップの置き場所）は
@@ -758,6 +764,122 @@ namespace TrackHeaderLayoutSelfTest
             {
                 png.writeImageToStream (sheet, *stream);
                 say ("  (the inspector: " + file.getFullPathName() + ")");
+            }
+            else
+            {
+                ++problems;
+                say ("  FAIL  could not write " + file.getFullPathName());
+            }
+        }
+
+        //----------------------------------------------------------------------
+        // 8.307：**ステム書き出しの一覧**（Phase 300／本人の報告）。
+        //
+        // > 「トラック数が多くなると、モノラルチェックボックスが
+        // > スクロールバー等により見切れてしまう」
+        //
+        // **行が窓に収まっているあいだは出ません。** 数で押さえるには、
+        // **溢れるだけの行を作る**必要があります——だから道具から測ります。
+
+        say ("--- the stem list (many tracks)");
+
+        {
+            // 8.307：**この一覧はJUCEに描いてもらっています**（チェックとラベル）。
+            //
+            // アプリのLookAndFeelを入れずに撮ると、**白い字が透明な地の上に出る**ので
+            // 絵が真っ白になります（トラックヘッダーやストリップは自前で描いているため、
+            // ここまで気づきませんでした）。**撮るあいだだけ入れて、外します。**
+            auto lookAndFeel = AppColours::createLookAndFeel();
+
+            juce::Desktop::getInstance().setDefaultLookAndFeel (lookAndFeel.get());
+
+            const struct ResetLookAndFeel
+            {
+                ~ResetLookAndFeel() { juce::Desktop::getInstance().setDefaultLookAndFeel (nullptr); }
+            } resetLookAndFeel;
+
+            const auto buildList = [] (int trackCount)
+            {
+                std::vector<ExportStemTrack> stems;
+
+                for (int i = 0; i < trackCount; ++i)
+                {
+                    ExportStemTrack stem;
+
+                    stem.trackId = "t" + juce::String (i);
+                    stem.name = "Track " + juce::String (i + 1);
+                    stem.depth = (i % 3 == 2) ? 1 : 0;   // 字下げも混ぜておく
+
+                    stems.push_back (stem);
+                }
+
+                return stems;
+            };
+
+            // **収まる数**（4行）と、**溢れる数**（40行）の両方を見ること。
+            // 片方だけだと、スクロールバーの出ている／出ていないのどちらかしか通りません
+            for (const int trackCount : { 4, 40 })
+            {
+                StemTrackList list { buildList (trackCount) };
+
+                list.setSize (420, 220);
+                list.resized();   // 窓に出していないので、自分で呼ぶ
+
+                const auto* row = list.getRowForTesting (trackCount - 1);
+
+                check (row != nullptr, juce::String (trackCount) + " tracks: the last row exists");
+
+                if (row == nullptr)
+                    continue;
+
+                // **見えている幅の中に、四角がまるごと入っていること。**
+                // スクロールバーの下へ潜っていると、ここで右が飛び出します
+                const int visibleRight = list.getVisibleContentWidthForTesting();
+
+                check (row->mono.getRight() <= visibleRight,
+                        juce::String (trackCount) + " tracks: the mono tick box is not under the scrollbar  ("
+                          + juce::String (row->mono.getRight()) + " <= " + juce::String (visibleRight) + ")");
+
+                check (row->mono.getX() > row->name.getX(),
+                        juce::String (trackCount) + " tracks: mono is still to the right of the name");
+
+                // **見出しは四角の真上**（本人の指定）。中心どうしが10px以内に居ること
+                const int tickCentre = list.getViewportXForTesting() + row->mono.getX() + 9;
+                const int captionCentre = list.getMonoCaptionBoundsForTesting().getCentreX();
+
+                check (std::abs (tickCentre - captionCentre) <= 10,
+                        juce::String (trackCount) + " tracks: the caption sits over the tick box  ("
+                          + juce::String (captionCentre) + " vs " + juce::String (tickCentre) + ")");
+            }
+
+            // 絵も1枚（**溢れている側**を撮ること。普段見えない形のほうを残す）
+            StemTrackList list { buildList (40) };
+
+            list.setSize (420, 220);
+            list.resized();
+
+            juce::Image shot (juce::Image::ARGB, list.getWidth(), list.getHeight(), true);
+
+            {
+                juce::Graphics g (shot);
+                list.paintEntireComponent (g, true);
+            }
+
+            auto previewFolder = juce::File::getSpecialLocation (juce::File::currentExecutableFile)
+                                    .getParentDirectory().getChildFile ("preview");
+
+            previewFolder.createDirectory();
+
+            auto file = previewFolder.getChildFile ("stem_list.png");
+
+            file.deleteFile();
+
+            juce::PNGImageFormat png;
+
+            if (auto stream = file.createOutputStream())
+            {
+                png.writeImageToStream (shot, *stream);
+                say ("  (a picture of it: " + file.getFullPathName() + ")");
             }
             else
             {

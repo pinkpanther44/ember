@@ -6,6 +6,104 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.0.0] - 2026-09-22
+
+### Added
+
+- **Bars can be inserted and deleted from the arrange view**, from the
+  right-click menu and from the menu on the track headers. A window asks how
+  many, and everything after that point moves with them — notes, audio,
+  automation, chord regions, markers, and tempo, time signature and key
+  changes alike — so an arrangement can grow an extra verse without dragging
+  every clip by hand. A clip that straddles the point is cut there, and the
+  half after it moves. Deleting bars removes what is inside them
+
+- **A MIDI track can be given a delay of its own**, up to half a second either
+  way, from the inspector. Some instruments answer later than others, and a
+  part that has to be played early to sound on time is a part that cannot be
+  quantised. The delay applies while playing and while exporting, so what is
+  heard is what is written out
+
+- **The footer shows the bar and beat beside the time.** Until now the
+  position was only in minutes and seconds, which says nothing about where in
+  the music it is
+
+- **Tempo can be tapped.** Clicking the word BPM in the footer in time with the
+  music sets it, averaging the last few taps; it turns the highlight colour
+  while it is listening and gives up two seconds after the last tap
+
+- **Snapping is a button**, beside the tool buttons, and it is on to begin
+  with. Turning it off is now one press rather than an entry at the top of the
+  grid menu, and the grid the menu is showing is still there when it goes back
+  on
+
+- **Ctrl and the wheel over the ruler zooms the rows**, in the arrange view and
+  in the editor, so tall tracks and a whole arrangement no longer need
+  different windows
+
+- **Alt and drag selects a range over clips and notes** without picking them
+  up. Dragging in the arrange view has always moved whatever is under the
+  pointer, so a range could only be drawn where there was nothing
+
+- **Windows that were open are opened again.** A project remembers which
+  instrument and insert windows were showing, and whether the editor had been
+  popped out, and puts them back when it is opened. It is written down when the
+  project is saved by hand, so opening a window does not mark it as unsaved
+
+- **The mute and solo buttons of the tracks inside a folder light up when the
+  folder's do.** A muted folder has always silenced what is inside it, but
+  nothing on the tracks themselves said so. The borrowed light is fainter than
+  a light from the track's own button, because the button still does what it
+  always did and pressing it has to look like it will do something
+
+### Changed
+
+- **Playback runs on for about a bar after the last note or clip** instead of
+  stopping the moment the music ends, so a release or a reverb tail is heard
+  out rather than cut
+
+- **Mute and solo cannot both be on.** Pressing solo on a muted track takes the
+  mute off, and pressing mute on a soloed track takes the solo off. Both being
+  lit needed a rule to be remembered about which of them won; now there is
+  nothing to remember. Where a mute still meets a solo — a muted folder with a
+  soloed track inside it — the track's own solo is what is heard
+
+- **Notes are added to a selection with Ctrl rather than Shift**, which is what
+  clips in the arrange view have always used, and Ctrl and drag now draws a
+  further selection box without letting go of what is already selected
+
+- **The stem export window says "Mono" above the column it belongs to**,
+  instead of explaining both columns in a line of small print above the list
+
+### Fixed
+
+- **The mono checkboxes could be hidden behind the scrollbar.** The list works
+  out its width before it knows whether it will scroll, and it was asking the
+  viewport how wide it was while the scrollbar from the last time was still
+  showing, so with enough tracks the rightmost column was cut in half
+
+- **A cursor sitting on a bar line counted as the bar before it** when
+  inserting or deleting bars. The playhead is truncated to whole samples, so it
+  lands a hair short of the line it was put on; the comparison now allows for
+  that, as the others do
+
+- **The frame of a moved clip could stay behind after undoing.** The selected
+  range was only being cleared when it was judged to be empty afterwards, which
+  missed ranges that still had something else in them; it is now cleared
+  whenever anything is undone or redone
+
+- **Dragging on the velocity or automation lane scrolled the piano roll.**
+  Which lane the drag had started on is now settled when the button goes down,
+  rather than guessed at from what the drag is doing
+
+- **Marker flags are readable against the arrange view's background.** Their
+  text was one colour on the ruler and another below it
+
+- **The editor no longer jumps away from the playhead** when a track is chosen
+  that has no notes near it
+
+---
+
 ## [0.9.0] - 2026-09-20
 
 ### Added

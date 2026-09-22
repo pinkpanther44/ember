@@ -365,6 +365,13 @@ public:
         できることは同じ）。`rowScreenBounds`は画面座標（onAutomationButtonClickedと同じ理由）。 */
     std::function<void (juce::Rectangle<int> rowScreenBounds)> onAddTrackClicked;
 
+    /** 8.308：**小節の挿入・削除を頼む**（Phase 301／本人の要望）。
+
+        `true`なら挿入、`false`なら削除。**どこへ挿すかは渡していません**——
+        本人の指定は「カーソル位置（N小節）の前に」で、
+        再生カーソルの場所を知っているのは`MainComponent`のほうです。 */
+    std::function<void (bool insert)> onBarEditRequested;
+
     /** トラックヘッダーが右クリックされたときに呼ばれる（Phase 33）。
         削除・並べ替えのメニューは呼び出し側が出す（モデルを触るのはこのクラスの責務ではない）。 */
     std::function<void (int trackIndex, juce::Rectangle<int> headerScreenBounds)> onTrackHeaderRightClicked;
@@ -1041,6 +1048,12 @@ private:
           新しい範囲を引き始められるのは、塊の無いところだけです */
     bool handleTimeRangeMouseDown (const juce::MouseEvent& e, bool allowCreate);
 
+    /** 8.308：**その場所から範囲を引き始める**（Phase 301）。
+
+        空いている場所を押したときと、**Alt＋ドラッグ**のときの両方から呼ばれます
+        ——引き始める手順を2箇所に書くと、片方だけ古くなります（1.27）。 */
+    void beginTimeRangeCreation (int trackIndex, double time);
+
     void dragTimeRange (juce::Point<int> mousePosition);
     void finishTimeRangeDrag (const juce::MouseEvent& e);
 
@@ -1049,6 +1062,15 @@ private:
     /** 8.96：**中身が無くなった範囲は外す**（Phase 136）。
         残すと**枠だけが宙に浮きます**——選んでいるつもりのものが、もう無い。 */
     void clearTimeRangeIfEmpty();
+
+public:
+    /** 8.310：**時間範囲を畳む**（Phase 303／本人の報告）。
+
+        Undo・Redoのあとに呼ばれます。**中身が残っていても畳みます**
+        （`MainComponent::undo()`に、条件付きでは漏れた経緯を書いてあります）。 */
+    void clearTimeRangeFromOutside() { clearTimeRange(); }
+
+private:
     bool isTimeRangeAt (int trackIndex, double timeSeconds) const;
     juce::Rectangle<int> getTimeRangeBoundsFor (int trackIndex) const;
 
@@ -1715,8 +1737,29 @@ private:
     void drawTrackHeaderContents (juce::Graphics& g, int rowIndex, const Track& track);
 
     /** 下段の小さな四角いボタン（A・S・M）を1つ描く。塗り分けは呼び出し側が決める。 */
+    /** 8.314：**「借りている点灯」**（Phase 307／本人の要望）。
+
+        > 「フォルダをMで、そのフォルダ内のトラックのMボタンを全て点灯させることはできる？
+        > …**見た目だけの改善ではあるが**進めてほしい」
+
+        フォルダを黙らせると中身も黙りますが（8.51）、**中のボタンは消えたまま**でした
+        ——**音は出ていないのに、画面はどこにも「黙っている」と書いていない**。
+
+        **自分で押したものとは、濃さで分けます。**
+
+        | | 見え方 |
+        |---|---|
+        | 自分で押した | いつもどおり塗りつぶし |
+        | **フォルダから借りている** | **同じ色を薄く**（`borrowedOnAlpha`） |
+
+        同じ濃さにしなかったのは、**押しても何も起きないように見える**のを
+        避けるためです（8.161）。薄い状態から押せば濃くなるので、
+        **押した手応えが残ります**——そのトラック自身のMも立つ、ということです。 */
+    enum class ChipState { off, on, borrowed };
+
     void drawHeaderChip (juce::Graphics& g, juce::Rectangle<int> bounds,
-                          const juce::String& text, bool isOn, juce::Colour onColour);
+                          const juce::String& text, ChipState state, juce::Colour onColour);
+
 
     /** 8.295：オートメーションのボタンを描く（Phase 288／改善案1。本人が用意した絵）。
 
@@ -1909,6 +1952,40 @@ private:
         （下端も掴めなくなるので、**行が二度と広げられません**）。 */
     static constexpr int minimumTrackRowHeight = trackRowHeight;
     static constexpr int maximumTrackRowHeight = 400;
+
+    //==========================================================================
+public:
+    /** 8.308：**縦の拡大・縮小**（Phase 301／本人の要望）。
+
+        > 「ArrangeやEditor画面の縦尺を拡大・縮小できるものがないので追加。
+        > **小節レーン上をctrl＋マウスホイールスクロール**で対応しよう」
+
+        行ごとの高さ（`getCustomRowHeight()`。8.62）は**そのまま**で、
+        その上に倍率を掛けます。**モデルは書き換えません**——
+        見え方の設定なので、Undoの列に並ぶものではありませんし、
+        高さを手で決めた行の**比率も保たれます**。
+
+        ### 縮めると、2段目は自然に消えます
+
+        `getHeaderControlRow()`は行が`trackRowHeight`（68px）より低いと
+        空を返す作りです（コードトラックのための手当て）。
+        **縮めたときに押しものが潰れないのは、これがもともと有るから**で、
+        新しい場合分けは足していません。
+
+        ### 下限は「名前が読める高さ」
+
+        `TrackHeaderControls::nameRowHeight`（24px）まで。
+        これより低いと、名前の行が次の行へはみ出します。 */
+    void zoomVertically (double factor);
+
+    double getVerticalZoom() const { return verticalZoom; }
+
+private:
+    double verticalZoom = 1.0;
+
+    /** 倍率を掛けた行の高さ。**0（畳んだフォルダの中）はそのまま0で返すこと**
+        ——掛けると1pxの行が現れ、「居ないのと同じ」が崩れます。 */
+    int scaleRowHeight (int height) const;
 
     /** 下端を掴める帯の太さ（px）。 */
     static constexpr int trackResizeGrabMargin = 4;

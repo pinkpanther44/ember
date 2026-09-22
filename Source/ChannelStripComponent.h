@@ -154,6 +154,14 @@ public:
         割り当てが変わったら、ConsoleViewが全ストリップに対してこれを呼ぶ。 */
     void refreshVcaAssignment() { rack.refreshVcaAssignment(); }
 
+    /** 8.314：**表示をモデルへ合わせ直す**（Phase 307／本人の要望）。
+
+        ストリップが購読しているのは**自分のトラックだけ**なので、
+        **フォルダのM・Sが変わっても届きません**——
+        「借りている点灯」はそこを見ているので、外から声を掛けてもらいます
+        （`ConsoleView`が root の通知を受けて配ります）。 */
+    void refreshFromModel() { updateControlsFromModel(); }
+
     /** 仕様書5.7.1：このトラックのプラグインが持つレイテンシの表示を更新する（Phase 12e）。
 
         **どのトラックが全体の補正量を押し上げているか**を見るための表示なので、

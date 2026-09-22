@@ -3,6 +3,7 @@
 #include "ProjectModel.h"
 #include "MusicalTime.h"   // 8.277：位置の比べ方（Phase 274）
 #include "SnapGrid.h"
+#include "SnapGridSelector.h"   // 8.307：入切ボタン（Phase 300）
 
 #include <juce_events/juce_events.h>
 
@@ -338,6 +339,256 @@ namespace SnapGridSelfTest
             song.setSnapGrid (SnapGrid::off);
             checkNear (song.snapTimeRelativeTo (1.234, freeNote), 1.234,
                         "with snapping off, nothing moves");
+        }
+
+        //----------------------------------------------------------------------
+        // ⑧ 8.307：**入切はボタン、コンボに「フリー」は無い**（Phase 300／本人の指定）
+
+        say ("--- the snap on/off button");
+
+        {
+            SnapGridSelector selector;
+
+            selector.setSize (SnapGridSelector::preferredWidth, 26);
+
+            SnapGrid sent = SnapGrid::quarter;
+            int sendCount = 0;
+
+            selector.onSnapGridChanged = [&sent, &sendCount] (SnapGrid grid)
+            {
+                sent = grid;
+                ++sendCount;
+            };
+
+            // **既定は入**（本人の指定）。切ったときだけフリーになる
+            selector.setSnapGrid (SnapGrid::sixteenth);
+            check (sendCount == 0, "being told the model's value does not send it back");
+
+            // 絵を落としておく（**大きさが揃っているかは数から出ません**）
+            juce::Image shot (juce::Image::ARGB, selector.getWidth(), selector.getHeight(), true);
+
+            {
+                juce::Graphics g (shot);
+                selector.paintEntireComponent (g, true);
+            }
+
+            auto previewFolder = juce::File::getSpecialLocation (juce::File::currentExecutableFile)
+                                    .getParentDirectory().getChildFile ("preview");
+
+            previewFolder.createDirectory();
+
+            auto file = previewFolder.getChildFile ("snap_selector.png");
+
+            file.deleteFile();
+
+            juce::PNGImageFormat png;
+
+            if (auto stream = file.createOutputStream())
+            {
+                png.writeImageToStream (shot, *stream);
+                say ("  (a picture of it: " + file.getFullPathName() + ")");
+            }
+            else
+            {
+                ++problems;
+                say ("  FAIL  could not write " + file.getFullPathName());
+            }
+
+            // **フリーを受けても、選んでいた音価は消えない**（入れ直したら戻ること）
+            selector.setSnapGrid (SnapGrid::off);
+            selector.setSnapGrid (SnapGrid::sixteenth);
+
+            check (sendCount == 0, "...and neither does being told it is free");
+
+            // **ボタンは大きさをツールと揃える**（本人の指定）
+            check (SnapGridSelector::preferredWidth
+                     > ToolbarLayout::toolButtonWidth + SnapGridSelector::tripletButtonWidth,
+                    "the selector is wide enough for the button, the box and the triplet");
+        }
+
+        //----------------------------------------------------------------------
+        // ⑨ 8.308：**小節を挿す／取り除く**（Phase 301／本人の要望）。
+        //
+        // **動かすものが多いので、1つずつ数えます。** 「だいたい動いた」では、
+        // 取り残された種類に気づけません——取り残されたものは、
+        // **後ろ全部とずれたまま鳴ります**。
+
+        say ("--- inserting and removing bars");
+
+        {
+            const auto buildSong = [] (ProjectModel& song)
+            {
+                song.createNewProject();
+                song.setTempo (120.0, nullptr);          // 1拍 = 0.5秒、1小節 = 2秒
+                song.setTimeSignature ("4/4", nullptr);
+
+                auto midi = song.addTrack ("Keys", TrackType::Midi);
+
+                // 1小節目・3小節目・5小節目の頭に1つずつ（0・8・16拍目）
+                midi.addNoteBeats (60, 100, 0.0, 1.0, nullptr);
+                midi.addNoteBeats (62, 100, 8.0, 1.0, nullptr);
+                midi.addNoteBeats (64, 100, 16.0, 1.0, nullptr);
+
+                song.addMarkerBeats (8.0, "Chorus", nullptr);
+                song.setTempoChange (8.0, 90.0, nullptr);
+                song.setTimeSignatureChange (2, "3/4", nullptr);   // 3小節目から3/4
+
+                return midi;
+            };
+
+            //------------------------------------------------------------------
+            // 挿す：3小節目（0始まりで2）の前に2小節
+
+            {
+                ProjectModel song;
+                auto midi = buildSong (song);
+
+                check (song.insertBars (2, 2, nullptr), "two bars go in before bar 3");
+
+                // 4/4が2小節ぶん＝8拍。**手前のノートは動かない**
+                checkNear (midi.getNote (0).getStartBeats(), 0.0, "the note in bar 1 stays put");
+                checkNear (midi.getNote (1).getStartBeats(), 16.0, "the note in bar 3 moves by 8 beats");
+                checkNear (midi.getNote (2).getStartBeats(), 24.0, "...and so does the one after it");
+
+                // **マーカーも**（本人の指定：全部動かす）
+                checkNear (song.getMarker (0).getTimeBeats(), 16.0, "the marker moves with them");
+
+                // **テンポの変化点も**
+                check (song.getTempoMap().tempoChanges.size() == 1, "the tempo change is still there");
+                checkNear (song.getTempoMap().tempoChanges.front().beatPosition, 16.0,
+                            "...and it moved by the same 8 beats");
+
+                // **拍子の変化点は小節で動く**
+                check (song.getTempoMap().meterChanges.size() == 1, "the meter change is still there");
+                check (song.getTempoMap().meterChanges.front().bar == 4,
+                        "...and it moved from bar 3 to bar 5  ("
+                          + juce::String (song.getTempoMap().meterChanges.front().bar) + ")");
+            }
+
+            //------------------------------------------------------------------
+            // 取り除く：3小節目から2小節
+
+            {
+                ProjectModel song;
+                auto midi = buildSong (song);
+
+                check (song.removeBars (2, 2, nullptr), "two bars come out from bar 3");
+
+                // 3小節目は3/4、4小節目も3/4 → 6拍ぶん減る。
+                // **範囲の中にあったノート（8拍目）は消える**
+                check (midi.getNumNotes() == 2, "the note inside the removed bars is gone  ("
+                                                  + juce::String (midi.getNumNotes()) + " left)");
+
+                checkNear (midi.getNote (0).getStartBeats(), 0.0, "the note before it stays put");
+                checkNear (midi.getNote (1).getStartBeats(), 10.0,
+                            "the note after them is pulled back by 6 beats");
+
+                // **範囲の中のマーカーも消える**
+                check (song.getNumMarkers() == 0, "the marker inside the removed bars is gone");
+
+                // **拍子の変化点も、範囲の中なので消える**
+                check (song.getTempoMap().meterChanges.empty(),
+                        "the meter change inside the removed bars is gone too");
+            }
+
+            //------------------------------------------------------------------
+            // **またいでいるノートは、挿す位置で割れる**（本人の指定）
+
+            {
+                ProjectModel song;
+                song.createNewProject();
+                song.setTempo (120.0, nullptr);
+                song.setTimeSignature ("4/4", nullptr);
+
+                auto midi = song.addTrack ("Pad", TrackType::Midi);
+
+                midi.addNoteBeats (60, 100, 0.0, 12.0, nullptr);   // 3小節ぶん伸びる1音
+
+                check (song.insertBars (1, 1, nullptr), "a bar goes in under a long note");
+
+                check (midi.getNumNotes() == 2, "the long note is cut in two  ("
+                                                  + juce::String (midi.getNumNotes()) + ")");
+
+                // 前半は1小節ぶん、後半は挿した4拍のぶん後ろへ
+                double firstStart = 0.0, firstLength = 0.0, secondStart = 0.0, secondLength = 0.0;
+
+                for (int n = 0; n < midi.getNumNotes(); ++n)
+                {
+                    auto note = midi.getNote (n);
+
+                    if (note.getStartBeats() < 1.0)
+                    {
+                        firstStart = note.getStartBeats();
+                        firstLength = note.getLengthBeats();
+                    }
+                    else
+                    {
+                        secondStart = note.getStartBeats();
+                        secondLength = note.getLengthBeats();
+                    }
+                }
+
+                checkNear (firstStart, 0.0, "the first half starts where it did");
+                checkNear (firstLength, 4.0, "...and ends at the join");
+                checkNear (secondStart, 8.0, "the second half starts a bar later");
+                checkNear (secondLength, 8.0, "...and keeps the rest of the length");
+            }
+
+            //------------------------------------------------------------------
+            // 8.309：**小節線の上のカーソルは、その小節のもの**（Phase 302／本人の報告）
+
+            {
+                ProjectModel song;
+                song.createNewProject();
+
+                // **120BPMでは起きません。** 小節の頭が2.0秒・4.0秒…と
+                // ちょうどの秒になり、48kHzのサンプルにも**ぴたりと乗る**ので、
+                // 切り捨てても1サンプルも動きません——**それで一度、
+                // 直す前のコードでもこの節が通ってしまいました**。
+                //
+                // 本人のテンポ（167BPM）なら小節の頭は半端な秒になります（8.304と同じ数字）
+                song.setTempo (167.0, nullptr);
+                song.setTimeSignature ("4/4", nullptr);
+
+                constexpr double sampleRate = 48000.0;
+
+                for (const int bar : { 1, 4, 17 })
+                {
+                    const double barStart = song.getBarStartTime (bar);
+
+                    // **再生カーソルはサンプルで切り捨てられます**
+                    // （`AudioEngine::setPlayheadSeconds()`）。その形をそのまま作る
+                    const double playhead = std::floor (barStart * sampleRate) / sampleRate;
+
+                    check (playhead <= barStart,
+                            "bar " + juce::String (bar + 1) + ": the playhead lands at or before the line");
+
+                    check (song.getCursorBarIndex (playhead) == bar,
+                            "bar " + juce::String (bar + 1) + ": a cursor on the line counts as that bar  ("
+                              + juce::String (song.getCursorBarIndex (playhead) + 1) + ")");
+
+                    // **小節の途中は今までどおり**（甘くしすぎていないこと）
+                    check (song.getCursorBarIndex (barStart + 0.5) == bar,
+                            "bar " + juce::String (bar + 1) + ": half way through it is still that bar");
+
+                    check (song.getCursorBarIndex (barStart - 0.5) == bar - 1,
+                            "bar " + juce::String (bar + 1) + ": half a second earlier is the bar before");
+                }
+            }
+
+            //------------------------------------------------------------------
+            // **おかしな頼みは何もしない**（0小節、負の位置）
+
+            {
+                ProjectModel song;
+                auto midi = buildSong (song);
+
+                check (! song.insertBars (2, 0, nullptr), "asking for no bars does nothing");
+                check (! song.insertBars (-1, 2, nullptr), "asking before bar 1 does nothing");
+                check (! song.removeBars (2, 0, nullptr), "the same for removing");
+
+                checkNear (midi.getNote (1).getStartBeats(), 8.0, "...and nothing moved");
+            }
         }
 
         //----------------------------------------------------------------------

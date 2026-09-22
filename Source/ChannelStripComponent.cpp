@@ -508,6 +508,28 @@ void ChannelStripComponent::updateControlsFromModel()
     muteButton.setToggleState (track.isMuted(), juce::dontSendNotification);
     soloButton.setToggleState (track.isSoloed(), juce::dontSendNotification);
 
+    // 8.314：**フォルダから借りている点灯**（Phase 307／本人の要望）。
+    //
+    // **押した状態（`toggleState`）は変えません。** ここで点けてしまうと、
+    // 押したときに`setMuted(false)`が飛び、**自分では何も点けていないのに
+    // 「消した」ことになります**——押しても見た目が変わらない、という形で出ます。
+    //
+    // 変えるのは**地の色だけ**です。自分で押したときより薄くして、
+    // 「自分のではない」ことが分かるようにしてあります
+    // （濃さの理由は`TimelineComponent::ChipState`に書いてあります）
+    const auto folder = project.getFolderInfluenceFor (track);
+
+    const auto borrowedColour = [] (juce::Colour on, bool borrowed)
+    {
+        return borrowed ? on.withAlpha (AppColours::borrowedOnAlpha)
+                        : AppColours::background;
+    };
+
+    muteButton.setColour (juce::TextButton::buttonColourId,
+                           borrowedColour (AppColours::orange, folder.muted));
+    soloButton.setColour (juce::TextButton::buttonColourId,
+                           borrowedColour (AppColours::purple, folder.soloed));
+
     // 8.54：フェーダーに出すのは**その再生位置で効いている値**（Phase 93）。
     // オートメーションが無いトラックでは`getVolumeDb()`と同じものが返る
     const float volumeDb = track.getEffectiveVolumeDbAt (playheadSeconds);

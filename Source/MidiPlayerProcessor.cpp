@@ -46,6 +46,18 @@ void MidiPlayerProcessor::rebuildNoteList()
         if (track.getType() != TrackType::Midi || track.getId() != trackId)
             continue;
 
+        // 8.307：**MIDIディレイ**（Phase 300／本人の指定）。
+        //
+        // **ここで1回だけサンプルへ直して、あとは足すだけ**にします。
+        // ノートごとに秒で足してから換算すると、**丸めが音ごとに変わります**
+        // （同じ和音の中で1サンプルずれる）。
+        //
+        // **ノートもCCも同じだけ動かします。** 片方だけ動かすと、
+        // ベロシティやエクスプレッションが**別の音に掛かります**——
+        // 「このトラックの演奏をまるごとずらす」が欲しい形です。
+        const juce::int64 delaySamples =
+            (juce::int64) std::llround (track.getMidiDelayMs() * 0.001 * currentSampleRate);
+
         // 仕様書5.3.2：ドラムマップがあれば、行ミュートとチョークグループを効かせる（Phase 25）。
         // 未割り当てのトラックでは無効なDrumMapが返り、従来どおりの挙動になる。
         auto drumMap = project.getDrumMapForTrack (track);
@@ -79,8 +91,12 @@ void MidiPlayerProcessor::rebuildNoteList()
                 ScheduledNote scheduled;
                 scheduled.pitch = juce::jlimit (0, 127, note.getPitch());
                 scheduled.velocity = juce::jlimit (1, 127, note.getVelocity());
-                scheduled.startSample = (juce::int64) (absoluteStart * currentSampleRate);
-                scheduled.endSample = (juce::int64) (absoluteEnd * currentSampleRate);
+                // 8.307：**ずらすのはここ**（Phase 300）。0より手前へは行かせません——
+                // 負のサンプルは`processBlock()`の比較を通らず、**曲頭の音が消えます**
+                scheduled.startSample = juce::jmax ((juce::int64) 0,
+                    (juce::int64) (absoluteStart * currentSampleRate) + delaySamples);
+                scheduled.endSample = juce::jmax (scheduled.startSample + 1,
+                    (juce::int64) (absoluteEnd * currentSampleRate) + delaySamples);
                 scheduled.isSounding = false;
 
                 // 仕様書5.3.2：チョークグループに属する音は、後でまとめて長さを詰める
@@ -112,7 +128,9 @@ void MidiPlayerProcessor::rebuildNoteList()
                 ScheduledCC scheduled;
                 scheduled.controllerNumber = event.getControllerNumber();
                 scheduled.value = event.getValue();
-                scheduled.sample = (juce::int64) (absoluteTime * currentSampleRate);
+                // 8.307：ノートと同じだけずらす（Phase 300）
+                scheduled.sample = juce::jmax ((juce::int64) 0,
+                    (juce::int64) (absoluteTime * currentSampleRate) + delaySamples);
 
                 newCCs.push_back (scheduled);
 
@@ -154,7 +172,8 @@ void MidiPlayerProcessor::rebuildNoteList()
                     ScheduledCC between;
                     between.controllerNumber = scheduled.controllerNumber;
                     between.value = value;
-                    between.sample = (juce::int64) ((absoluteTime + span * s / steps) * currentSampleRate);
+                    between.sample = juce::jmax ((juce::int64) 0,
+                        (juce::int64) ((absoluteTime + span * s / steps) * currentSampleRate) + delaySamples);
 
                     newCCs.push_back (between);
                     previousValue = value;

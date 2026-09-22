@@ -1,6 +1,7 @@
 #include "FooterValuesSelfTest.h"
 
 #include "ProjectModel.h"
+#include "TransportBarComponent.h"   // 8.307：小節カウンタの文字と、フッターの絵（Phase 300）
 
 #include <juce_events/juce_events.h>
 
@@ -145,6 +146,181 @@ namespace FooterValuesSelfTest
                     "...and the one at the start of the song is untouched");
             check (project.getTempoMap().meterChanges.size() == 1,
                     "no second time signature marker appeared on the lane");
+        }
+
+        //----------------------------------------------------------------------
+        // 8.312：**ソロとミュートが両方押してあるとき**（Phase 305／本人の要望）。
+        //
+        // ここは「いま何が効いているか」を数える道具なので、
+        // **どのトラックが鳴るか**も同じ場所で見ています
+        // （画面を通さず`ProjectModel`に訊くだけ、という点も同じ）。
+
+        say ("--- solo against mute");
+
+        {
+            ProjectModel song;
+            song.createNewProject();
+
+            auto a = song.addTrack ("A", TrackType::Midi);
+            auto b = song.addTrack ("B", TrackType::Midi);
+
+            check (song.isTrackAudible (a) && song.isTrackAudible (b),
+                    "with nothing pressed, both are heard");
+
+            // **ミュートだけなら、今までどおり黙る**
+            a.setMuted (true, nullptr);
+            check (! song.isTrackAudible (a), "muting a track silences it");
+            check (song.isTrackAudible (b), "...and leaves the other one alone");
+
+            //------------------------------------------------------------------
+            // 8.313：**両方は点かない**（Phase 306／本人の指定）
+
+            a.setSoloed (true, nullptr);
+
+            check (a.isSoloed(), "pressing solo lights the solo button");
+            check (! a.isMuted(), "...and takes the mute light off");
+            check (song.isTrackAudible (a), "the track is heard");
+            check (! song.isTrackAudible (b), "...and the other one is silenced by the solo");
+
+            a.setMuted (true, nullptr);
+
+            check (a.isMuted(), "pressing mute lights the mute button");
+            check (! a.isSoloed(), "...and takes the solo light off");
+            check (! song.isTrackAudible (a), "the track is silent again");
+            check (song.isTrackAudible (b), "...and the other one is back, since no solo is left");
+
+            // **外すほうでは消さない。** 消すと「ミュートを外したらソロも外れる」になります
+            a.setSoloed (true, nullptr);
+            a.setMuted (false, nullptr);
+
+            check (a.isSoloed(), "taking the mute off does not take the solo off");
+
+            //------------------------------------------------------------------
+            // 8.312：**まとめて掛かったミュートとの関係**（Phase 305）。
+            //
+            // 同じ行のM・Sは両方点かなくなりましたが（8.313）、
+            // **フォルダやVCAから掛かるミュート**は別の口から来るので、
+            // 「その行のS」と同時に立ち得ます。**そのときはSが勝ちます。**
+
+            auto folder = song.addTrack ("Group", TrackType::Folder);
+
+            a.setParentFolderId (folder.getId(), nullptr);
+            b.setParentFolderId (folder.getId(), nullptr);
+
+            a.setSoloed (false, nullptr);
+            a.setMuted (false, nullptr);
+            b.setSoloed (false, nullptr);
+            b.setMuted (false, nullptr);
+
+            // フォルダごと黙らせてから、中の1本をソロにする
+            folder.setMuted (true, nullptr);
+
+            check (! song.isTrackAudible (a), "a muted folder silences what is inside it");
+
+            a.setSoloed (true, nullptr);
+
+            check (song.isTrackAudible (a),
+                    "...but pressing S on a track inside it is heard anyway");
+            check (! song.isTrackAudible (b), "...while the rest of the folder stays silent");
+
+            // **逆は勝ちません**：フォルダのSは、中の1本の M を外しません
+            folder.setMuted (false, nullptr);
+            a.setSoloed (false, nullptr);
+            a.setMuted (true, nullptr);
+            folder.setSoloed (true, nullptr);
+
+            check (! song.isTrackAudible (a),
+                    "a folder's solo does not undo a track's own mute");
+            check (song.isTrackAudible (b),
+                    "...but the rest of the folder is heard");
+        }
+
+        //----------------------------------------------------------------------
+        // 8.307：**小節・拍のカウンタ**（Phase 300／本人の指定）
+
+        say ("--- the bar and beat counter");
+
+        {
+            // **0始まりで受けて、1始まりで返す**（`formatBarBeat()`の決まり）
+            check (TransportBarComponent::formatBarBeat (0, 0) == "001.1",
+                    "the start of the song is bar 1, beat 1 - not bar 0");
+
+            check (TransportBarComponent::formatBarBeat (41, 1) == "042.2",
+                    "bar 42 beat 2 reads as 042.2");
+
+            // **幅が変わらないこと。** 桁が増えるたびに動くと、隣の秒表示まで動いて見えます
+            check (TransportBarComponent::formatBarBeat (8, 0).length()
+                     == TransportBarComponent::formatBarBeat (98, 0).length(),
+                    "bar 9 and bar 99 take the same width");
+
+            // **4桁はそのまま伸ばす**（切り落とすより、はみ出すほうがまし）
+            check (TransportBarComponent::formatBarBeat (999, 0) == "1000.1",
+                    "bar 1000 is shown in full, not cut down to three digits");
+
+            // **モデルと繋いで確かめる。** 数字を組み立てる式だけ合っていても、
+            // 渡す値を取り違えていれば画面は間違います（4/4なので9拍目＝3小節1拍目）
+            ProjectModel song;
+            song.setTempo (120.0, nullptr);          // 1拍 = 0.5秒
+            song.setTimeSignature ("4/4", nullptr);
+
+            const auto atBarThree = song.getBarBeatAt (song.getTimeForBeatPosition (8.0));
+
+            check (TransportBarComponent::formatBarBeat (atBarThree.bar, atBarThree.beat) == "003.1",
+                    "the ninth beat of a 4/4 song is the start of bar 3");
+
+            const auto midBar = song.getBarBeatAt (song.getTimeForBeatPosition (9.5));
+
+            check (TransportBarComponent::formatBarBeat (midBar.bar, midBar.beat) == "003.2",
+                    "half way through the next beat still reads as beat 2");
+        }
+
+        //----------------------------------------------------------------------
+        // 8.307：**フッターの絵**（Phase 300）。
+        //
+        // 余白と桁数は数で押さえられますが、**「2つ並べて読めるか」は数から出ません**
+        // （秒と小節のどちらが主かは、大きさと色の差でしか伝わらない）。
+        // `--header-selftest`が絵を落とすのと同じ考え方です（8.295）。
+
+        say ("--- a picture of it");
+
+        {
+            TransportBarComponent bar;
+
+            bar.setSize (1280, 96);
+            bar.setPlayheadSeconds (59.6);
+            bar.setBarBeat (41, 1);                       // 42小節2拍
+            bar.setTempoAndTimeSignature (167.0, "4/4");
+            bar.setProjectKey (4, false, true);           // Eメジャー
+
+            juce::Image shot (juce::Image::ARGB, bar.getWidth(), bar.getHeight(), true);
+
+            {
+                juce::Graphics g (shot);
+                bar.paintEntireComponent (g, true);
+            }
+
+            // 8.287：**置き場所はexeの隣**（作業フォルダへ落とすとgitに混ざる）
+            auto previewFolder = juce::File::getSpecialLocation (juce::File::currentExecutableFile)
+                                    .getParentDirectory().getChildFile ("preview");
+
+            previewFolder.createDirectory();
+
+            auto file = previewFolder.getChildFile ("footer.png");
+
+            file.deleteFile();
+
+            juce::PNGImageFormat png;
+
+            if (auto stream = file.createOutputStream())
+            {
+                png.writeImageToStream (shot, *stream);
+                say ("  (a picture of it: " + file.getFullPathName() + ")");
+            }
+            else
+            {
+                ++problems;
+                say ("  FAIL  could not write " + file.getFullPathName());
+            }
         }
 
         say ("--- " + juce::String (problems) + " problem(s) ---");

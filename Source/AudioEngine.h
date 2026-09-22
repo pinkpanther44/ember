@@ -66,6 +66,15 @@ public:
         再生中に呼んでも即座に効く。 */
     void updateMixerSettings();
 
+    /** 8.307：**そのトラックのMIDIを並べ直す**（Phase 300／MIDIディレイ）。
+
+        ずらす量を変えたら呼ぶこと。**再生中に呼んでも効きます**
+        （並べ直しはロックの外で組み立ててから入れ替わるため）。
+
+        **トラックを指さずに呼ぶ道は作っていません。** 1本ぶんの設定なので、
+        全部を並べ直すと、曲が大きいほど無駄が増えます。 */
+    void refreshMidiNotesForTrack (const juce::String& trackId);
+
     //==========================================================================
     // メトロノーム（Phase 38）
 
@@ -377,6 +386,22 @@ public:
 
     /** 指定トラックのインサートのエディタウィンドウを開く。 */
     void openInsertEditor (const juce::String& trackId, int insertIndex);
+
+    /** 8.311：そのインサートのGUIが**いま出ているか**（Phase 304／本人の要望）。
+        **空文字＝マスター**（`openInsertEditor()`と同じ決まり）。 */
+    bool isInsertEditorOpen (const juce::String& trackId, int insertIndex) const;
+
+    /** 8.311：**いま開いている窓を、プロジェクトへ控える**（Phase 304／本人の要望）。
+
+        **保存の直前に呼ぶこと**（`capturePluginStatesIntoProject()`と同じ場所）。
+        窓を開け閉てするたびに書くと、**触っただけで「未保存」の印が付きます**。 */
+    void captureOpenEditorWindowsIntoProject();
+
+    /** 8.311：**控えてあった窓を開き直す**（Phase 304／本人の要望）。
+
+        **プラグインを読み込み終えてから呼ぶこと**——先に呼ぶと、
+        まだ載っていない音源の窓を開こうとして何も起きません。 */
+    void restoreOpenEditorWindowsFromProject();
 
     //==========================================================================
     // 仕様書5.7.2・設計書3.9：サイドチェイン

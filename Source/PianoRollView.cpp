@@ -358,6 +358,18 @@ PianoRollView::PianoRollView (ProjectModel& projectToUse, AudioEngine& engineToU
     viewport.setViewedComponent (&pianoRoll, false);
     viewport.setScrollBarsShown (true, false);
 
+    // 8.308：**縦に拡大したら、見ていた音域が留まるようにスクロールする**
+    //        （Phase 301／本人の要望）。
+    //
+    // **縦のスクロールを持っているのはビューポート**（本体は自分の高さを変えるだけ）
+    // なので、ずらす量を受け取ってここで足します。
+    // 横の拡大が`setZoom()`の中で完結しているのと形が違うのは、そのためです
+    pianoRoll.onVerticalZoomChanged = [this] (int deltaY)
+    {
+        viewport.setViewPosition (viewport.getViewPositionX(),
+                                   juce::jmax (0, viewport.getViewPositionY() + deltaY));
+    };
+
     // 8.1のG5：**レーンを画面の下端に固定する**ために、見えている範囲を渡す（Phase 76）
     viewport.onVisibleAreaChanged = [this]
     {

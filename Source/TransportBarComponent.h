@@ -88,6 +88,25 @@ public:
         再生中はタイマーから、停止中はシークのたびに呼ばれる。 */
     void setPlayheadSeconds (double seconds);
 
+    /** 8.307：小節・拍のカウンタへ反映する（Phase 300／本人の指定）。
+
+        **どちらも0始まりで渡すこと**（`ProjectModel::BarBeat`のまま）。
+        画面へ出すときに+1するのは`formatBarBeat()`の仕事です。 */
+    void setBarBeat (int barIndex, int beatIndex);
+
+    /** 8.307：小節・拍のカウンタに出す文字（Phase 300）。
+
+        **0始まりで受けて、1始まりで返します**——画面に出る番号は
+        「1小節目」から数えるものだからです（`ProjectModel::BarBeat`の説明）。
+
+        小節は**3桁まで0で埋めます**。桁が増えるたびに幅が変わると、
+        再生中に隣の秒表示まで動いて見えます（7セグメントの「消えている棒も描く」と
+        同じ考え方。`SegmentDisplay.h`）。4桁を超えたらそのまま伸ばします
+        ——**切り落とすより、はみ出すほうがまし**（曲は1000小節を超え得る）。
+
+        **静的なのは、数を確かめるため**です（`--footer-selftest`）。 */
+    static juce::String formatBarBeat (int barIndex, int beatIndex);
+
     //==========================================================================
     // 設計書2.2：テンポ・拍子（Phase 26でトップバーへ、Phase 30でここへ移した）
     //
@@ -185,6 +204,20 @@ private:
         Manta Studioでは今までどおり文字で描きます（`SegmentDisplay.h`） */
     SegmentDisplay timeLabel;
 
+    /** 8.307：**小節・拍のカウンタ**（Phase 300／本人の指定）。
+
+        秒は「どれだけ経ったか」、小節は「曲のどこか」——**別のことを訊いています**。
+        フッターには秒しか無かったので、「いま何小節目か」を知るには
+        アレンジ画面のルーラーを目で追う必要がありました。
+
+        **中身を決めるのはこの部品ではありません**（テンポも拍子も
+        途中で変わるので、`ProjectModel`に訊かないと出せない）。
+        `MainComponent`が`setBarBeat()`で渡します。 */
+    SegmentDisplay barLabel;
+
+    /** 直前に出した小節・拍。**同じなら描き直さない**（再生中は毎フレーム来る）。 */
+    juce::String lastShownBarBeat;
+
     /** 8.132：**記号で出すボタン**（Phase 168／実験枠の44）。
 
         文字（"Rec" / "|<" / "Play"）は**設定したまま残してあります**。
@@ -211,7 +244,44 @@ private:
 
     juce::TextButton browserButton { "Browser" };
 
-    juce::Label tempoCaption;
+    /** 8.307：**「BPM」の字を叩いてテンポを決める**（Phase 300／本人の指定）。
+
+        > 「フッダー[BPM]の文字上をタップすることでテンポが反映される。
+        > [BPM]の文字の見た目の変更は無いが、**タップ時のみ文字色が副カラーに変わる**」
+
+        ### なぜ見出しが入口なのか
+
+        **押せることを見た目で言っていません**（本人の指定）。
+        ここは「隣の数字が何か」を言うための字で、ボタンではありません
+        ——枠を付けるとフッターにボタンが1つ増えて見えます。
+
+        **叩いているあいだ色が変わる**ことで、押せたことは分かります
+        （8.295で「押せることは、押したときの変化で伝わる」と決めたのと同じ形）。
+
+        ### 数の出しかた
+
+        **2回目から効きます**（1回では間隔が測れない）。
+        直前の間隔だけでなく**続けて叩いたぶんを平均**します——
+        手で叩く間隔は毎回2〜3%ぶれるので、1つだけ見ると数字が落ち着きません。
+
+        **2秒空いたら数え直し**。曲を聴きながら叩き直すとき、
+        前の組と混ざると平均が引きずられます。 */
+    struct TapTempoLabel : public juce::Label, private juce::Timer
+    {
+        /** 叩いた結果のテンポ（BPM）。**2回目から呼ばれます。** */
+        std::function<void (double)> onTempoTapped;
+
+        void mouseDown (const juce::MouseEvent&) override;
+
+    private:
+        void timerCallback() override;
+
+        /** 続けて叩いたぶんの間隔（秒）。**2秒空いたら捨てます。** */
+        std::vector<double> intervals;
+        double lastTapSeconds = 0.0;
+    };
+
+    TapTempoLabel tempoCaption;
 
     /** 8.177：**数字は棒で、編集はそのまま**（Phase 219／`SegmentDisplay.h`） */
     SegmentLabel tempoLabel;

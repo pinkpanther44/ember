@@ -84,6 +84,21 @@ void ConsoleView::valueTreePropertyChanged (juce::ValueTree&, const juce::Identi
         return;
     }
 
+    // 8.314：**フォルダのミュート／ソロは、中のストリップの見た目にも効く**
+    //        （Phase 307／本人の要望）。
+    //
+    // ストリップが購読しているのは**自分のトラックだけ**なので、
+    // フォルダ側の変更は届きません。**ここはrootを購読している**ので、
+    // 受けて配ります——どのトラックのものかは見ません（自分の変更で呼ばれても
+    // 同じ値を入れ直すだけで、実害はありません）
+    if (property == IDs::mute || property == IDs::solo)
+    {
+        for (auto* strip : strips)
+            strip->refreshFromModel();
+
+        return;
+    }
+
     // 仕様書5.7.2：サイドチェインの割り当てが変わったとき（Phase 12d-3）。
     // 設定操作そのものはAudioEngine側で配線まで済ませているが、
     // **Undo/Redoはモデルだけを戻す**ため、ここでグラフを追従させる必要がある。

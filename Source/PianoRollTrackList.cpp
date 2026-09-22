@@ -158,20 +158,28 @@ void PianoRollTrackList::paint (juce::Graphics& g)
 
         // ソロ／ミュート。**アレンジ画面と同じ色分け**（S＝purple、M＝orange。8.18）
         auto drawChip = [&g] (juce::Rectangle<int> bounds, const juce::String& text,
-                               bool isOn, juce::Colour onColour)
+                               bool isOn, bool borrowed, juce::Colour onColour)
         {
-            g.setColour (isOn ? onColour : AppColours::background);
+            // 8.314：**フォルダから借りている点灯は薄く**（Phase 307。`AppColours`に理由）
+            const auto fill = borrowed ? onColour.withAlpha (AppColours::borrowedOnAlpha) : onColour;
+
+            g.setColour (isOn || borrowed ? fill : AppColours::background);
             g.fillRect (bounds);
             g.setColour (AppColours::border);
             g.drawRect (bounds);
 
-            g.setColour (isOn ? juce::Colours::white : AppColours::textSecondary);
+            g.setColour (isOn ? juce::Colours::white
+                       : borrowed ? AppColours::textPrimary
+                                  : AppColours::textSecondary);
             g.setFont (juce::FontOptions (9.0f, juce::Font::bold));
             g.drawText (text, bounds, juce::Justification::centred);
         };
 
-        drawChip (getSoloButtonBounds (i), "S", track.isSoloed(), AppColours::purple);
-        drawChip (getMuteButtonBounds (i), "M", track.isMuted(), AppColours::orange);
+        // 8.314：**判定はモデルの1箇所**（`getFolderInfluenceFor()`。音の判定と同じもの）
+        const auto folder = project.getFolderInfluenceFor (track);
+
+        drawChip (getSoloButtonBounds (i), "S", track.isSoloed(), folder.soloed, AppColours::purple);
+        drawChip (getMuteButtonBounds (i), "M", track.isMuted(), folder.muted, AppColours::orange);
 
         // 8.1のD5：透かしの入切（Phase 74）。
         //

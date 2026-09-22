@@ -255,6 +255,17 @@ private:
     juce::Label midiOutputCaption;
     juce::ComboBox midiOutputChannelBox;
 
+    /** 8.307：**MIDIディレイ**（Phase 300／本人の指定）。
+
+        > 「MIDIノートの発声タイミングを前後することができる(○○ms)。
+        > 配置場所は、MIDIトラックInspector内」
+
+        **つまみはConsoleと同じもの**（`ValueEntrySlider`）にしてあります——
+        数字を打ち込めて、ダブルクリックで0へ戻り、右クリックのメニューも付きます。
+        ここだけ`juce::Slider`にすると、**同じ見た目で挙動が違うもの**が増えます（8.118）。 */
+    juce::Label midiDelayCaption;
+    ValueEntrySlider midiDelaySlider { juce::Slider::LinearHorizontal, juce::Slider::TextBoxRight };
+
     /** つないでいるMIDI入力の一覧を並べ直す（トラックを選び直すたびに呼ぶ）。
 
         **保存しているのは名前**なので、いま挿さっていないデバイスの名前も

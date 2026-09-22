@@ -1,6 +1,7 @@
 #include "StorageSelfTest.h"
 
 #include "ProjectModel.h"
+#include "MidiPlayerProcessor.h"   // 8.307：ずらした量が鳴る位置に出ること（Phase 300）
 #include "StorageLocations.h"
 
 #include <juce_events/juce_events.h>
@@ -149,6 +150,174 @@ namespace StorageSelfTest
 
         root.deleteRecursively();
         check (! root.isDirectory(), "the temporary folder is cleaned up");
+
+        //----------------------------------------------------------------------
+        // 8.307：**MIDIディレイ**（Phase 300／本人の指定）。
+        //
+        // **保存して開き直しても残ること**と、**実際に鳴る位置が動くこと**の両方を見ます。
+        // 片方だけだと、「設定は残るのに音は動かない」が通り抜けます。
+
+        say ("--- the MIDI delay");
+
+        {
+            const auto projectFile = root.getChildFile ("Delay").getChildFile ("Delay" + extension);
+
+            ProjectModel project;
+
+            // **先に作ること。** 既定のままのモデルは保存できません
+            // （上の「控え」の節と同じ手順）
+            project.createNewProject();
+            project.setName ("Delay", nullptr);
+
+            auto track = project.addTrack ("Keys", TrackType::Midi);
+
+            // 4秒の位置に1秒のノート（数えやすい値）
+            track.addNote (60, 100, 4.0, 1.0, nullptr);
+
+            check (juce::approximatelyEqual (track.getMidiDelayMs(), 0.0),
+                    "a new track does not shift its MIDI");
+
+            // **0のときはプロパティごと消えていること**（既定値をファイルへ書き残さない）
+            track.setMidiDelayMs (0.0, nullptr);
+            check (! track.state.hasProperty (IDs::midiDelayMs),
+                    "zero is not written into the file at all");
+
+            track.setMidiDelayMs (-40.0, nullptr);
+            check (juce::approximatelyEqual (track.getMidiDelayMs(), -40.0),
+                    "a negative delay (earlier) is kept");
+
+            // **範囲の外は丸める**（手で書き替えたファイルでも壊れない）
+            track.setMidiDelayMs (9999.0, nullptr);
+            check (juce::approximatelyEqual (track.getMidiDelayMs(), Track::midiDelayLimitMs),
+                    "a wild value is pulled back to the limit");
+
+            track.setMidiDelayMs (120.0, nullptr);
+
+            // 保存して開き直す。**入れ物は自分で作ること**——
+            // `saveToFile()`はフォルダを作りません（上の節が通っているのは、
+            // ①でその曲のフォルダが先に作られているからです）
+            projectFile.getParentDirectory().createDirectory();
+
+            check (project.saveToFile (projectFile), "the project saves");
+
+            ProjectModel reopened;
+            check (reopened.loadFromFile (projectFile), "...and opens again");
+
+            auto reopenedTrack = reopened.getTrack (0);
+
+            check (juce::approximatelyEqual (reopenedTrack.getMidiDelayMs(), 120.0),
+                    "the delay survives the round trip");
+
+            //------------------------------------------------------------------
+            // **鳴る位置が動くこと。** ここが肝で、モデルだけ見ても分かりません。
+            //
+            // `getEndPositionSamples()`は並べ終えたノートの終わりを返すので、
+            // **ずらした量がそのまま差**として出ます
+
+            Transport transport;
+            MidiPlayerProcessor player { reopened, transport, reopenedTrack.getId() };
+
+            constexpr double sampleRate = 48000.0;
+
+            player.prepareToPlay (sampleRate, 512);
+
+            reopenedTrack.setMidiDelayMs (0.0, nullptr);
+            player.prepareNotesForPlayback();
+            const auto endWithout = player.getEndPositionSamples();
+
+            reopenedTrack.setMidiDelayMs (120.0, nullptr);
+            player.prepareNotesForPlayback();
+            const auto endLate = player.getEndPositionSamples();
+
+            reopenedTrack.setMidiDelayMs (-120.0, nullptr);
+            player.prepareNotesForPlayback();
+            const auto endEarly = player.getEndPositionSamples();
+
+            const auto expected = (juce::int64) (0.120 * sampleRate);
+
+            check (endLate - endWithout == expected,
+                    "+120ms moves the notes exactly 120ms later  ("
+                      + juce::String (endLate - endWithout) + " samples)");
+
+            check (endWithout - endEarly == expected,
+                    "-120ms moves them exactly 120ms earlier  ("
+                      + juce::String (endWithout - endEarly) + " samples)");
+
+            // **書かれているノートは動いていないこと**（鳴らし方だけの設定）
+            check (juce::approximatelyEqual (reopenedTrack.getNote (0).getStartTime(), 4.0),
+                    "...and the note itself never moved");
+
+            // **曲の頭より手前へは行かない**（負のサンプルは鳴らないので、音が消える）
+            auto early = reopened.getTrack (0);
+            early.addNote (64, 100, 0.01, 0.5, nullptr);
+            early.setMidiDelayMs (-Track::midiDelayLimitMs, nullptr);
+            player.prepareNotesForPlayback();
+
+            check (player.getEndPositionSamples() > 0,
+                    "a note near the start is not thrown away by a big negative delay");
+        }
+
+        //----------------------------------------------------------------------
+        // 8.311：**前に開いていた窓**（Phase 304／本人の要望）。
+        //
+        // 窓そのものは道具からは出せませんが、**覚えている中身**は数えられます
+        // ——ここが落ちると「開き直しても出てこない」になります。
+
+        say ("--- the windows that were open");
+
+        {
+            const auto projectFile = root.getChildFile ("Windows").getChildFile ("Windows" + extension);
+
+            ProjectModel project;
+            project.createNewProject();
+            project.setName ("Windows", nullptr);
+
+            auto midi = project.addTrack ("Keys", TrackType::Midi);
+
+            // インサートを2つ（1つめのGUIだけ開いていた、という形にする）
+            juce::PluginDescription description;
+            description.name = "Manta EQ";
+            description.pluginFormatName = "Manta";
+            description.fileOrIdentifier = "manta:eq";
+
+            midi.addInsert (description, nullptr);
+            midi.addInsert (description, nullptr);
+
+            check (midi.getNumInserts() == 2, "the track has two inserts");
+
+            // **エンジンの代わりに、印だけ立てる**（窓は道具からは開けません）
+            midi.state.setProperty (IDs::instrumentEditorOpen, true, nullptr);
+            midi.getInsert (0).state.setProperty (IDs::insertEditorOpen, true, nullptr);
+            project.getState().setProperty (IDs::editorPoppedOut, true, nullptr);
+
+            projectFile.getParentDirectory().createDirectory();
+            check (project.saveToFile (projectFile), "the project saves");
+
+            ProjectModel reopened;
+            check (reopened.loadFromFile (projectFile), "...and opens again");
+
+            auto reopenedTrack = reopened.getTrack (0);
+
+            check ((bool) reopenedTrack.state.getProperty (IDs::instrumentEditorOpen, false),
+                    "the instrument window is remembered");
+
+            check ((bool) reopenedTrack.getInsert (0).state.getProperty (IDs::insertEditorOpen, false),
+                    "the first insert's window is remembered");
+
+            // **開いていなかったものに印が付いていないこと。** 付いていると、
+            // 開き直すたびに**触ってもいない窓が出ます**
+            check (! (bool) reopenedTrack.getInsert (1).state.getProperty (IDs::insertEditorOpen, false),
+                    "...and the second insert's is not");
+
+            check ((bool) reopened.getState().getProperty (IDs::editorPoppedOut, false),
+                    "the popped out editor is remembered");
+
+            // **閉じたら印も消えること**（消さないと、次の保存まで残り続けます）
+            reopenedTrack.state.removeProperty (IDs::instrumentEditorOpen, nullptr);
+
+            check (! (bool) reopenedTrack.state.getProperty (IDs::instrumentEditorOpen, false),
+                    "closing it takes the mark away again");
+        }
 
         say ("--- " + juce::String (problems) + " problem(s) ---");
 

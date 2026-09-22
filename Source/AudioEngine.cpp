@@ -3574,6 +3574,34 @@ void AudioEngine::play()
         writeState.lastWrittenValue = -1.0f;
     }
 
+    // 8.308：**最後の音が鳴り終わってから、1小節ぶん流してから止まる**
+    //        （Phase 301／本人の要望）。
+    //
+    // > 「楽曲の最後のMIDIノートやクリップが鳴り終わるとカーソルが止まる。
+    // > ＋1小節ほど流してから止まるようにできるかな？」
+    //
+    // Phase 300までは**最後の音の終わりちょうど**で止まっていました。
+    // 減衰やリバーブの尾はそこで切られ、**最後の音の余韻が聴けません**
+    // （音源の音は`getEndPositionSamples()`が数えているノートの長さより長く伸びます）。
+    //
+    // **1小節はその場所の長さで測ること**（8.98）。テンポや拍子が途中で変わる曲では、
+    // 「曲の頭の1小節」を足すと長すぎたり短すぎたりします。
+    //
+    // **書き出しには足しません**（`renderToFile()`は`prepareTrackPlayersForPlayback()`を
+    // 自分で呼んでいて、ここは通りません）——書き出したファイルの末尾に、
+    // 頼んでいない無音が1小節ぶん付くことになります。
+    if (endPositionSamples > 0)
+    {
+        const double sampleRate = transport.getSampleRate();
+
+        if (sampleRate > 0.0)
+        {
+            const double endSeconds = (double) endPositionSamples / sampleRate;
+
+            endPositionSamples += (juce::int64) (project.getBarSecondsAt (endSeconds) * sampleRate);
+        }
+    }
+
     // 仕様書5.9：ループ中は自動停止しない（Phase 48）。
     // **ループの終わりがクリップの終端より後ろにあると、折り返す前に止まってしまう。**
     // 空の小節を含めてループしたいことは普通にあるので、ループ中は終端を見ない。
@@ -3982,6 +4010,14 @@ void AudioEngine::prepareTrackPlayersForPlayback (juce::int64& endPositionSample
             endPositionSamples = juce::jmax (endPositionSamples, nodes.midiPlayer->getEndPositionSamples());
         }
     }
+}
+
+void AudioEngine::refreshMidiNotesForTrack (const juce::String& trackIdToRefresh)
+{
+    // 8.307：MIDIディレイを変えたときに呼ばれます（Phase 300）
+    if (auto* nodes = findTrackNodes (trackIdToRefresh))
+        if (nodes->midiPlayer != nullptr)
+            nodes->midiPlayer->prepareNotesForPlayback();
 }
 
 void AudioEngine::stop()
@@ -4439,6 +4475,99 @@ void AudioEngine::capturePluginStatesIntoProject()
 
     for (int i = 0; i < numMasterInserts; ++i)
         captureStateFromNode (masterHost.getInsert (i), masterInsertNodes[(size_t) i]);
+}
+
+
+//==============================================================================
+// 8.311：前に開いていた窓を覚えて、開き直したときも出す（Phase 304／本人の要望）
+
+bool AudioEngine::isInsertEditorOpen (const juce::String& trackId, int insertIndex) const
+{
+    // **見えているかを見ること**（8.295と同じ）。「×」で閉じた窓は壊さずに隠してあります。
+    // 8.69：**空文字＝マスター**（`openInsertEditor()`と同じ決まり）
+    const juce::OwnedArray<juce::DocumentWindow>* windows = &masterInsertEditorWindows;
+
+    if (trackId.isNotEmpty())
+    {
+        auto* nodes = findTrackNodes (trackId);
+
+        if (nodes == nullptr)
+            return false;
+
+        windows = &nodes->insertEditorWindows;
+    }
+
+    if (! juce::isPositiveAndBelow (insertIndex, windows->size()))
+        return false;
+
+    auto* window = (*windows)[insertIndex];
+
+    return window != nullptr && window->isVisible();
+}
+
+void AudioEngine::captureOpenEditorWindowsIntoProject()
+{
+    // **保存の直前にだけ書きます**（`ProjectIds.h`の説明）。
+    // **Undoの列には並べません**（`nullptr`）——窓を開いたことを元に戻す必要はありません。
+    for (int t = 0; t < project.getNumTracks(); ++t)
+    {
+        auto track = project.getTrack (t);
+
+        // **開いていないときはプロパティごと消すこと。** 既定の値を書き残すと、
+        // 保存したファイルに意味の無いものが積み上がります（8.307と同じ扱い）
+        if (isTrackInstrumentEditorOpen (track.getId()))
+            track.state.setProperty (IDs::instrumentEditorOpen, true, nullptr);
+        else
+            track.state.removeProperty (IDs::instrumentEditorOpen, nullptr);
+
+        for (int i = 0; i < track.getNumInserts(); ++i)
+        {
+            auto insert = track.getInsert (i);
+
+            if (isInsertEditorOpen (track.getId(), i))
+                insert.state.setProperty (IDs::insertEditorOpen, true, nullptr);
+            else
+                insert.state.removeProperty (IDs::insertEditorOpen, nullptr);
+        }
+    }
+
+    // 8.69：マスターのインサートも同じ（Phase 108／D6）
+    auto masterHost = project.getMasterBusInsertHost();
+
+    for (int i = 0; i < masterHost.getNumInserts(); ++i)
+    {
+        auto insert = masterHost.getInsert (i);
+
+        if (isInsertEditorOpen ({}, i))
+            insert.state.setProperty (IDs::insertEditorOpen, true, nullptr);
+        else
+            insert.state.removeProperty (IDs::insertEditorOpen, nullptr);
+    }
+}
+
+void AudioEngine::restoreOpenEditorWindowsFromProject()
+{
+    // **音源とインサートが揃ってから呼ぶこと**（`MainComponent::loadProjectFile()`）。
+    // 先に呼ぶと、**まだ読み込めていないプラグインの窓を開こうとして**何も起きません。
+    flushPendingTrackRebuild();
+
+    for (int t = 0; t < project.getNumTracks(); ++t)
+    {
+        auto track = project.getTrack (t);
+
+        if ((bool) track.state.getProperty (IDs::instrumentEditorOpen, false))
+            openTrackInstrumentEditor (track.getId());
+
+        for (int i = 0; i < track.getNumInserts(); ++i)
+            if ((bool) track.getInsert (i).state.getProperty (IDs::insertEditorOpen, false))
+                openInsertEditor (track.getId(), i);
+    }
+
+    auto masterHost = project.getMasterBusInsertHost();
+
+    for (int i = 0; i < masterHost.getNumInserts(); ++i)
+        if ((bool) masterHost.getInsert (i).state.getProperty (IDs::insertEditorOpen, false))
+            openInsertEditor ({}, i);
 }
 
 juce::StringArray AudioEngine::restorePluginsFromProject()

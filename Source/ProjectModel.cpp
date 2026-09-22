@@ -184,14 +184,39 @@ void Track::setName (const juce::String& newName, juce::UndoManager* undoManager
     state.setProperty (IDs::trackName, newName, undoManager);
 }
 
+//==============================================================================
+// 8.313：**ソロとミュートは、両方は点きません**（Phase 306／本人の指定）
+//
+// > 「ソロ中にミュートを押したら、ソロボタンの点灯が消えてミュートボタンが点灯。
+// > ミュート中にソロを押したら、ミュートボタンの点灯が消えてソロボタンが点灯」
+//
+// ### なぜモデルでやるか
+//
+// 押せる場所は**5つ**あります——トラックヘッダー・Console・インスペクタ・
+// ピアノロールの一覧・ショートカット。**どれも最後はこの2つの関数を通ります**。
+//
+// 画面ごとに書くと、**足した入口で必ず忘れます**（1.27）。
+// ここでやれば、**見た目も勝手に揃います**：ボタンはモデルを見て描いているので、
+// 片方を消せばもう片方の点灯も消えます。
+//
+// ### 消すのは「点けたとき」だけ
+//
+// `setMuted(false)`でソロまで消えると、**ミュートを外したらソロも外れる**ことになります。
+
 void Track::setMuted (bool shouldBeMuted, juce::UndoManager* undoManager)
 {
     state.setProperty (IDs::mute, shouldBeMuted, undoManager);
+
+    if (shouldBeMuted && isSoloed())
+        state.setProperty (IDs::solo, false, undoManager);
 }
 
 void Track::setSoloed (bool shouldBeSoloed, juce::UndoManager* undoManager)
 {
     state.setProperty (IDs::solo, shouldBeSoloed, undoManager);
+
+    if (shouldBeSoloed && isMuted())
+        state.setProperty (IDs::mute, false, undoManager);
 }
 
 void Track::setArmed (bool shouldBeArmed, juce::UndoManager* undoManager)
@@ -203,6 +228,25 @@ void Track::setArmed (bool shouldBeArmed, juce::UndoManager* undoManager)
 juce::String Track::getMidiInputDeviceName() const { return state[IDs::midiInputDevice]; }
 int Track::getMidiInputChannel() const  { return juce::jlimit (0, 16, (int) state[IDs::midiInputChannel]); }
 int Track::getMidiOutputChannel() const { return juce::jlimit (0, 16, (int) state[IDs::midiOutputChannel]); }
+
+double Track::getMidiDelayMs() const
+{
+    // 8.307：**未設定なら0**（Phase 300）。`jlimit`を通すのは、
+    // 手で書き替えたファイルを読んでも壊れないようにするため
+    return juce::jlimit (-midiDelayLimitMs, midiDelayLimitMs, (double) state[IDs::midiDelayMs]);
+}
+
+void Track::setMidiDelayMs (double newDelayMs, juce::UndoManager* undoManager)
+{
+    const double limited = juce::jlimit (-midiDelayLimitMs, midiDelayLimitMs, newDelayMs);
+
+    // **0はプロパティごと消す。** 既定の値を書き残すと、
+    // 保存したファイルに意味の無いものが積み上がります（`setMidiInputDeviceName()`と同じ扱い）
+    if (juce::approximatelyEqual (limited, 0.0))
+        state.removeProperty (IDs::midiDelayMs, undoManager);
+    else
+        state.setProperty (IDs::midiDelayMs, limited, undoManager);
+}
 
 void Track::setMidiInputDeviceName (const juce::String& deviceName, juce::UndoManager* undoManager)
 {
@@ -4530,8 +4574,21 @@ bool ProjectModel::isTrackAudible (const Track& track, bool anySoloActive) const
     // （VCAと同じ考え方。まとめる仕組みは1箇所＝ここに集める）
     const auto folder = getFolderInfluenceFor (track);
 
-    if (track.isMuted() || vca.muted || folder.muted)
-        return false; // ミュートはソロより優先する
+    // 8.312：**その行のソロは、ミュートより強い**（Phase 305／本人の要望）。
+    //
+    // > 「ソロとミュートボタンが両方押されている時、ソロを優勢にすることはできる？」
+    //
+    // Phase 304までは逆で、**ミュートが勝って**いました（多くのDAWと同じ）。
+    // ただ、実際に困るのはこういうときです——**前に切っておいたトラックを
+    // 確かめようとしてSを押す。何も聞こえない。** 押したのに変わらないので、
+    // Mが押してあることに気づくまで「ソロが壊れている」ようにしか見えません。
+    //
+    // **「その行のS」だけが勝ちます。** VCAやフォルダのソロでは勝ちません——
+    // まとめてソロにしたときに、**個別に切ってあるものまで鳴り出す**のは
+    // 「そこだけ切っておいた」という意思を無視することになります。
+    // 押した本人が、その行で押したときだけです。
+    if (! track.isSoloed() && (track.isMuted() || vca.muted || folder.muted))
+        return false;
 
     if (! anySoloActive)
         return true;
@@ -5197,6 +5254,362 @@ double ProjectModel::snapTimeRelativeTo (double seconds, double referenceSeconds
     return (std::abs (time - onGrid) <= std::abs (time - relative)) ? onGrid : relative;
 }
 
+
+//==============================================================================
+// 8.308：小節を挿す／取り除く（Phase 301／本人の要望）
+//
+// **ここは1つの関数に見えますが、中身は「動かすものの一覧」です。**
+// タイムラインに乗るものを足したら、**ここへも1行足すこと**——
+// 足し忘れると、その種類だけが元の場所に取り残されます。
+
+bool ProjectModel::insertBars (int atBar, int numBars, juce::UndoManager* undoManager)
+{
+    if (atBar < 0 || numBars <= 0)
+        return false;
+
+    const double fromBeat = getTempoMap().getBeatForBarStart (atBar);
+
+    // **挿す小節の長さは、「1つ手前の小節」の拍子**（8.98）。
+    //
+    // ここは一度間違えました。`getBeatsPerBarAt(挿す位置)`で測っていたのですが、
+    // **その位置に拍子の変化点があると、その変化点も一緒に後ろへ動きます**
+    // ——つまり**新しく入る小節には、その拍子は掛かりません**。
+    //
+    //     4/4 …… | 3/4（3小節目から） ……
+    //              ↑ ここへ2小節挿す
+    //
+    // 挿した後、3〜4小節目は**4/4**（3/4の札は5小節目へ動く）。
+    // なのに長さを3/4で数えると、**譜面は8拍増えたのに中身は6拍しか下がらず**、
+    // 後ろが2拍ずれます。`--snap-selftest`が数えて見つけました。
+    //
+    // `getBeatForBarStart(atBar + numBars)`で測るのも駄目です——
+    // **その先の拍子変化まで数に入ります**
+    const auto& map = getTempoMap();
+    const double beatsPerBar = (double) juce::jmax (1, atBar > 0
+                                                        ? getBeatsPerBarAt (getBarStartTime (atBar - 1))
+                                                        : map.initialBeatsPerBar);
+
+    return shiftTimeline ({ fromBeat, fromBeat, beatsPerBar * numBars }, atBar, numBars, undoManager);
+}
+
+bool ProjectModel::removeBars (int atBar, int numBars, juce::UndoManager* undoManager)
+{
+    if (atBar < 0 || numBars <= 0)
+        return false;
+
+    const double fromBeat = getTempoMap().getBeatForBarStart (atBar);
+    const double toBeat = getTempoMap().getBeatForBarStart (atBar + numBars);
+
+    if (toBeat <= fromBeat)
+        return false;
+
+    return shiftTimeline ({ fromBeat, toBeat, fromBeat - toBeat }, atBar, -numBars, undoManager);
+}
+
+bool ProjectModel::shiftTimeline (TimelineShift shift, int atBar, int barDelta,
+                                   juce::UndoManager* undoManager)
+{
+    const bool inserting = shift.isInsert();
+
+    //--------------------------------------------------------------------------
+    // ① **オーディオクリップの位置を、先に拍で控える**（宣言の説明）。
+    //
+    // 秒で持っているのはここだけなので、**テンポの変化点を動かす前**に
+    // 拍へ直しておき、動かし終えてから秒へ戻します
+    struct ClipMove { juce::ValueTree state; juce::String trackId; double startBeats = 0.0; bool remove = false; };
+    std::vector<ClipMove> clipMoves;
+
+    for (int t = 0; t < getNumTracks(); ++t)
+    {
+        auto track = getTrack (t);
+
+        // **またぐものを先に割る。** 割ると後ろへ足されるので、
+        // 番号で回している最中に増えます——**先に済ませてから位置を控えること**
+        for (int c = track.getNumClips(); --c >= 0;)
+        {
+            auto clip = track.getClip (c);
+            const double start = clip.getStartTime();
+            const double splitAt = getTimeForBeatPosition (shift.fromBeat);
+
+            if (start < splitAt - MusicalTime::samePositionSeconds
+                 && start + clip.getLength() > splitAt + MusicalTime::samePositionSeconds)
+                track.splitClipAt (clip.state, splitAt, undoManager);
+        }
+
+        for (int c = 0; c < track.getNumClips(); ++c)
+        {
+            auto clip = track.getClip (c);
+            const double startBeats = getBeatPositionAt (clip.getStartTime());
+
+            bool remove = false;
+            const double moved = shift.apply (startBeats, remove);
+
+            if (remove || ! juce::approximatelyEqual (moved, startBeats))
+                clipMoves.push_back ({ clip.state, track.getId(), moved, remove });
+        }
+    }
+
+    //--------------------------------------------------------------------------
+    // ② ノート・CC・オートメーション・コード区間（どれも拍で持っている）
+
+    for (int t = 0; t < getNumTracks(); ++t)
+    {
+        auto track = getTrack (t);
+
+        // **後ろから回すこと**（消すと番号がずれる）
+        for (int n = track.getNumNotes(); --n >= 0;)
+        {
+            auto note = track.getNote (n);
+            const double startBeats = note.getStartBeats();
+            const double endBeats = startBeats + note.getLengthBeats();
+
+            if (inserting && startBeats < shift.fromBeat - MusicalTime::samePositionBeats
+                 && endBeats > shift.fromBeat + MusicalTime::samePositionBeats)
+            {
+                // またいでいる：ここで割って、後ろ半分を下げる
+                const double tail = endBeats - shift.fromBeat;
+
+                note.setLengthBeats (shift.fromBeat - startBeats, undoManager);
+                track.addNoteBeats (note.getPitch(), note.getVelocity(),
+                                     shift.fromBeat + shift.deltaBeats, tail, undoManager);
+                continue;
+            }
+
+            bool remove = false;
+            const double moved = shift.apply (startBeats, remove);
+
+            if (remove)
+            {
+                track.removeNote (note, undoManager);
+                continue;
+            }
+
+            // 取り除くとき、**またいでいるものは縮める**
+            if (! inserting && startBeats < shift.fromBeat && endBeats > shift.fromBeat)
+            {
+                bool endRemove = false;
+                const double movedEnd = shift.apply (endBeats, endRemove);
+
+                note.setLengthBeats (juce::jmax (MusicalTime::samePositionBeats,
+                                                  movedEnd - startBeats), undoManager);
+                continue;
+            }
+
+            if (! juce::approximatelyEqual (moved, startBeats))
+                note.setStartBeats (moved, undoManager);
+        }
+
+        for (int e = track.getNumCCEvents(); --e >= 0;)
+        {
+            auto event = track.getCCEvent (e);
+            const double at = event.getTimeBeats();
+            bool remove = false;
+            const double moved = shift.apply (at, remove);
+
+            if (remove)
+                track.removeCCEvent (event, undoManager);
+            else if (! juce::approximatelyEqual (moved, at))
+                event.setTimeBeats (moved, undoManager);
+        }
+
+        for (int l = 0; l < track.getNumAutomationLanes(); ++l)
+        {
+            auto lane = track.getAutomationLane (l);
+
+            for (int p = lane.getNumPoints(); --p >= 0;)
+            {
+                auto point = lane.getPoint (p);
+                const double at = point.getTimeBeats();
+                bool remove = false;
+                const double moved = shift.apply (at, remove);
+
+                if (remove)
+                    lane.removePoint (p, undoManager);
+                else if (! juce::approximatelyEqual (moved, at))
+                    point.setTimeBeats (moved, undoManager);
+            }
+        }
+
+        for (int r = track.getNumChordRegions(); --r >= 0;)
+        {
+            auto region = track.getChordRegion (r);
+            const double startBeats = region.getStartBeats();
+            const double endBeats = startBeats + region.getLengthBeats();
+
+            if (inserting && startBeats < shift.fromBeat - MusicalTime::samePositionBeats
+                 && endBeats > shift.fromBeat + MusicalTime::samePositionBeats)
+            {
+                const double tail = endBeats - shift.fromBeat;
+
+                region.setLengthBeats (shift.fromBeat - startBeats, undoManager);
+                track.addChordRegionBeats (region.getChord(), shift.fromBeat + shift.deltaBeats,
+                                            tail, undoManager);
+                continue;
+            }
+
+            bool remove = false;
+            const double moved = shift.apply (startBeats, remove);
+
+            if (remove)
+            {
+                track.removeChordRegion (region, undoManager);
+                continue;
+            }
+
+            if (! inserting && startBeats < shift.fromBeat && endBeats > shift.fromBeat)
+            {
+                bool endRemove = false;
+                const double movedEnd = shift.apply (endBeats, endRemove);
+
+                region.setLengthBeats (juce::jmax (MusicalTime::samePositionBeats,
+                                                   movedEnd - startBeats), undoManager);
+                continue;
+            }
+
+            if (! juce::approximatelyEqual (moved, startBeats))
+                region.setStartBeats (moved, undoManager);
+        }
+    }
+
+    //--------------------------------------------------------------------------
+    // ③ マスターのオートメーション（トラックに属さないレーン）
+
+    {
+        auto lane = findMasterAutomationLane (AutomationTargets::volume);
+
+        for (int p = lane.state.isValid() ? lane.getNumPoints() : 0; --p >= 0;)
+        {
+            auto point = lane.getPoint (p);
+            const double at = point.getTimeBeats();
+            bool remove = false;
+            const double moved = shift.apply (at, remove);
+
+            if (remove)
+                lane.removePoint (p, undoManager);
+            else if (! juce::approximatelyEqual (moved, at))
+                point.setTimeBeats (moved, undoManager);
+        }
+    }
+
+    //--------------------------------------------------------------------------
+    // ④ マーカー
+
+    for (int m = getNumMarkers(); --m >= 0;)
+    {
+        auto marker = getMarker (m);
+        const double at = marker.getTimeBeats();
+        bool remove = false;
+        const double moved = shift.apply (at, remove);
+
+        if (remove)
+            removeMarker (marker, undoManager);
+        else if (! juce::approximatelyEqual (moved, at))
+            marker.setTimeBeats (moved, undoManager);
+    }
+
+    sortMarkers (undoManager);
+
+    //--------------------------------------------------------------------------
+    // ⑤ テンポの変化点（拍で持っている）。
+    //
+    // **表から先に控えること。** 書き換えながら回すと、`getTempoMap()`が
+    // 作り直されて足元が動きます
+    {
+        const auto changes = getTempoMap().tempoChanges;
+
+        for (const auto& change : changes)
+        {
+            bool remove = false;
+            const double moved = shift.apply (change.beatPosition, remove);
+
+            if (remove)
+            {
+                removeTempoChange (change.beatPosition, undoManager);
+                continue;
+            }
+
+            if (juce::approximatelyEqual (moved, change.beatPosition))
+                continue;
+
+            removeTempoChange (change.beatPosition, undoManager);
+            setTempoChange (moved, change.bpm, undoManager);
+        }
+    }
+
+    //--------------------------------------------------------------------------
+    // ⑥ 拍子とキーの変化点（**小節で持っている**ので、小節の数で動かす）
+
+    {
+        const auto meters = getTempoMap().meterChanges;
+
+        for (const auto& change : meters)
+        {
+            if (change.bar < atBar)
+                continue;
+
+            // 取り除く範囲の中にあるものは消す（`barDelta`は負）
+            if (barDelta < 0 && change.bar < atBar - barDelta)
+            {
+                removeTimeSignatureChange (change.bar, undoManager);
+                continue;
+            }
+
+            const juce::String signature = juce::String (change.beatsPerBar) + "/"
+                                             + juce::String (change.denominator);
+
+            removeTimeSignatureChange (change.bar, undoManager);
+            setTimeSignatureChange (change.bar + barDelta, signature, undoManager);
+        }
+    }
+
+    {
+        const auto keys = getKeyMap().changes;
+
+        for (const auto& change : keys)
+        {
+            if (change.bar < atBar)
+                continue;
+
+            if (barDelta < 0 && change.bar < atBar - barDelta)
+            {
+                removeKeyChange (change.bar, undoManager);
+                continue;
+            }
+
+            removeKeyChange (change.bar, undoManager);
+            setKeyChange (change.bar + barDelta, change.key, undoManager);
+        }
+    }
+
+    //--------------------------------------------------------------------------
+    // ⑦ **最後にオーディオクリップを秒へ戻す**（①で控えた拍から）。
+    //
+    // ここまでで拍子とテンポは新しい並びになっているので、
+    // **拍→秒の換算は「動かした後の地図」で行われます**——それが狙いです
+    for (const auto& move : clipMoves)
+    {
+        AudioClip clip { move.state };
+
+        if (! clip.state.isValid())
+            continue;
+
+        if (move.remove)
+        {
+            auto track = findTrackById (move.trackId);
+
+            if (track.state.getParent().isValid())
+                track.removeClip (clip, undoManager);
+
+            continue;
+        }
+
+        clip.setStartTime (juce::jmax (0.0, getTimeForBeatPosition (move.startBeats)), undoManager);
+    }
+
+    markAsChanged();
+    return true;
+}
+
 int ProjectModel::getBeatsPerBar() const
 {
     // "4/4"の分子を読む。壊れた値や古いプロジェクトでも止まらないよう、
@@ -5301,6 +5714,21 @@ ProjectModel::BarBeat ProjectModel::getBarBeatAt (double timeSeconds) const
 int ProjectModel::getBarIndexAt (double timeSeconds) const
 {
     return getBarBeatAt (timeSeconds).bar;
+}
+
+int ProjectModel::getCursorBarIndex (double timeSeconds) const
+{
+    // 8.309：**小節線の上に置いたカーソルは、その小節のもの**（Phase 302／本人の報告）。
+    //
+    // `getBarIndexAt()`をそのまま使うと、**1つ前の小節**が返ります。
+    // 再生カーソルは**サンプル単位で切り捨て**られるので（`AudioEngine::setPlayheadSeconds()`）、
+    // 小節の頭へ合わせたつもりでも**最大20.8マイクロ秒手前**に居るためです。
+    //
+    // 8.304とまったく同じ形です（あちらはコード区間、こちらは小節）。
+    // **同じ位置と言える近さは1箇所で決めること**（8.277）——
+    // ここで`1.0e-6`のような数を書くと、**サンプル1つより短い許容**になり、
+    // 直したつもりで直りません。
+    return getBarIndexAt (timeSeconds + MusicalTime::samePositionSeconds);
 }
 
 double ProjectModel::getBarStartTime (int barIndex) const

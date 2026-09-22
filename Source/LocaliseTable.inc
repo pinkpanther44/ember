@@ -305,7 +305,13 @@
     // ExportOptions.cpp
     { "そのまま（いまの再生と同じ）", "As is (same as playback)", false },
     { "［フォルダ］", "[folder]", false },
-    { "左＝書き出す　／　右＝モノラル", "Left = export / right = mono", true },
+    { "モノラル", "Mono", false },
+    { "MIDIディレイ", "MIDI delay", false },
+    { "0 ms（ずらさない）", "0 ms (no shift)", false },
+    { "MIDIディレイ：このトラックの音を、鳴らすときだけ前後へずらします（マイナスで早く、プラスで遅く）。\n打ち込んだノートの位置は動きません——音源の鳴り出しの差を埋めたり、わざと走らせ／もたつかせるための設定です", "MIDI delay: shifts this track's notes earlier or later as they are played (minus for earlier, plus for later).\nThe notes themselves do not move - this is for evening out instruments that speak at different speeds, or for pushing and dragging a part on purpose", true },
+    { "MIDIディレイの変更", "Change the MIDI delay", false },
+    { "スナップの入切：切ると、どの刻みにも寄らなくなります\n（入れ直すと、隣で選んでいる音価へ戻ります）", "Snapping on or off: with it off, nothing is pulled to a grid line\n(turn it back on and it returns to the note length beside it)", true },
+    { "拍に合わせて続けて叩くと、そこのテンポになります（2回目から効きます。2秒空けると数え直し）", "Tap along with the beat to set the tempo there (it takes effect from the second tap; leaving a two second gap starts the count again)", true },
     { "全部", "All", false },
     { "全部外す", "None", false },
     { "ステムの書き出し", "Export stems", false },
@@ -1161,3 +1167,15 @@
     // ValueEntrySlider.cpp
     { "初期値に戻す（", "Reset to default (", false },
     { "初期値に戻す", "Reset to default", false },
+
+    // 8.308：小節の挿入・削除（Phase 301）
+    { "小節を挿入...", "Insert bars...", false },
+    { "小節を削除...", "Remove bars...", false },
+    { "小節の挿入", "Insert bars", false },
+    { "小節の削除", "Remove bars", false },
+    { "の前に挿し込む小節の数", ": how many bars to put in before it", false },
+    { "から取り除く小節の数", ": how many bars to take out from there", false },
+    { "小節数", "Bars", false },
+    { "後ろにあるものは、すべて同じだけ後ろへ下がります（クリップ・ノート・マーカー・テンポ・拍子・キー・コード）。挿す位置をまたぐクリップやノートは、そこで2つに割れます。", "Everything after it moves back by the same amount - clips, notes, markers, tempo, time signature, key and chords. A clip or note that spans the join is cut in two there.", true },
+    { "取り除く範囲にあるものは消え、後ろにあるものはすべて同じだけ前へ詰まります（クリップ・ノート・マーカー・テンポ・拍子・キー・コード）。", "Anything inside those bars is deleted, and everything after them moves forward by the same amount - clips, notes, markers, tempo, time signature, key and chords.", true },
+    { "実行", "Go ahead", false },

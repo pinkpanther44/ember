@@ -886,10 +886,26 @@ void ArrangeView::showTrackHeaderMenu (int trackIndex, juce::Rectangle<int> head
     menu.addSeparator();
     menu.addItem (3, utf8 ("トラックを削除"));
 
+    // 8.308：**小節の挿入・削除**（Phase 301／本人の指定）。
+    // アレンジ画面の右クリックメニューにも同じものがあります（入口は2つ）
+    menu.addSeparator();
+    menu.addSectionHeader (utf8 ("小節"));
+    menu.addItem (30, utf8 ("小節を挿入..."));
+    menu.addItem (31, utf8 ("小節を削除..."));
 
     menu.showMenuAsync (juce::PopupMenu::Options().withTargetScreenArea (headerScreenBounds),
         [this, trackIndex, headerScreenBounds] (int result)
         {
+            // 8.308：**トラックの数を確かめる前に見ること**（Phase 301）。
+            // 小節の話はトラックに関係が無く、**1本も無くても頼めます**
+            if (result == 30 || result == 31)
+            {
+                if (timeline.onBarEditRequested != nullptr)
+                    timeline.onBarEditRequested (result == 30);
+
+                return;
+            }
+
             // メニューを開いている間に構成が変わっている可能性があるので、都度確かめる
             if (! juce::isPositiveAndBelow (trackIndex, project.getNumTracks()))
                 return;

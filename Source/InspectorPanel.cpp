@@ -237,6 +237,51 @@ InspectorPanel::InspectorPanel (ProjectModel& projectToUse, SelectionState& sele
         track.setMidiOutputChannel (midiOutputChannelBox.getSelectedId() - 1, &project.getUndoManager());
     };
 
+    //==========================================================================
+    // 8.307：MIDIディレイ（Phase 300／本人の指定）
+
+    setUpCaption (midiDelayCaption, utf8 ("MIDIディレイ"));
+
+    midiDelaySlider.setRange (-Track::midiDelayLimitMs, Track::midiDelayLimitMs, 1.0);
+    midiDelaySlider.setValue (0.0, juce::dontSendNotification);
+    midiDelaySlider.setTextBoxStyle (juce::Slider::TextBoxRight, false, 62, 20);
+    midiDelaySlider.setTextValueSuffix (" ms");
+    midiDelaySlider.setColour (juce::Slider::trackColourId, AppColours::purple);
+
+    // **ダブルクリックで「ずらさない」へ**（Consoleのつまみと同じ扱い。8.118）
+    midiDelaySlider.setDoubleClickReturnValue (true, 0.0);
+    midiDelaySlider.setDefaultValueDescription (utf8 ("0 ms（ずらさない）"));
+    midiDelaySlider.setValueEntryDecimals (0);
+
+    midiDelaySlider.setTooltip (utf8 ("MIDIディレイ：このトラックの音を、鳴らすときだけ前後へずらします"
+                                       "（マイナスで早く、プラスで遅く）。\n"
+                                       "打ち込んだノートの位置は動きません——"
+                                       "音源の鳴り出しの差を埋めたり、わざと走らせ／もたつかせるための設定です"));
+
+    midiDelaySlider.onValueChange = [this]
+    {
+        if (isUpdatingFromModel)
+            return;
+
+        auto track = getSelectedTrack();
+
+        if (! track.state.getParent().isValid())
+            return;
+
+        project.beginAction (utf8 ("MIDIディレイの変更"));
+        track.setMidiDelayMs (midiDelaySlider.getValue(), &project.getUndoManager());
+
+        // **音へも今すぐ届ける。** モデルだけ変えても、鳴っているものは
+        // 並べ直すまで前のままです（`AudioEngine::refreshMidiNotesForTrack()`）
+        audioEngine.refreshMidiNotesForTrack (track.getId());
+    };
+
+    // **`content`の子にすること**（`this`ではなく）。
+    // 上のMIDIの欄と同じ入れ物に居ないと、**スクロールの外**に取り残されて
+    // 座標だけが中身のものになり、前の行に重なって描かれます
+    // （見出しのほうは`setUpCaption()`が`content`へ入れています）
+    content.addChildComponent (midiDelaySlider);
+
     // 8.77：MIDIクリップのトランスポーズ（Phase 117／改善案㉝）。
     // **動かすのはアレンジ画面**（`onTransposeRequested`）——
     // 「どのクリップに効かせるか」の判断をここに書くと、メニューと食い違う
@@ -367,8 +412,15 @@ void InspectorPanel::changeListenerCallback (juce::ChangeBroadcaster*)
     rebuildForSelection();
 }
 
-void InspectorPanel::valueTreePropertyChanged (juce::ValueTree& tree, const juce::Identifier&)
+void InspectorPanel::valueTreePropertyChanged (juce::ValueTree& tree, const juce::Identifier& property)
 {
+    // 8.314：**フォルダのM・Sは、中のトラックの見た目にも効く**（Phase 307／本人の要望）。
+    //
+    // 下の「選択中のトラックの中で起きた変化だけ」を通り抜けてしまうので、先に見ます
+    // ——変わったのは**別のトラック（フォルダ）**で、選んでいるトラックの中ではありません
+    if ((property == IDs::mute || property == IDs::solo) && strip != nullptr)
+        strip->refreshFromModel();
+
     // ルートを購読しているので、他のトラックの編集やノートの打ち込みまで届く（Phase 34）。
     // 表示に関係するのは、選択中のトラックの中で起きた変化だけ。
     //
@@ -523,6 +575,10 @@ void InspectorPanel::rebuildForSelection()
     midiOutputCaption.setVisible (showMidiInput);
     midiOutputChannelBox.setVisible (showMidiInput);
 
+    // 8.307：MIDIディレイもMIDIトラックのときだけ（Phase 300）
+    midiDelayCaption.setVisible (showMidiInput);
+    midiDelaySlider.setVisible (showMidiInput);
+
     if (showMidiInput)
         refreshMidiInputDeviceList();
 
@@ -645,6 +701,9 @@ void InspectorPanel::updateControlsFromModel()
     // 8.84：MIDIの入力設定（Phase 124/改善案⑯）。**IDは値+1**（0＝すべて／そのまま）
     midiInputChannelBox.setSelectedId (track.getMidiInputChannel() + 1, juce::dontSendNotification);
     midiOutputChannelBox.setSelectedId (track.getMidiOutputChannel() + 1, juce::dontSendNotification);
+
+    // 8.307：MIDIディレイ（Phase 300）。**Undoで戻ったときもここを通ります**
+    midiDelaySlider.setValue (track.getMidiDelayMs(), juce::dontSendNotification);
 
     // 選択中の色見本に枠を付ける。
     // 8.59：**レーンを選んでいるならレーンの色**（Phase 96）
@@ -988,6 +1047,13 @@ int InspectorPanel::layOutContents (int width, bool apply)
         area.removeFromTop (6);
         place (midiOutputCaption, area.removeFromTop (captionHeight));
         place (midiOutputChannelBox, area.removeFromTop (22));
+
+        // 8.307：MIDIディレイ（Phase 300／本人の指定）。
+        // **MIDIの設定のいちばん下**——入口（デバイス・チャンネル）から、
+        // 出口（送るチャンネル）、鳴らし方（ずらす量）の順に並びます
+        area.removeFromTop (6);
+        place (midiDelayCaption, area.removeFromTop (captionHeight));
+        place (midiDelaySlider, area.removeFromTop (22));
     }
 
     // Phase 33：削除は専用の行にする。

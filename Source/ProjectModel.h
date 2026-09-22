@@ -464,6 +464,36 @@ public:
     int getMidiOutputChannel() const;
     void setMidiOutputChannel (int channel, juce::UndoManager* undoManager);
 
+    /** 8.307：**MIDIディレイ**（ミリ秒。Phase 300／本人の指定）。
+
+        > 「MIDIノートの発声タイミングを前後することができる(○○ms)」
+
+        **負なら早く、正なら遅く。** 0ならずらしません。
+
+        ### 何のためにあるか
+
+        音源には**鳴り出しの速さがそれぞれ違う**ものがあります
+        （立ち上がりの遅いパッド、サンプルの頭に無音があるもの）。
+        揃えて打ち込んでも、聴くと**前に出たり遅れたり**します。
+        ノートを書き直して合わせることもできますが、
+        **譜面が正しくなくなる**——直すべきは鳴らし方のほうです。
+
+        人力の揺れを作るのにも使えます（ベースだけ少し後ろへ、など）。
+
+        ### 書かれているノートは動きません
+
+        **鳴らすときにだけずらします。** 画面のノートも、書き出したMIDIファイルも、
+        **打ち込んだままの位置**です。クオンタイズしたものが、
+        設定を変えるたびに動いていては困ります。
+
+        **範囲は±500ms**（`midiDelayLimitMs`）。これ以上は、
+        ノートそのものを動かしたほうが読みやすくなります。 */
+    double getMidiDelayMs() const;
+    void setMidiDelayMs (double newDelayMs, juce::UndoManager* undoManager);
+
+    /** 8.307：MIDIディレイの上限（ミリ秒）。**前後とも同じだけ動かせます。** */
+    static constexpr double midiDelayLimitMs = 500.0;
+
     /** 音量はdB表記。0.0dBが基準。VCA連携時の加算方式は設計書1.3参照。 */
     float getVolumeDb() const;
     void setVolumeDb (float newVolumeDb, juce::UndoManager* undoManager);
@@ -1293,8 +1323,99 @@ public:
     /** 時刻 → 小節・拍。 */
     BarBeat getBarBeatAt (double timeSeconds) const;
 
+    //==========================================================================
+    /** 8.308：挿す／取り除くときの「位置の動かし方」（Phase 301）。
+
+        **点ものも長さのあるものも、これ1つで決まります**——
+        同じ規則を種類ごとに書くと、必ずどれかが違う動きをします（1.27）。 */
+    struct TimelineShift
+    {
+        double fromBeat = 0.0;    // 境目
+        double toBeat = 0.0;      // 取り除く範囲の終わり。挿すときは`fromBeat`と同じ
+        double deltaBeats = 0.0;  // 挿すときは正、取り除くときは負
+
+        bool isInsert() const { return deltaBeats > 0.0; }
+
+        /** その位置がどこへ行くか。`shouldRemove`がtrueなら、それは消すもの。 */
+        double apply (double beat, bool& shouldRemove) const
+        {
+            shouldRemove = false;
+
+            if (isInsert())
+                return beat >= fromBeat - MusicalTime::samePositionBeats ? beat + deltaBeats : beat;
+
+            // 取り除く：範囲の中は消し、後ろは詰める
+            if (beat >= toBeat - MusicalTime::samePositionBeats)
+                return beat + deltaBeats;
+
+            if (beat >= fromBeat - MusicalTime::samePositionBeats)
+            {
+                shouldRemove = true;
+                return fromBeat;
+            }
+
+            return beat;
+        }
+    };
+
+    /** 8.308：**小節を挿す／取り除く**（Phase 301／本人の要望）。
+
+        > 「小節の追加と削除を実装したい。…**カーソル位置(○○小節)の前に
+        > ○○を追加(または削除)**…小節が挿入される場合は、挿入された分、
+        > 後続のクリップや塊は後ろへ下がる。**クリップがまたがっていた場合は、
+        > 挿入位置でカットし後ろへ下がる**。削除の場合は、逆で前に詰める」
+
+        ### 動くのは「タイムラインに乗っているもの全部」
+
+        本人の指定です。ノート・CC・オートメーションの点・オーディオクリップ・
+        コード区間・マーカー・**テンポと拍子の変化点・キーの変化点**——
+        置いていくものはありません。曲に1小節差し込む、という操作なので、
+        **骨格（テンポ地図）だけ元の場所に残ると、後ろが全部ずれます**。
+
+        ### またがっているものは割る
+
+        挿す位置をまたぐノート・クリップ・コード区間は、**そこで2つに割って**
+        後ろ半分だけを下げます。取り除くときは、**取り除く範囲に入っているものを消し、
+        またいでいるものはそのぶん詰めます**。
+
+        ### 数えるのは拍で、書き戻すのは最後
+
+        **オーディオクリップだけが秒で持っています**（8.105）。
+        テンポの変化点を動かすと換算が変わるので、
+        **先に全部の位置を拍で控えてから動かし、最後に秒へ戻します**
+        ——順番を逆にすると、動かした後の地図で読み直すことになり、
+        クリップが musically ずれた場所へ着きます。
+
+        @param atBar    0始まりの小節番号。**その小節の頭**が境目です
+        @param numBars  挿す／取り除く小節の数（1以上）
+        @returns        何かを動かしたらtrue
+
+        **`beginAction()`は呼び出し側で**。1回のUndoにまとめるためです（3.1）。 */
+    bool insertBars (int atBar, int numBars, juce::UndoManager* undoManager);
+    bool removeBars (int atBar, int numBars, juce::UndoManager* undoManager);
+
+private:
+    /** 8.308：`insertBars()`と`removeBars()`の中身（Phase 301）。 */
+    bool shiftTimeline (TimelineShift shift, int atBar, int barDelta, juce::UndoManager* undoManager);
+
+public:
+
     /** その時刻が何小節目か（0始まり）。`getBarBeatAt().bar`と同じ。 */
     int getBarIndexAt (double timeSeconds) const;
+
+    /** 8.309：**カーソルが「居る」小節**（0始まり。Phase 302／本人の報告）。
+
+        > 「カーソルを小節頭において小節の挿入・削除メニューを開くと、
+        > **カーソルの1つ前の小節が対象**となってしまう」
+
+        `getBarIndexAt()`との違いは、**小節線ちょうどの扱い**だけです。
+        再生カーソルはサンプル単位で切り捨てられるので、小節の頭へ合わせても
+        **最大20.8マイクロ秒手前**に居ます——そのまま訊くと1つ前が返ります。
+
+        **「いまカーソルがどの小節に居るか」を人に見せる／人の指示の基準にするときは、
+        必ずこちら**を使うこと。`getBarIndexAt()`は「その時刻はどの小節の中か」という
+        素の問いで、ルーラーを描くような用途のものです。 */
+    int getCursorBarIndex (double timeSeconds) const;
 
     /** 小節番号（0始まり）の頭の時刻。**ルーラーはこれで位置を出すこと**——
         `小節番号 × 小節の長さ` と書くと、小節ごとに長さが違う形にしたときに崩れます。 */

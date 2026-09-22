@@ -133,6 +133,30 @@ namespace IDs
 
     /** 音源へ送るときのMIDIチャンネル（1〜16）。0または未設定なら「そのまま」。 */
     extern const juce::Identifier midiOutputChannel;
+
+    /** 8.311：**前に開いていた窓を、開き直したときも出す**（Phase 304／本人の要望）。
+
+        > 「制作中のプロジェクトを開いた際、前回開いていたプラグインウィンドウや
+        > Pop Outされていたウィンドウを覚えておいて、
+        > **次回開いた時も自動でウィンドウが立ち上がる**仕様にすることは可能？」
+
+        **保存するときにだけ書きます**（`AudioEngine::capturePluginStatesIntoProject()`）。
+        窓を開け閉てするたびに書くと、**触っただけで「未保存」の印が付きます**
+        ——プラグインの内部状態を保存の直前に取り込んでいるのと同じ形です（設計書3.8）。
+
+        **Undoの列にも並びません**（`nullptr`を渡して書く）。
+        窓を開いたことを「元に戻す」必要はありません。 */
+    extern const juce::Identifier instrumentEditorOpen;
+    extern const juce::Identifier insertEditorOpen;
+
+    /** 8.311：エディタパネルが別窓になっていたか（Phase 304）。`<PROJECT>`に付きます。 */
+    extern const juce::Identifier editorPoppedOut;
+
+    /** 8.307：**このトラックのMIDIを、鳴らすときだけ前後へずらす量**（ミリ秒。Phase 300）。
+
+        負なら早く、正なら遅く。**未設定なら0**（ずらさない）。
+        書かれているノートの時刻は動きません——**鳴らし方の設定**です。 */
+    extern const juce::Identifier midiDelayMs;
     extern const juce::Identifier volume;
     extern const juce::Identifier pan;
 

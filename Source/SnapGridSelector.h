@@ -2,6 +2,7 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 #include "SnapGrid.h"
+#include "ToolbarLayout.h"   // 8.307：入切ボタンはツールと同じ大きさ（Phase 300）
 
 //==============================================================================
 /**
@@ -25,10 +26,24 @@
     そちらも「1/16」のような同じ表示になります。**どちらがどちらか分からなくなる**ので、
     見出しを付けています。記号は使いません（この環境のフォントに無い。1.30）。
 
+    ### 8.307：見出しは**ボタン**になりました（Phase 300／本人の指定）
+
+    > 「Arrange、Editor画面の[Snap]をボタンにしよう。デザインサイズは、
+    > ツールボタン、自動スクロールボタンと同じ。**デフォルトで[Snap]ボタンはOn**。
+    > Off時にフリーとなる。その為、**Snap選択タブ内のフリーは無くそう**」
+
+    入切と刻みが**別の操作**になりました。Phase 299までは
+    「フリー」もコンボの1項目だったので、**寄せるのをやめるには、
+    いま選んでいる音価を覚えてから「フリー」を選び、戻すときに選び直す**必要がありました
+    ——押して戻せるボタンなら、覚えておくのは画面の仕事になります。
+
+    **切ったときに選んでいた音価は、コンボがそのまま持っています。**
+    モデルへ渡す値だけが`SnapGrid::off`になり、入れ直せば元の音価へ戻ります。
+
     ### 「3」ボタン（8.271／Phase 272）
 
     コンボの右隣にあり、**選んでいる音価を3連にします**。
-    コンボは今までどおり6つ（フリー・小節・1/4〜1/32）のままで、
+    コンボは5つ（小節・1/4〜1/32。8.307でフリーが外れました）で、
     モデルへ渡す値だけが`SnapGrid::eighthTriplet`のような合わさったものになります。
 */
 class SnapGridSelector : public juce::Component
@@ -60,11 +75,21 @@ public:
         8.271：**3連のボタンぶん広がりました**（Phase 272）。
         `PianoRollView`は折り返すかどうかをこの値から決めていますが、
         `preferredWidth`を読んでいるだけなので、あちらを直す必要はありません。 */
-    static constexpr int preferredWidth = 112 + tripletButtonGap + tripletButtonWidth;
+    static constexpr int preferredWidth = ToolbarLayout::toolButtonWidth + 4 + 74
+                                            + tripletButtonGap + tripletButtonWidth;
 
 private:
-    juce::Label caption;
+    /** 8.307：**入切のボタン**（Phase 300／本人の指定）。
+
+        **大きさはツール・自動スクロールと同じ**（`ToolbarLayout::toolButtonWidth`）。
+        同じ帯に並ぶ押しものは、同じ大きさであること（8.196）。 */
+    juce::TextButton snapButton { "Snap" };
+
     juce::ComboBox box;
+
+    /** 「Snap」の見た目（選択色）を合わせる。**ツールのボタンと同じ形**にすること
+        （`ArrangeView::updateAutoScrollButton()`と揃えてあります）。 */
+    void updateSnapButton();
 
     //==========================================================================
     // 8.271：**3連符**（Phase 272／本人の要望。仕様書5.5）

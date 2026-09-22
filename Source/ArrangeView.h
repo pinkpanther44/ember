@@ -218,6 +218,15 @@ public:
     void selectAllClips();
     void clearClipSelection();
 
+    /** 8.310：Undo・Redoのあとに、時間範囲を畳む（Phase 303）。
+
+        **中身が残っていても畳みます**——範囲は「さっきの並び」を指しているので、
+        巻き戻した先では意味を持ちません（`MainComponent::undo()`に経緯）。 */
+    void clearTimeRange() { timeline.clearTimeRangeFromOutside(); }
+
+    /** 8.308：小節の挿入・削除を頼まれた（Phase 301）。中身は`MainComponent`。 */
+    std::function<void (bool insert)>& onBarEditRequested = timeline.onBarEditRequested;
+
     /** 複数選択されているクリップの数（コマンドの有効/無効に使う）。 */
     int getNumSelectedClips() const;
 

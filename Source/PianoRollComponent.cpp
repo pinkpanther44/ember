@@ -51,6 +51,8 @@ void PianoRollComponent::setTrack (const Track& trackToEdit)
     activeNoteState = juce::ValueTree();
 
     rangeSelecting = false;
+    rangeSelectAdds = false;          // 8.310（Phase 303）
+    ctrlClickPendingSelection = false;
     keyboardSelecting = false;   // Phase 69
     pencilPendingAdd = false;    // Phase 70
     lanePendingAdd = false;      // Phase 78
@@ -75,7 +77,23 @@ void PianoRollComponent::setTrack (const Track& trackToEdit)
     // ピアノロールが曲を通しで見せるようになったので、**むやみに跳ばさない**ほうが
     // 読んでいる場所を見失いません。ただし「開いたのに真っ白」も困るので、
     // **何も映っていないときだけ**寄せます。
-    if (! hasNoteInVisibleRange())
+    //
+    // 8.308：**カーソルが見えているなら、動かしません**（Phase 301／本人の報告）。
+    //
+    // > 「カーソル位置にノートのないトラックを選択した場合、
+    // > ピアノロール画面がカーソル位置を離れて飛ぶ」
+    //
+    // 一覧でトラックを選び替えるのは、**いま見ている場所に何かを書くため**です。
+    // そのトラックの最初のノートが3分先にあると、**打ち込もうとした場所から
+    // 飛ばされます**——戻るにはスクロールし直すしかありません。
+    //
+    // 「開いたのに真っ白」を防ぐ手当ては残します。**カーソルも見えていないとき**
+    // ——つまり画面が曲のどことも結びついていないとき——だけ寄せます。
+    const bool playheadIsVisible = getVisibleSeconds() > 0.0
+                                    && playheadSeconds >= scrollStartSeconds
+                                    && playheadSeconds < scrollStartSeconds + getVisibleSeconds();
+
+    if (! playheadIsVisible && ! hasNoteInVisibleRange())
     {
         const auto blocks = getNoteBlocks();
 
@@ -236,6 +254,62 @@ void PianoRollComponent::setDrumMode (bool shouldUseDrumEditor, const DrumMap& m
 int PianoRollComponent::getRowHeight() const
 {
     return drumMode ? drumRowHeight : noteRowHeight;
+}
+
+//==============================================================================
+// 8.308：縦の拡大・縮小（Phase 301／本人の要望）
+
+void PianoRollComponent::applyVerticalZoom()
+{
+    // **2つとも同じ倍率**で出します。ドラムのほうが元が大きいので、
+    // 同じ倍率でも先に上限へ着きます（それでよい——行の名前が入る必要があるため）
+    noteRowHeight = juce::jlimit (minimumRowHeight, maximumRowHeight,
+                                   (int) std::lround (baseNoteRowHeight * verticalZoom));
+    drumRowHeight = juce::jlimit (minimumRowHeight, maximumRowHeight,
+                                   (int) std::lround (baseDrumRowHeight * verticalZoom));
+}
+
+void PianoRollComponent::zoomVertically (double factor, int anchorY)
+{
+    if (factor <= 0.0)
+        return;
+
+    // **掴んでいる位置の音は動かさないこと。** 横の拡大（`setZoom()`）と同じ考え方で、
+    // これが無いと**拡大するたびに見ていた音域が画面の外へ逃げます**。
+    //
+    // 縦のスクロールを持っているのはビューポート（`PianoRollView`）なので、
+    // 「いま何の音の上に居るか」を先に控えて、**倍率を変えたあとに
+    // その音が同じ高さへ来るようにスクロールを頼みます**
+    const int anchorPitch = drumMode ? getDrumRowAtY (anchorY) : yToPitch (anchorY);
+    const int anchorOffset = anchorY - pitchToY (anchorPitch);
+
+    const double wanted = juce::jlimit (0.4, 3.5, verticalZoom * factor);
+
+    if (juce::approximatelyEqual (wanted, verticalZoom))
+        return;
+
+    const int previousNoteHeight = noteRowHeight;
+    const int previousDrumHeight = drumRowHeight;
+
+    verticalZoom = wanted;
+    applyVerticalZoom();
+
+    // **端で頭打ちになったら、倍率も戻すこと。** 戻さないと、
+    // 見た目は変わらないのに数字だけ育ち、**戻すときに何回も回すことになります**
+    // （8.300でラックの境目が「届かない位置」を覚えていたのと同じ形）
+    if (noteRowHeight == previousNoteHeight && drumRowHeight == previousDrumHeight)
+    {
+        verticalZoom = verticalZoom / factor;
+        return;
+    }
+
+    // 行の高さが変われば、中身の高さも変わる（ビューポートのスクロール範囲）
+    updateSizeForLanes();
+
+    if (onVerticalZoomChanged != nullptr)
+        onVerticalZoomChanged (pitchToY (anchorPitch) + anchorOffset - anchorY);
+
+    repaint();
 }
 
 int PianoRollComponent::getNoteAreaHeight() const
@@ -668,7 +742,15 @@ void PianoRollComponent::clearNoteSelection()
 
 void PianoRollComponent::applyRangeSelection()
 {
-    selectedNotes.clear();
+    // 8.310：**Ctrl＋ドラッグは、いまの選択に足す**（Phase 303／本人の要望）。
+    //
+    // > 「選択ツールで複数ノートを選択後、**Ctrl＋ドラッグで追加で複数選択**できる
+    // > 仕様が望ましい」
+    //
+    // 離れたところにある2かたまりを選ぶには、**囲い直すしかありません**でした
+    // ——1回で囲える形になっていない限り、2つめを囲った時点で1つめが外れます。
+    if (! rangeSelectAdds)
+        selectedNotes.clear();
 
     forEachNote ([this] (const juce::ValueTree& noteState)
     {
@@ -686,7 +768,11 @@ void PianoRollComponent::applyRangeSelection()
         if (getNoteHitBounds (note).intersects (rangeSelectBounds)
              || getVelocityBarBounds (note).expanded (velocityBarGrabMargin, 0)
                   .intersects (rangeSelectBounds))
-            selectedNotes.push_back (noteState);
+        {
+            // **足すときは、二重に入れないこと**（消すときに同じノートを2回消しに行く）
+            if (! rangeSelectAdds || ! isNoteSelected (noteState))
+                selectedNotes.push_back (noteState);
+        }
     });
 
     repaint();
@@ -3228,6 +3314,25 @@ void PianoRollComponent::mouseDown (const juce::MouseEvent& e)
 
     grabKeyboardFocus();
 
+    // 8.310：**このドラッグはレーンの中で始まったか**（Phase 303／本人の報告）。
+    //
+    // > 「オートメーション・ベロシティレーン上を選択ツールでドラッグすると、
+    // > **ピアノロール画面が下に動いてしまう**」
+    //
+    // 8.308で足した「掴んだまま画面の外へ」が、**レーンの中のドラッグまで
+    // 拾っていました**。レーンは見えている範囲の下端に貼り付いているので
+    // （8.36）、**その中に居る＝ノートの領域より下**——縦の追いかけが
+    // 「下へ出た」と読み、押しているあいだ流れ続けます。
+    //
+    // **「いまどこに居るか」では決められません。** ノートを掴んで下へ運ぶときも
+    // カーソルはレーンへ入りますが、そちらは**流れてほしい**——
+    // 違うのは**どこで掴んだか**なので、掴んだ時点で控えます
+    dragStartedInLane = getLaneBounds().contains (e.getPosition());
+
+    // **前のクリックの持ち越しを消す**（8.310）。押すたびに決め直すもの
+    ctrlClickPendingSelection = false;
+    rangeSelectAdds = false;
+
     // 8.122：**レーンの上端を掴んで高さを変える**（Phase 157／改善案36）。
     //
     // **いちばん先に見ること。** この帯は鍵盤の見出しにもノートグリッドにも
@@ -3539,6 +3644,7 @@ void PianoRollComponent::mouseDown (const juce::MouseEvent& e)
         // **選ぶ対象はノート**で、ベロシティの棒に触れたノートが選ばれる
         // （applyRangeSelection()がノートの矩形と棒の矩形の両方を見る）
         rangeSelecting = true;
+        rangeSelectAdds = e.mods.isCommandDown();   // 8.310：Ctrlなら足す（Phase 303）
         rangeSelectAnchor = e.getPosition();
         rangeSelectBounds = { e.x, e.y, 0, 0 };
         activeNoteState = juce::ValueTree();
@@ -3658,8 +3764,27 @@ void PianoRollComponent::mouseDown (const juce::MouseEvent& e)
 
         // 既に複数選んでいて、その中の1つを掴んだときは選択を保つ
         // （まとめて動かす対象を、掴んだ瞬間に1つへ減らさない）
+        //
+        // 8.310：**Ctrlで掴んだときは、まだ畳まない**（Phase 303／本人の要望）。
+        //
+        // > 「ノートをShift＋クリックすることで追加選択できるが、
+        // > **Ctrl＋クリックに変更**することは可能？」
+        //
+        // Ctrl＋クリックは前から`mouseUp`で選択に足していました（Phase 52）。
+        // ところが**ここで先に1つへ畳んで**いたので、
+        // **選ばれていないノートを足そうとすると、他が全部外れて**いました
+        // ——足したつもりが、選び直しになります。
+        //
+        // Ctrlは「選択に足す」と「ドラッグで複製」の両方に使うので、
+        // 掴んだ時点ではどちらか決まりません。**動かし始めたら畳み**（`mouseDrag`）、
+        // 動かさずに離したなら足す（`mouseUp`）——アレンジ画面のクリップと同じ形です（8.154）
         if (! isNoteSelected (note.state))
-            setSingleNoteSelection (note.state);
+        {
+            if (e.mods.isCommandDown())
+                ctrlClickPendingSelection = true;
+            else
+                setSingleNoteSelection (note.state);
+        }
 
         activeNoteState = noteState;
 
@@ -3722,6 +3847,7 @@ void PianoRollComponent::mouseDown (const juce::MouseEvent& e)
         activeNoteState = juce::ValueTree();
         dragMode = DragMode::None;
         rangeSelecting = true;
+        rangeSelectAdds = e.mods.isCommandDown();   // 8.310：Ctrlなら足す（Phase 303）
         rangeSelectAnchor = e.getPosition();
         rangeSelectBounds = { e.x, e.y, 0, 0 };
     }
@@ -3816,10 +3942,15 @@ void PianoRollComponent::autoScrollWhileDragging (const juce::MouseEvent& e)
     // 下端は**レーンの上**まで。レーンは見えている範囲の下端に貼り付いていて
     // （8.36）、その下に中身が潜っているので、レーンの上に出たら「画面の外」です
 
-    // **レーンの範囲選択では、縦は動かしません。** 下端に取ってあるのは
-    // 「レーンの上」で、レーンの中で選んでいるあいだは**常にその下**にいます
-    // ——動かすと、レーンを触っているだけで画面が流れ続けます
-    if (laneRangeSelecting)
+    // **レーンの中で始まったドラッグでは、縦は動かしません。** 下端に取ってあるのは
+    // 「レーンの上」で、レーンの中に居るあいだは**常にその下**にいます
+    // ——動かすと、レーンを触っているだけで画面が流れ続けます。
+    //
+    // 8.310：**`laneRangeSelecting`だけでは足りませんでした**（Phase 303／本人の報告）。
+    // ベロシティの棒の無いところを矢印でドラッグすると`rangeSelecting`になり
+    // （選ぶ対象はノートなので、そちらの旗が立つのが正しい）、
+    // **レーンの中に居るのに「ノートの範囲選択」として追いかけて**いました
+    if (dragStartedInLane)
         return;
 
     if (auto* view = findParentComponentOfClass<juce::Viewport>())
@@ -3844,6 +3975,18 @@ void PianoRollComponent::mouseDrag (const juce::MouseEvent& e)
 {
     // 8.305：掴んだまま画面の外まで行けるようにする（Phase 298／本人の指定）
     autoScrollWhileDragging (e);
+
+    // 8.310：**動かし始めたら、Ctrlで掴んだ1つへ畳む**（Phase 303）。
+    //
+    // ここまで来た＝**動かした**ということなので、Ctrlの意味は「複製」に決まります。
+    // 畳まないと、**選んでいた全部が複製されます**（掴んだ1つだけのつもりで）
+    if (ctrlClickPendingSelection)
+    {
+        ctrlClickPendingSelection = false;
+
+        if (hasActiveNote())
+            setSingleNoteSelection (activeNoteState);
+    }
 
     // 8.122：レーンの高さ（Phase 157／改善案36）。
     //
@@ -4310,6 +4453,7 @@ void PianoRollComponent::mouseUp (const juce::MouseEvent& e)
     {
         dragIsCopy = false;
         dragMode = DragMode::None;
+        ctrlClickPendingSelection = false;   // 8.310：動かさなかったので畳まない（Phase 303）
         toggleNoteSelection (activeNoteState);
         return;
     }
