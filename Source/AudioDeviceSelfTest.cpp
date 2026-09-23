@@ -115,6 +115,24 @@ namespace AudioDeviceSelfTest
 
         say ("  input  : " + (originalInput.isEmpty() ? juce::String ("(none)") : originalInput));
 
+        // **入力だけ外せるとは限りません**（Phase 309でLinuxに教わりました）。
+        //
+        // ALSA（PipeWire）では入出力が**1つのデバイス**で、JUCEの
+        // `AudioDeviceSelectorComponent`も入力欄を出しません。
+        // `inputDeviceName`を空にしても`updateConfig()`と同じように
+        // **出力の名前で上書きされる**ので、入力は残ったままです。
+        //
+        // Windowsの形のまま「入力が無くなること」を数えると、
+        // **Linuxで必ず落ちます**——落ちるべきでないところで落ちる試験は、
+        // そのうち誰も読まなくなります。
+        auto* deviceType = deviceManager.getCurrentDeviceTypeObject();
+        const bool canDropInputAlone = deviceType != nullptr
+                                        && deviceType->hasSeparateInputsAndOutputs();
+
+        if (! canDropInputAlone)
+            say ("  (this device type shares one device for input and output,"
+                 " so the input cannot be taken away on its own)");
+
         // 環境設定の画面が開いているときと同じ状態にする。**入力レベルの測定**は
         // JUCEの選択UI（`SimpleDeviceManagerInputLevelMeter`）が点けるもので、
         // `audioDeviceIOCallbackInt`の中身が1つ増えます
@@ -144,7 +162,7 @@ namespace AudioDeviceSelfTest
 
             pump (250);
 
-            if (engine.isAudioInputAvailable())
+            if (canDropInputAlone && engine.isAudioInputAvailable())
                 inputStayed = true;
 
             // 戻す。**戻せないと、試した人の設定を壊したまま終わります**
@@ -164,7 +182,10 @@ namespace AudioDeviceSelfTest
 
         check (! switchFailed,  "...taking it away never reported an error");
         check (! restoreFailed, "...putting it back never reported an error");
-        check (! inputStayed,   "...and the engine said there was no input each time");
+        if (canDropInputAlone)
+            check (! inputStayed, "...and the engine said there was no input each time");
+        else
+            say ("  n/a   (there is no input to take away on its own here)");
 
         check (deviceManager.getCurrentAudioDevice() != nullptr,
                 "the output device is still open at the end");
