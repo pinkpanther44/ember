@@ -6,6 +6,31 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.0.1] - 2026-09-23
+
+### Fixed
+
+- **Ember no longer closes itself when the audio input is set to none.**
+  Changing the input device closes and reopens the audio device, and one block
+  of audio could still arrive after the engine had been told the device had
+  stopped — at which point it was working from a device that was no longer
+  there. Nothing is passed on now between being told the device has stopped and
+  being told a new one has started; that gap is filled with silence instead.
+  This applies to any change of audio device, not only to choosing none
+
+- **If Ember ever does close unexpectedly, it now leaves a note behind.** It
+  goes to `Ember/crash` beside your settings, and it records where the fault
+  happened rather than anything about your work — no project data, no file
+  names. It is only written when the application stops the wrong way, and you
+  can delete the folder at any time
+
+### Changed
+
+- **The Linux notes no longer say that FLAC can be exported.** Export is WAV,
+  and MP3 on Windows; FLAC, AIFF and Ogg are read but never written
+
+---
+
 ## [1.0.0] - 2026-09-22
 
 ### Added

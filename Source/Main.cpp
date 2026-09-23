@@ -10,11 +10,13 @@
 #include "DrumMapPresetSelfTest.h" // 8.284：ドラムマップのプリセット（Phase 277）
 #include "StorageSelfTest.h"   // 8.286：プロジェクトの置き場所（Phase 279）
 #include "TrackHeaderLayoutSelfTest.h" // 8.295：ヘッダーの並び（Phase 288）
+#include "AudioDeviceSelfTest.h" // 8.316：デバイスの付け替え（Phase 309）
 #include "SplashWindow.h"        // 8.151：起動画面（Phase 189／改善案⑰）
 #include "ProjectChooser.h"      // 8.151：プロジェクト選択画面（Phase 189／改善案⑰）
 #include "Utf8.h"
 #include "Branding.h"   // 8.175：表に出る名前（Phase 216）
 #include "AppIcon.h"    // 8.229：窓のアイコン（Phase 249）
+#include "CrashLog.h"   // 8.316：落ちたときに番地を残す（Phase 309）
 
 
 //==============================================================================
@@ -35,6 +37,15 @@ public:
 
     void initialise (const juce::String& commandLine) override
     {
+        // 8.316：**いちばん先に入れること**（Phase 309）。
+        // ここから下で落ちたぶんは全部残ります——**子プロセスも同じ**です
+        // （落ちるのは子のほうが多い。サンドボックスはそのために在ります）。
+        CrashLog::install();
+
+        // 8.316：`--crash-selftest`なら、**わざと落ちて**仕掛けを確かめる（Phase 309）
+        if (CrashLog::runSelfTestIfRequested (commandLine))
+            return;
+
         // 設計書3.4：同じexeを子プロセスとしても使う。
         // コマンドラインに識別子が含まれていれば、UIを出さずワーカーとして動作する。
         sandboxWorker = std::make_unique<SandboxWorker>();
@@ -97,6 +108,15 @@ public:
         // **`TimelineComponent`は作りますが、画面には出しません**
         // ——位置を聞くだけなので、ピア（OSの窓）は要りません
         if (TrackHeaderLayoutSelfTest::runIfRequested (commandLine))
+        {
+            quit();
+            return;
+        }
+
+        // 8.316：`--audio-selftest`も窓を出しません（Phase 309）。
+        // **本物のデバイスは開きます**——踏みたいのがオーディオスレッドの
+        // 振る舞いなので、開かずには確かめられません（`AudioDeviceSelfTest.h`）
+        if (AudioDeviceSelfTest::runIfRequested (commandLine))
         {
             quit();
             return;

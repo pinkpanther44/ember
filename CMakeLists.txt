@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(PersonalDAW VERSION 1.0.0)
+project(PersonalDAW VERSION 1.0.1)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -309,6 +309,8 @@ target_sources(PersonalDAW
         Source/EditorPanel.cpp
         Source/ChordPadPanel.cpp
         Source/AppSettings.cpp
+        Source/CrashLog.cpp     # 8.316：落ちたときに番地を残す（Phase 309）
+        Source/AudioDeviceSelfTest.cpp  # 8.316：デバイスの付け替え（Phase 309）
         Source/AppColours.cpp
         Source/PanelResizerBar.cpp
         Source/SelectionState.cpp

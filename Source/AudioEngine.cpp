@@ -63,7 +63,7 @@ AudioEngine::~AudioEngine()
     project.onStateReplaced = nullptr;
 
     deviceManager.removeChangeListener (this);
-    deviceManager.removeAudioCallback (&player);
+    deviceManager.removeAudioCallback (&guardedPlayer);   // 8.316
     player.setProcessor (nullptr);
 }
 
@@ -176,7 +176,7 @@ juce::String AudioEngine::initialise()
     }
 
     // 先にコールバックを登録する（この時点ではplayerにまだprocessorが無いので無音のまま）。
-    deviceManager.addAudioCallback (&player);
+    deviceManager.addAudioCallback (&guardedPlayer);      // 8.316
 
     using AudioGraphIOProcessor = juce::AudioProcessorGraph::AudioGraphIOProcessor;
 
@@ -2328,7 +2328,7 @@ juce::String AudioEngine::renderMixdownToFile (const juce::File& file, const Exp
     // graph.releaseResources()が各ノードへ伝播する。ClipPlayerProcessorは
     // releaseResources()で読み込み済みクリップを捨てるため、
     // **クリップの読み込みは必ずこの後で行うこと**（先に読み込むと消える）。
-    deviceManager.removeAudioCallback (&player);
+    deviceManager.removeAudioCallback (&guardedPlayer);   // 8.316
 
     graph.setNonRealtime (true);
     graph.setPlayConfigDetails (2, 2, sampleRate, blockSize);
@@ -2354,7 +2354,7 @@ juce::String AudioEngine::renderMixdownToFile (const juce::File& file, const Exp
 
         setMetronomeEnabled (metronomeWasEnabled);
 
-        deviceManager.addAudioCallback (&player);
+        deviceManager.addAudioCallback (&guardedPlayer);      // 8.316
     };
 
     // 各プレイヤーに内容を読み込ませ、書き出す長さを決める（play()と同じ手順）
@@ -2721,7 +2721,7 @@ juce::String AudioEngine::renderStemsToFolder (const juce::File& folder, const E
     // 8.153：ミックスダウンと同じ（Phase 191／D9a。判断は`getExportSampleRate()`1箇所）
     const double sampleRate = getExportSampleRate (options);
 
-    deviceManager.removeAudioCallback (&player); // ミックスダウンと同じ理由（この関数の上の説明を参照）
+    deviceManager.removeAudioCallback (&guardedPlayer);   // 8.316 // ミックスダウンと同じ理由（この関数の上の説明を参照）
 
     graph.setNonRealtime (true);
     graph.setPlayConfigDetails (2, 2, sampleRate, blockSize);
@@ -2743,7 +2743,7 @@ juce::String AudioEngine::renderStemsToFolder (const juce::File& folder, const E
         setMetronomeEnabled (metronomeWasEnabled);
 
         updateMixerSettings(); // 書き出し用に上書きしたミキサー設定を元へ戻す
-        deviceManager.addAudioCallback (&player);
+        deviceManager.addAudioCallback (&guardedPlayer);      // 8.316
     };
 
     juce::int64 endPositionSamples = 0;

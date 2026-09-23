@@ -15,6 +15,7 @@
 #include "SendGainProcessor.h"
 #include "Transport.h"
 #include "EnginePlayHead.h"   // 8.205：プラグインへ渡す再生位置とテンポ（Phase 238）
+#include "GuardedAudioCallback.h"   // 8.316：止まったあとの1ブロックを堰き止める（Phase 309）
 #include "ProjectModel.h"
 #include "PluginCrashTracker.h"
 #include "SandboxedPluginProcessor.h" // 8.260：落ちる履歴のあるものを別プロセスで（Phase 268）
@@ -316,6 +317,17 @@ public:
     /** 仕様書6.2：オーディオデバイス選択のUIを作って返す（環境設定へ埋め込む用）。
         USBマイク等、OSの既定以外の入力を使いたい場合はここから選ぶ。 */
     std::unique_ptr<juce::Component> createAudioSettingsComponent();
+
+    /** 8.316：**`--audio-selftest`だけが使う口**（Phase 309）。
+
+        あの試験は「**入力デバイスを外したときに落ちないこと**」を見ます。
+        本人の報告（Inputをnoneにすると落ちる）を、**窓を出さずに**再現するために、
+        デバイスの付け替えをここから行います。
+
+        **画面からは使わないこと。** 環境設定の選択UIは
+        `createAudioSettingsComponent()`が返すもので、そちらが正規の入口です。 */
+    juce::AudioDeviceManager& getDeviceManagerForTesting()   { return deviceManager; }
+    GuardedAudioCallback& getAudioCallbackGuardForTesting()  { return guardedPlayer; }
 
     /** オーディオデバイスの構成が変わったときに呼ばれる（UIの入力表示更新用）。
         メッセージスレッドから呼ばれる。 */
@@ -925,6 +937,13 @@ private:
 
     juce::AudioDeviceManager deviceManager;
     juce::AudioProcessorPlayer player;
+
+    /** 8.316：**デバイスへ渡すのはこちら**（Phase 309／`GuardedAudioCallback.h`）。
+
+        `player`を直に渡すと、**デバイスを閉じ直したときに1ブロックだけ
+        「止まったあとの呼び出し」が通り**、JUCEの中でnullを踏みます。
+        **`player`より後に宣言すること**（参照を持っているので、先に壊れます）。 */
+    GuardedAudioCallback guardedPlayer { player };
 
     /** 8.205：プラグインへ渡す再生位置とテンポ（Phase 238／`EnginePlayHead.h`）。
 
