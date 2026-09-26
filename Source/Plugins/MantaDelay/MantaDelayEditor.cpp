@@ -37,6 +37,9 @@ MantaDelayEditor::MantaDelayEditor (MantaDelayProcessor& processorToUse)
         MantaFactoryPresets::makeToolbarPresets (processor.getValueTreeState(),
                                                   MantaDelayPresets::all()));
 
+    // 8.318：**いまのプリセットの名前を出す**（Phase 311／`MantaPluginToolbar.h`）
+    toolbar.setShowsCurrentPreset (true);
+
     //--------------------------------------------------------------------------
     setupSectionLabel (echoTitle, "Echo");
 

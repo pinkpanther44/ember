@@ -310,6 +310,7 @@ target_sources(PersonalDAW
         Source/ChordPadPanel.cpp
         Source/AppSettings.cpp
         Source/CrashLog.cpp     # 8.316：落ちたときに番地を残す（Phase 309）
+        Source/AppMessageBox.cpp   # 8.322：メッセージボックスの入口（Phase 312）
         Source/AudioDeviceSelfTest.cpp  # 8.316：デバイスの付け替え（Phase 309）
         Source/AppColours.cpp
         Source/PanelResizerBar.cpp
@@ -333,6 +334,8 @@ target_sources(PersonalDAW
         Source/StorageSelfTest.cpp
         # 8.295：トラックヘッダーの並びを窓なしで確かめる（Phase 288）
         Source/TrackHeaderLayoutSelfTest.cpp
+        # 8.325：MIDIの時間範囲を窓なしで確かめる（Phase 314）
+        Source/TimeRangeSelfTest.cpp
         Source/ProjectChooser.cpp
 
         # 9.5：**Manta Studio内部専用のプラグイン**（Phase 204）。

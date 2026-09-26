@@ -41,16 +41,43 @@ namespace CrashLog
     /** 起動時に1回だけ呼ぶ。Windows以外では何もしない。 */
     void install();
 
-    /** 残っているログの数。0なら「前回は落ちていない」。 */
+    /** 8.320：**このプロセスはサンドボックスの子**だと伝える（Phase 312）。
+
+        子も同じexeなので、`install()`で同じ仕掛けが入ります（落ちるのは子のほうが多い）。
+        ただ、**子が落ちてもアプリは落ちていません**——本体が気づいて、
+        そのプラグインを外すだけです（8.262）。
+
+        子のログは**`sandbox-crash-`で始まる名前**にして、
+        起動時の「前回落ちました」の案内には数えません。 */
+    void markAsSandboxWorker();
+
+    /** 8.322：**このプロセスは試験で、落ちるかどうかを見ている**と伝える（Phase 312）。
+        ログは`selftest-crash-…`になり、起動時の案内には数えません。 */
+    void markAsSelfTest();
+
+    /** 残っているログの数（**本体のぶんだけ**）。0なら「前回は落ちていない」。 */
     int getNumStoredReports();
 
     /** ログの置き場所（無ければ作らない）。 */
     juce::File getReportFolder();
 
+    /** 8.320：**いちばん新しい、本体のログ**（Phase 312）。無ければ空の`File`。
+
+        `folder`を渡せるのは試験のためです（**本人の置き場所へ試験のファイルを書かない**）。 */
+    juce::File findNewestReport (const juce::File& folder);
+    juce::File findNewestReport();
+
+    /** 8.320：**本体のログか**（子・試験のものではないか）。名前だけで決めます。 */
+    bool isApplicationReport (const juce::File& file);
+
     /** `--crash-selftest`なら、**わざと落ちて**ログを1つ残す。
 
         **仕掛けそのものを確かめるためのものです。** 落ちたときにしか働かない道具は、
         **本番で初めて動かすことになりがち**で、そこで書けなかったら何も残りません。
+
+        8.320：ログの名前は**`selftest-crash-`で始まります**（Phase 312）。
+        本体のログと同じ名前にすると、**リリース前に試しただけで、
+        次に起動したとき「前回落ちました」と出ます**。
 
         戻ってきません（プロセスが終わります）。頼まれていなければ`false`を返します。 */
     bool runSelfTestIfRequested (const juce::String& commandLine);

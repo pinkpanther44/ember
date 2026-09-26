@@ -488,6 +488,27 @@ public:
     HeaderRowLayout getHeaderRowLayout (int rowIndex) const;
 
     //==========================================================================
+    // 8.325：時間範囲を窓なしで確かめるための入口（Phase 314／`TimeRangeSelfTest`）
+    //
+    // **押す場所を座標で渡します。** 範囲は押した場所（空き・塊・範囲の中）で
+    // 振る舞いが分かれるので、関数を直に呼ぶと**その振り分けを通らない**ためです。
+
+    /** その行の、その時刻の点（行の縦の真ん中）。 */
+    juce::Point<int> getPointForTesting (int trackIndex, double timeSeconds) const;
+
+    /** その行に描く範囲の枠（8.326：1行に複数あり得る。時刻順）。掛かっていなければ空。 */
+    std::vector<juce::Rectangle<int>> getTimeRangeBoundsForTesting (int trackIndex) const
+    {
+        return isTimeRangeOnTrackIndex (trackIndex) ? getTimeRangeBoundsFor (trackIndex)
+                                                    : std::vector<juce::Rectangle<int>>();
+    }
+
+    bool hasTimeRangeForTesting() const { return hasTimeRange; }
+
+    /** 旗から区間を選ぶ（旗はルーラーの上にあり、座標で押すと描き方に左右されるため）。 */
+    void selectRangeFromMarkerForTesting (int markerIndex) { selectRangeFromMarker (markerIndex); }
+
+    //==========================================================================
     // 仕様書4.4・6章：ドラッグ&ドロップの受け口（Phase 21）
 
     bool isInterestedInDragSource (const SourceDetails& details) override;
@@ -1005,7 +1026,7 @@ private:
     /** 塊1つを、中のノートのミニプレビュー付きで描く（`drawMidiClip()`は8.94で削除）。 */
     void drawNoteBlock (juce::Graphics& g, juce::Rectangle<int> bounds,
                         const Track& track, const Track::NoteBlock& block, juce::Colour trackColour,
-                        juce::Rectangle<int> selectedPart);
+                        const juce::RectangleList<int>& selectedParts);
 
     //==========================================================================
     // 8.92：ノートの塊を掴んで動かす（Phase 132）
@@ -1022,9 +1043,18 @@ private:
 
     /** 時間の範囲でノートを消す／上下させる（塊のメニューとPhase 133の範囲編集で共用）。
 
-        **塊にIDが無いので、「どのノートがこの塊のものか」は時間の範囲でしか言えません。** */
-    void deleteNotesInRange (int trackIndex, double fromSeconds, double toSeconds);
-    void transposeNotesInRange (int trackIndex, double fromSeconds, double toSeconds, int semitones);
+        **塊にIDが無いので、「どのノートがこの塊のものか」は時間の範囲でしか言えません。** 
+
+        8.325：`beginsAction`が`false`なら**Undoの区切りを作りません**（Phase 314）。
+        範囲全体への操作（`deleteNotesInTimeRange()`など）が、1つの区切りにまとめるために使います。 */
+    void deleteNotesInRange (int trackIndex, double fromSeconds, double toSeconds, bool beginsAction = true);
+    void transposeNotesInRange (int trackIndex, double fromSeconds, double toSeconds, int semitones,
+                                bool beginsAction = true);
+
+    /** 8.325：その範囲のノートを、音域の端を越えずに上下させられるか（Phase 314）。
+        **全部の行を先に確かめてから動かす**ために分けてあります——
+        2本目で止まると、1本目だけ動いたまま残ります。 */
+    bool canTransposeNotesInRange (int trackIndex, double fromSeconds, double toSeconds, int semitones) const;
 
     //==========================================================================
     // 8.93：時間範囲の選択と、範囲の移動・複製・削除（Phase 133）
@@ -1072,7 +1102,9 @@ public:
 
 private:
     bool isTimeRangeAt (int trackIndex, double timeSeconds) const;
-    juce::Rectangle<int> getTimeRangeBoundsFor (int trackIndex) const;
+
+    /** 8.326：**その行の枠を全部**（Phase 315）。1行に窓が複数あり得ます。 */
+    std::vector<juce::Rectangle<int>> getTimeRangeBoundsFor (int trackIndex) const;
 
     void showTimeRangeMenu (juce::Point<int> screenPosition);
 
@@ -1081,10 +1113,15 @@ private:
         **先に集めてから書くこと。** 複製は`addNote()`で子が増えるので、
         走りながら足すと**足したものをまた複製し続けます**（無限に増える）。
 
+        8.326：**窓は全部まとめて渡します**（Phase 315）。同じトラックの窓を1つずつ動かすと、
+        **1つ目で動かしたノートが2つ目の窓に入り、もう一度動きます**。
+        「全部の窓から先に集めて、それから書く」ために、ここで一緒に受け取ります。
+
         `targetTrackIndex`に別のMIDIトラックを渡すと、**そちらへ移す／複製する**
         （8.95）。-1なら同じトラック。 */
-    void moveOrCopyNotesInRange (int trackIndex, double fromSeconds, double toSeconds,
-                                  double deltaSeconds, bool copy, int targetTrackIndex = -1);
+    void moveOrCopyNotesInWindows (int trackIndex, const std::vector<juce::Range<double>>& windows,
+                                   double deltaSeconds, bool copy, int targetTrackIndex = -1,
+                                   bool beginsAction = true);
 
     /** 8.95：選んでいる範囲のノートとCCをクリップボードへ（`alsoDelete`でカット）。
 
@@ -1146,6 +1183,11 @@ private:
                                      double fromSeconds, double toSeconds,
                                      double deltaSeconds, bool copy, bool crossesTracks);
 
+    /** 8.326：**窓が複数のとき**（Phase 315）。どれかの窓に入っているものを**先に全部集めて**から動かします。 */
+    void applyRangeMoveToMidiTrack (Track& track, Track& target,
+                                     const std::vector<juce::Range<double>>& windows,
+                                     double deltaSeconds, bool copy, bool crossesTracks);
+
     /** 1つのオーディオトラックぶんの移動／複製。**区切りは作りません**。 */
     void applyRangeMoveToAudioTrack (Track& track, double fromSeconds, double toSeconds,
                                       double deltaSeconds, bool copy);
@@ -1184,8 +1226,49 @@ private:
         あちらは**旗から選んだ「曲全体のこの区間」**で、コードもオーディオクリップも
         まとめて動かします（8.124）。こちらは**選んだMIDIトラックのノートだけ**。
         **同じ「複数トラック」でも、動くものが違います**——
-        片方に寄せると、旗の範囲がノートしか動かさなくなります。 */
-    std::vector<juce::String> timeRangeTrackIds;
+        片方に寄せると、旗の範囲がノートしか動かさなくなります。
+
+        8.325：**トラックごとに窓を持つ**（Phase 314／HANDOVER 9.2の①）。
+
+        Phase 313までは**IDの集合＋窓1つ**（`timeRangeStart`〜`timeRangeEnd`）でした。
+        1小節目の塊と5小節目の塊を別のトラックから足すと、窓は1〜6小節になり、
+        **あいだにある別の塊まで**消える・動く対象に入っていました。
+
+        8.326：**1トラックに窓を複数持てます**（Phase 315／HANDOVER 9.2の②）。
+        同じトラックの離れた塊をCtrl＋クリックで足すと、**あいだを入れずに窓が2つ**になります。
+        同じトラックの窓は**重ならず、時刻順**に保ちます（`normaliseTimeRangeSpans()`）。 */
+    struct TimeRangeSpan
+    {
+        juce::String trackId;
+        double start = 0.0;
+        double end = 0.0;
+    };
+
+    std::vector<TimeRangeSpan> timeRangeSpans;
+
+    using TimeWindows = std::vector<juce::Range<double>>;
+
+    /** その行の窓（時刻順）。**旗の区間なら全体の窓1つ**を返します。掛かっていなければ空。
+
+        **窓を読むのはここだけにすること**（8.2）。`timeRangeStart`〜`timeRangeEnd`は
+        行ごとの範囲では**全部を包む外枠**なので、そちらで削除や移動をすると、
+        Phase 313までと同じく**あいだのものを巻き込みます**。 */
+    TimeWindows getTimeRangeWindowsFor (int trackIndex) const;
+
+    /** その時刻が、どれかの窓に入っているか（`isWithinRange()`と同じ端の扱い）。 */
+    static bool isInAnyWindow (double timeSeconds, const TimeWindows& windows);
+
+    /** 8.326：同じトラックの窓を**時刻順に並べ、重なる・接するものは1つにする**（Phase 315）。
+        重なったまま持つと、削除は同じノートを2回消しに行き、移動は2回動かします。 */
+    void normaliseTimeRangeSpans();
+
+    /** 8.326：範囲がかかっている**トラックの本数**（窓の数ではなく）。
+        縦に動かせるか（1本だけか）、コピーをどの入れ物にするかは、こちらで決めます。 */
+    int getNumTimeRangeTracks() const;
+
+    /** `timeRangeStart`〜`timeRangeEnd`を、行ごとの窓を包む外枠に合わせ直す。
+        **窓を書き換えたら必ず呼ぶこと**——ドラッグの基準とクリップボードの基準がここを見ます。 */
+    void updateTimeRangeExtent();
 
     /** 範囲がこの行にかかっているか（`timeRangeAllTracks`は見ません）。 */
     bool isTimeRangeOnTrackIndex (int trackIndex) const;
@@ -1200,13 +1283,33 @@ private:
     /** 代表の行（先頭）。無ければ-1。**インスペクタと貼り付け先はこれを見ます。** */
     int getPrimaryTimeRangeTrackIndex() const;
 
-    /** 範囲を1トラックだけに設定する。 */
-    void setTimeRangeToTrack (int trackIndex);
+    /** 範囲を1トラックだけに設定する（8.325：窓も一緒に渡す）。 */
+    void setTimeRangeToTrack (int trackIndex, double start, double end);
 
-    /** 8.158：範囲へトラックを足す／外す（Ctrl＋クリック）。
+    /** 8.158：範囲へ塊を足す（Ctrl＋クリック）。
 
-        **最後の1本は外しません**——空の範囲は「選んでいない」と見分けが付かないため。 */
-    void toggleTimeRangeTrack (int trackIndex);
+        8.326：**塊ちょうどの窓を1つ足します**（Phase 315／9.2の②）。同じトラックに既に窓があっても、
+        **あいだは入れません**。重なる・接する窓とだけ1つにまとめます。
+        （8.325では、同じトラックなら既にある窓を広げていました。）
+
+        Phase 313までは「足す／外す」の切り替えで、**既に入っているトラックの別の塊を
+        Ctrl＋クリックすると、そのトラックが外れて**いました（窓は広がるのに）。
+        押した塊が選ばれないのは驚きなので、広げるほうへ揃えています。 */
+    void addBlockToTimeRange (int trackIndex, double start, double end);
+
+    //--------------------------------------------------------------------------
+    // 8.325：**範囲全体への操作**（Phase 314）。
+    //
+    // どれも**Undoの区切りは1つ**です。1行ずつ`beginAction()`を呼ぶと
+    // （Phase 313まではそうでした）、**選んだトラックの本数だけUndoを押す**ことになります。
+    // キー・メニュー・ドラッグの入口は、全部ここを通します（1.27）。
+
+    void deleteNotesInTimeRange();
+    void transposeNotesInTimeRange (int semitones);
+
+    /** ずらして動かす／複製する。`targetTrackIndex`は**1本だけのとき**の行き先（-1なら同じ行）。
+        **窓も一緒に動かします**（置いていくと、続けて動かすときにさっきのものが入らない）。 */
+    void moveOrCopyTimeRange (double deltaSeconds, bool copy, int targetTrackIndex);
 
     /** 8.158：枠を引き始めた行（Phase 196）。**縦にどこまで囲ったか**を測る起点です。 */
     int timeRangeCreateAnchorTrackIndex = -1;
@@ -1229,6 +1332,9 @@ private:
         「どの行がどの行へ行ったのか」を全トラックぶん追うことになります。 */
     bool timeRangeAllTracks = false;
 
+    /** 旗の区間ではその窓。**行ごとの範囲では全部の窓を包む外枠**です（8.325）。
+        ドラッグの基準（どれだけずらしたか）と、クリップボードの基準（頭からの距離）に使います。
+        **中身を選ぶのには使わないこと**——`getTimeRangeWindowsFor()`を通します。 */
     double timeRangeStart = 0.0;
     double timeRangeEnd = 0.0;
 

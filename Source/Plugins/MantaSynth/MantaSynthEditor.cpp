@@ -34,6 +34,10 @@ MantaSynthEditor::MantaSynthEditor (MantaSynthProcessor& processorToUse)
         toolbar.setFactoryPresets (std::move (presets));
     }
 
+    // 8.318：**いまのプリセットの名前を出す**（Phase 311／本人の要望）。
+    // 複数立ち上げたシンセの見分けに使います（`MantaPluginToolbar.h`）
+    toolbar.setShowsCurrentPreset (true);
+
     // 8.186：**名前を直に書かないこと**（Phase 225／本人の指摘）。
     // Ember版でも「Manta Synthesizer」と出ていました。
     // `Branding.h`が唯一の出どころです（Manta Synthesizer／Red Panda）

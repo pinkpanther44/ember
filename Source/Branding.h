@@ -181,6 +181,13 @@ namespace Branding
                                                 ? "https://github.com/pinkpanther44/ember"
                                                 : "";
 
+    /** 8.320：**不具合の報告先**（Phase 312）。空なら出しません——
+        Manta Studioは本人専用なので、報告を受ける場所がありません。
+        落ちたときの案内（`MainComponent::offerCrashReport()`）が使います。 */
+    inline constexpr const char* issuesUrl = isPublished
+                                                ? "https://github.com/pinkpanther44/ember/issues"
+                                                : "";
+
     inline constexpr const char* licenceName = "GNU Affero General Public License, version 3 or later";
 
     /** 8.186：**ASIOが使えるかどうか**（Phase 225）。

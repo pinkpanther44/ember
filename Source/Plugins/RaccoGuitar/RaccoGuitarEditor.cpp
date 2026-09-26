@@ -363,6 +363,9 @@ RaccoGuitarEditor::RaccoGuitarEditor (RaccoGuitarProcessor& processorToUse)
         MantaFactoryPresets::makeToolbarPresets (processorToUse.getValueTreeState(),
                                                   RaccoGuitarPresets::all()));
 
+    // 8.318：**いまのプリセットの名前を出す**（Phase 311／`MantaPluginToolbar.h`）
+    toolbar.setShowsCurrentPreset (true);
+
     // 8.186：**名前を直に書かないこと**（`Branding.h`が唯一の出どころ）
     titleLabel.setText (Branding::guitarPluginName, juce::dontSendNotification);
     titleLabel.setColour (juce::Label::textColourId, MantaTheme::textDim());

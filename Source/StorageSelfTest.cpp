@@ -3,6 +3,9 @@
 #include "ProjectModel.h"
 #include "MidiPlayerProcessor.h"   // 8.307：ずらした量が鳴る位置に出ること（Phase 300）
 #include "StorageLocations.h"
+#include "ExportOptions.h"   // 8.319：書き出したファイルの中身（Phase 312）
+#include "CrashLog.h"        // 8.320：起動時に知らせる記録（Phase 312）
+#include "AppMessageBox.h"   // 8.322：ボタンの番号の戻し方（Phase 312）
 
 #include <juce_events/juce_events.h>
 
@@ -317,6 +320,188 @@ namespace StorageSelfTest
 
             check (! (bool) reopenedTrack.state.getProperty (IDs::instrumentEditorOpen, false),
                     "closing it takes the mark away again");
+        }
+
+        //======================================================================
+        // 8.319：**書き出したファイルの中身**（Phase 312／FLACを足したとき）
+        //
+        // 置き場所と同じく、**間違えてもその場では何も起きません**——
+        // ファイルはでき、エラーも出ません。気づくのは**別のソフトで開いたとき**です。
+        //
+        // 書いて、**読み戻して、1サンプルずつ見比べます**。
+        // 形式の部品は`ExportOptions::createWriter()`が作ります（書き出しと同じ道）
+        say ("--- what an exported file contains");
+        {
+            auto roundTrip = [] (ExportOptions::Format format, int requestedBits,
+                                 int& bitsOut, int& channelsOut, double& rateOut,
+                                 juce::int64& lengthOut, float& worstErrorOut,
+                                 juce::String& formatNameOut, juce::String& errorOut)
+            {
+                ExportOptions options;
+                options.format = format;
+                options.bitsPerSample = requestedBits;
+
+                auto file = juce::File::createTempFile (options.getFileExtension());
+
+                constexpr int numSamples = 12000;   // 48kHzで0.25秒
+                juce::AudioBuffer<float> written (2, numSamples);
+
+                // **左右を違う音にする**——同じだと、左右を取り違えても通ってしまいます
+                for (int i = 0; i < numSamples; ++i)
+                {
+                    const float phase = juce::MathConstants<float>::twoPi * 1000.0f * (float) i / 48000.0f;
+                    written.setSample (0, i, 0.5f * std::sin (phase));
+                    written.setSample (1, i, 0.25f * std::sin (phase * 1.5f));
+                }
+
+                {
+                    auto writer = options.createWriter (file, 48000.0, 2, errorOut);
+
+                    if (writer == nullptr)
+                        return false;
+
+                    writer->writeFromAudioSampleBuffer (written, 0, numSamples);
+                }   // **ここで閉じる**（閉じるまで最後のブロックが書かれません）
+
+                juce::AudioFormatManager formats;
+                formats.registerBasicFormats();
+
+                std::unique_ptr<juce::AudioFormatReader> reader (formats.createReaderFor (file));
+
+                if (reader == nullptr)
+                {
+                    errorOut = "could not read it back";
+                    file.deleteFile();
+                    return false;
+                }
+
+                formatNameOut = reader->getFormatName();
+                bitsOut = (int) reader->bitsPerSample;
+                channelsOut = (int) reader->numChannels;
+                rateOut = reader->sampleRate;
+                lengthOut = reader->lengthInSamples;
+
+                juce::AudioBuffer<float> read (2, numSamples);
+                reader->read (&read, 0, numSamples, 0, true, true);
+
+                worstErrorOut = 0.0f;
+
+                for (int channel = 0; channel < 2; ++channel)
+                    for (int i = 0; i < numSamples; ++i)
+                        worstErrorOut = juce::jmax (worstErrorOut,
+                                                    std::abs (read.getSample (channel, i) - written.getSample (channel, i)));
+
+                reader.reset();
+                file.deleteFile();
+                return true;
+            };
+
+            int bits = 0, channels = 0;
+            double rate = 0.0;
+            juce::int64 length = 0;
+            float worst = 1.0f;
+            juce::String name, error;
+
+            // **32bitを選んだまま**FLACにする——前回WAVの32bit floatで出した人は、
+            // この状態で書き出しを押します（FLACに32bit floatはありません）
+            const bool made = roundTrip (ExportOptions::Format::flac, 32,
+                                         bits, channels, rate, length, worst, name, error);
+
+            check (made, "a FLAC file is written even when 32 bit was left selected"
+                           + (error.isNotEmpty() ? juce::String ("  (") + error + ")" : juce::String()));
+
+            if (made)
+            {
+                check (name == "FLAC file", "...and it reads back as FLAC  (" + name + ")");
+                check (bits == 24, "...at 24 bit  (" + juce::String (bits) + ")");
+                check (channels == 2 && rate == 48000.0 && length == 12000,
+                       "...with the channels, rate and length it was given");
+
+                // 24bitの1段は2^-23。**丸めの分だけ**ずれてよい（圧縮そのものは劣化しません）
+                check (worst <= 2.0f / 8388608.0f,
+                       "...and every sample comes back as written  (worst "
+                           + juce::String (worst * 8388608.0f, 2) + " steps of 24 bit)");
+            }
+
+            // **WAVも同じ道を通るようになったので、壊していないことを見ます**（外へ出した関数）
+            const bool madeWav = roundTrip (ExportOptions::Format::wav, 32,
+                                            bits, channels, rate, length, worst, name, error);
+
+            check (madeWav && bits == 32 && worst == 0.0f,
+                   "a 32 bit float WAV still comes back bit for bit");
+
+            ExportOptions flacOptions;
+            flacOptions.format = ExportOptions::Format::flac;
+            check (flacOptions.getFileExtension() == ".flac", "a FLAC export is named .flac");
+        }
+
+        //======================================================================
+        // 8.320：**起動時に知らせる記録はどれか**（Phase 312）
+        //
+        // 落ちたときの記録は3種類あります（本体・サンドボックスの子・`--crash-selftest`）。
+        // 知らせるのは**本体のものだけ**です——子が落ちても本体は落ちていないし、
+        // 試しに落としたものを「前回落ちました」と言うのは嘘になります。
+        //
+        // **本人の置き場所には書きません。** 一時フォルダへ並べて数えます
+        say ("--- which crash reports are announced at startup");
+        {
+            auto folder = juce::File::getSpecialLocation (juce::File::tempDirectory)
+                              .getChildFile ("PersonalDAW-crash-selftest");
+            folder.deleteRecursively();
+            folder.createDirectory();
+
+            auto touch = [&folder] (const juce::String& name)
+            {
+                folder.getChildFile (name).replaceWithText ("x");
+            };
+
+            touch ("crash-20260101-120000.log");
+            touch ("crash-20260102-120000.log");            // 本体でいちばん新しい
+            touch ("sandbox-crash-20260105-120000.log");    // もっと新しいが、子のもの
+            touch ("selftest-crash-20260106-120000.log");   // もっと新しいが、試験のもの
+            touch ("crash-20260107-120000.txt");            // 拡張子が違う
+
+            check (CrashLog::isApplicationReport (folder.getChildFile ("crash-20260101-120000.log")),
+                   "a report written by the application counts");
+            check (! CrashLog::isApplicationReport (folder.getChildFile ("sandbox-crash-20260105-120000.log")),
+                   "...one written by a sandboxed plugin does not (the application did not crash)");
+            check (! CrashLog::isApplicationReport (folder.getChildFile ("selftest-crash-20260106-120000.log")),
+                   "...nor one written by --crash-selftest");
+
+            const auto newest = CrashLog::findNewestReport (folder);
+
+            check (newest.getFileName() == "crash-20260102-120000.log",
+                   "the newest one announced is the application's own  (" + newest.getFileName() + ")");
+
+            check (CrashLog::findNewestReport (folder.getChildFile ("nothing-here")) == juce::File(),
+                   "no folder means nothing to announce");
+
+            folder.deleteRecursively();
+        }
+
+        //======================================================================
+        // 8.322：**メッセージボックスの番号の戻し方**（Phase 312）
+        //
+        // `AppMessageBox`は`showScopedAsync`（「(押した番号＋1) % ボタンの数」）で出し、
+        // **押した順へ戻してから**コールバックへ渡します。戻し方を間違えると、
+        // **31箇所の選択が黙って入れ替わります**（「復元する」を押したのに破棄される）。
+        //
+        // 本物の箱で押して確かめる道具は`--msgbox-answer-test`（窓を出す）。
+        // ここは**表だけ**を、どの機械でも数えます
+        say ("--- message box buttons come back in the order they were pressed");
+        {
+            auto alertWindowResult = [] (int pressed, int numButtons) { return (pressed + 1) % numButtons; };
+
+            bool allRight = true;
+
+            for (int numButtons = 1; numButtons <= 4; ++numButtons)
+                for (int pressed = 0; pressed < numButtons; ++pressed)
+                    if (AppMessageBox::toPressedIndex (alertWindowResult (pressed, numButtons), numButtons) != pressed)
+                        allRight = false;
+
+            check (allRight, "every button of a 1 to 4 button box comes back as the one pressed");
+            check (AppMessageBox::toPressedIndex (1, 2) == 0 && AppMessageBox::toPressedIndex (0, 2) == 1,
+                   "...in a two button box, the first is 0 and the second is 1 (as before)");
         }
 
         say ("--- " + juce::String (problems) + " problem(s) ---");

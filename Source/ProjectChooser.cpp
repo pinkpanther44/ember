@@ -1,4 +1,5 @@
 #include "ProjectChooser.h"
+#include "AppMessageBox.h"   // 8.322：メッセージボックスは必ずここを通す（Phase 312）
 #include "AppColours.h"
 #include "AppIcon.h"    // 8.234：窓のアイコン（Phase 251）
 #include "ProjectModel.h"
@@ -406,7 +407,7 @@ void ProjectChooserComponent::deleteSelectedTemplate()
     if (entry.isBuiltIn())
         return;
 
-    juce::NativeMessageBox::showAsync (
+    AppMessageBox::showAsync (
         juce::MessageBoxOptions()
             .withIconType (juce::MessageBoxIconType::QuestionIcon)
             .withTitle (utf8 ("テンプレートを削除しますか"))

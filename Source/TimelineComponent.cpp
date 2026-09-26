@@ -132,17 +132,21 @@ void TimelineComponent::refresh()
     // 8.158：**時間範囲のほうも同じ**（Phase 196）。トラックを消したりUndoしたりすると、
     // もう無いIDが残ります。**1本も残らなくなったら範囲ごと畳む**
     // ——どの行にも掛かっていない範囲は、選んでいないのと同じです
-    if (! timeRangeTrackIds.empty())
+    if (! timeRangeSpans.empty())
     {
-        timeRangeTrackIds.erase (std::remove_if (timeRangeTrackIds.begin(), timeRangeTrackIds.end(),
-                                                  [this] (const juce::String& id)
-                                                  {
-                                                      return ! project.findTrackById (id).state.getParent().isValid();
-                                                  }),
-                                  timeRangeTrackIds.end());
+        timeRangeSpans.erase (std::remove_if (timeRangeSpans.begin(), timeRangeSpans.end(),
+                                               [this] (const TimeRangeSpan& span)
+                                               {
+                                                   return ! project.findTrackById (span.trackId).state.getParent().isValid();
+                                               }),
+                               timeRangeSpans.end());
 
-        if (timeRangeTrackIds.empty())
+        // 8.325：**外枠も縮め直す**（Phase 314）。消えたトラックの窓を包んだままだと、
+        // 次にドラッグしたときの基準が、もう無い窓の端になります
+        if (timeRangeSpans.empty())
             clearTimeRange();
+        else
+            updateTimeRangeExtent();
     }
 
     // プロジェクトを読み込むとルートのValueTreeが差し替わる。
@@ -1526,9 +1530,13 @@ void TimelineComponent::applyRangeSelection()
             {
                 hasTimeRange = true;
                 timeRangeAllTracks = false;
-                timeRangeTrackIds = std::move (midiTracks);
-                timeRangeStart = from;
-                timeRangeEnd = to;
+                timeRangeSpans.clear();
+
+                // 8.325：**囲った行はどれも同じ窓**（Phase 314）。行ごとに違うのはCtrl＋クリックで足したときだけ
+                for (const auto& id : midiTracks)
+                    timeRangeSpans.push_back ({ id, from, to });
+
+                updateTimeRangeExtent();
             }
         }
         else
@@ -1812,11 +1820,9 @@ void TimelineComponent::transposeSelectedMidiClips (int semitones)
         return;
     }
 
-    // 8.158：選んでいるトラック全部へ（Phase 196）。**1つのUndoにまとめる**
-    project.beginAction (utf8 ("範囲のトランスポーズ"));
-
-    for (const int t : getTimeRangeTrackIndices())
-        transposeNotesInRange (t, timeRangeStart, timeRangeEnd, semitones);
+    // 8.158：選んでいるトラック全部へ（Phase 196）。
+    // 8.325：**行ごとの窓で、Undoは1回**（Phase 314）。右クリックのメニューと同じ道です
+    transposeNotesInTimeRange (semitones);
 }
 
 //==============================================================================
@@ -4388,6 +4394,14 @@ juce::Rectangle<int> TimelineComponent::getInspectorButtonBounds (int rowIndex) 
     return { left,
              getTrackRowY (rowIndex) + (nameRowHeight - inspectorButtonHeight) / 2,
              inspectorButtonWidth, inspectorButtonHeight };
+}
+
+juce::Point<int> TimelineComponent::getPointForTesting (int trackIndex, double timeSeconds) const
+{
+    // **行の上のほう（ノートの塊が乗る帯）の真ん中。** 行の高さにはレーンのぶんも
+    // 入り得るので、`getTrackAreaHeight()`の半分ではレーンを押すことがあります
+    const int height = juce::jmin (trackRowHeight, getTrackAreaHeight (trackIndex));
+    return { timeToX (timeSeconds), getTrackRowY (trackIndex) + height / 2 };
 }
 
 TimelineComponent::HeaderRowLayout TimelineComponent::getHeaderRowLayout (int rowIndex) const
@@ -8132,9 +8146,11 @@ bool TimelineComponent::keyPressed (const juce::KeyPress& key)
         else
         {
             // 8.158：選んでいるトラック全部から消す（Phase 196）。
-            // **1つのUndoにまとめてある**ので、Ctrl+Zで1回戻せます
-            for (const int t : getTimeRangeTrackIndices())
-                deleteNotesInRange (t, timeRangeStart, timeRangeEnd);
+            //
+            // 8.325：**Phase 313までは「1つのUndo」になっていませんでした**（Phase 314）。
+            // 1行ずつ`deleteNotesInRange()`が区切りを作っていたので、
+            // 3本選んで消すと**Ctrl+Zを3回**押すことになっていました
+            deleteNotesInTimeRange();
         }
 
         return true;
@@ -8687,8 +8703,104 @@ bool TimelineComponent::isTimeRangeOnTrackIndex (int trackIndex) const
 
     const auto id = project.getTrack (trackIndex).getId();
 
-    return std::find (timeRangeTrackIds.begin(), timeRangeTrackIds.end(), id)
-             != timeRangeTrackIds.end();
+    return std::any_of (timeRangeSpans.begin(), timeRangeSpans.end(),
+                        [&id] (const TimeRangeSpan& span) { return span.trackId == id; });
+}
+
+/** 8.325：**その行の窓**（Phase 314／HANDOVER 9.2の①）。
+
+    **中身を選ぶ側は、全部ここを通します**（削除・移動・トランスポーズ・コピー・塗り）。
+    外枠（`timeRangeStart`〜`timeRangeEnd`）で選ぶと、段違いに足した塊の
+    **あいだにある別の塊**まで入ります——Phase 313まではそうでした。
+
+    8.326：**1行に窓が複数**あり得ます（Phase 315／9.2の②）。時刻順に返します。 */
+TimelineComponent::TimeWindows TimelineComponent::getTimeRangeWindowsFor (int trackIndex) const
+{
+    TimeWindows windows;
+
+    if (! hasTimeRange || ! juce::isPositiveAndBelow (trackIndex, project.getNumTracks()))
+        return windows;
+
+    // 旗の区間は**曲全体のこの区間**なので、どの行も同じ窓（8.124）
+    if (timeRangeAllTracks)
+    {
+        windows.push_back ({ timeRangeStart, timeRangeEnd });
+        return windows;
+    }
+
+    const auto id = project.getTrack (trackIndex).getId();
+
+    // `normaliseTimeRangeSpans()`が時刻順・重なり無しに保っているので、拾うだけ
+    for (const auto& span : timeRangeSpans)
+        if (span.trackId == id)
+            windows.push_back ({ span.start, span.end });
+
+    return windows;
+}
+
+bool TimelineComponent::isInAnyWindow (double timeSeconds, const TimeWindows& windows)
+{
+    return std::any_of (windows.begin(), windows.end(), [timeSeconds] (const juce::Range<double>& w)
+                        {
+                            return isWithinRange (timeSeconds, w.getStart(), w.getEnd());
+                        });
+}
+
+void TimelineComponent::normaliseTimeRangeSpans()
+{
+    // トラックごとにまとめ、その中で時刻順
+    std::stable_sort (timeRangeSpans.begin(), timeRangeSpans.end(),
+                      [] (const TimeRangeSpan& a, const TimeRangeSpan& b)
+                      {
+                          if (a.trackId != b.trackId)
+                              return a.trackId < b.trackId;
+
+                          return a.start < b.start;
+                      });
+
+    std::vector<TimeRangeSpan> merged;
+
+    for (const auto& span : timeRangeSpans)
+    {
+        // **接しているものもまとめる**（1つ目の終わり＝2つ目の頭）。分けて持っても
+        // 見た目は1本の枠で、Ctrl＋クリックで足した順が残るだけです
+        if (! merged.empty() && merged.back().trackId == span.trackId
+             && span.start <= merged.back().end + 1.0e-9)
+        {
+            merged.back().end = juce::jmax (merged.back().end, span.end);
+            continue;
+        }
+
+        merged.push_back (span);
+    }
+
+    timeRangeSpans = std::move (merged);
+}
+
+int TimelineComponent::getNumTimeRangeTracks() const
+{
+    juce::StringArray ids;
+
+    for (const auto& span : timeRangeSpans)
+        ids.addIfNotAlreadyThere (span.trackId);
+
+    return ids.size();
+}
+
+void TimelineComponent::updateTimeRangeExtent()
+{
+    // 旗の区間は窓そのものが外枠なので、触らない
+    if (timeRangeAllTracks || timeRangeSpans.empty())
+        return;
+
+    timeRangeStart = timeRangeSpans.front().start;
+    timeRangeEnd = timeRangeSpans.front().end;
+
+    for (const auto& span : timeRangeSpans)
+    {
+        timeRangeStart = juce::jmin (timeRangeStart, span.start);
+        timeRangeEnd = juce::jmax (timeRangeEnd, span.end);
+    }
 }
 
 std::vector<int> TimelineComponent::getTimeRangeTrackIndices() const
@@ -8710,32 +8822,30 @@ int TimelineComponent::getPrimaryTimeRangeTrackIndex() const
     return indices.empty() ? -1 : indices.front();
 }
 
-void TimelineComponent::setTimeRangeToTrack (int trackIndex)
+void TimelineComponent::setTimeRangeToTrack (int trackIndex, double start, double end)
 {
-    timeRangeTrackIds.clear();
+    timeRangeSpans.clear();
 
     if (juce::isPositiveAndBelow (trackIndex, project.getNumTracks()))
-        timeRangeTrackIds.push_back (project.getTrack (trackIndex).getId());
+        timeRangeSpans.push_back ({ project.getTrack (trackIndex).getId(), start, end });
+
+    timeRangeStart = start;
+    timeRangeEnd = end;
 }
 
-void TimelineComponent::toggleTimeRangeTrack (int trackIndex)
+void TimelineComponent::addBlockToTimeRange (int trackIndex, double start, double end)
 {
     if (! juce::isPositiveAndBelow (trackIndex, project.getNumTracks()))
         return;
 
-    const auto id = project.getTrack (trackIndex).getId();
-    auto found = std::find (timeRangeTrackIds.begin(), timeRangeTrackIds.end(), id);
-
-    if (found == timeRangeTrackIds.end())
-    {
-        timeRangeTrackIds.push_back (id);
-        return;
-    }
-
-    // **最後の1本は外さない。** 空の範囲は「選んでいない」と見分けが付かず、
-    // 押しても何も起きないように見えます（トラックの複数選択と同じ決まり。8.126）
-    if (timeRangeTrackIds.size() > 1)
-        timeRangeTrackIds.erase (found);
+    // 8.326：**塊ちょうどの窓を1つ足す**（Phase 315／9.2の②）。
+    //
+    // 8.325では、同じトラックに窓があれば**それを広げて**いました（1トラックに窓1つ）。
+    // 1小節目と5小節目を選ぶと1〜6小節になり、**あいだの塊も入って**いました。
+    // いまは窓をもう1つ持ちます。**重なる・接するときだけ**1つにまとめます
+    timeRangeSpans.push_back ({ project.getTrack (trackIndex).getId(), start, end });
+    normaliseTimeRangeSpans();
+    updateTimeRangeExtent();
 }
 
 void TimelineComponent::updateTimeRangeTracksForDrag (int currentRowIndex)
@@ -8764,18 +8874,23 @@ void TimelineComponent::updateTimeRangeTracksForDrag (int currentRowIndex)
     const int from = juce::jmin (anchor, other);
     const int to   = juce::jmax (anchor, other);
 
-    timeRangeTrackIds.clear();
+    // 8.325：**囲っているあいだは、どの行も同じ窓**（Phase 314）。
+    // 呼ぶ側が先に`timeRangeStart`〜`timeRangeEnd`を寄せてあります
+    const double start = timeRangeStart;
+    const double end = timeRangeEnd;
+
+    timeRangeSpans.clear();
 
     // **MIDIトラックだけ入れます。** 範囲が動かすのはノートなので、
     // 途中にオーディオやフォルダの行があっても飛ばします
     // ——「囲ったのに何も起きない行」を選択に入れないため
     for (int t = from; t <= to; ++t)
         if (project.getTrack (t).getType() == TrackType::Midi)
-            timeRangeTrackIds.push_back (project.getTrack (t).getId());
+            timeRangeSpans.push_back ({ project.getTrack (t).getId(), start, end });
 
     // 起点はMIDIのはずですが、念のため空にはしない
-    if (timeRangeTrackIds.empty())
-        setTimeRangeToTrack (anchor);
+    if (timeRangeSpans.empty())
+        setTimeRangeToTrack (anchor, start, end);
 }
 
 void TimelineComponent::clearTimeRange()
@@ -8784,7 +8899,7 @@ void TimelineComponent::clearTimeRange()
         return;
 
     hasTimeRange = false;
-    timeRangeTrackIds.clear();
+    timeRangeSpans.clear();
     timeRangeAllTracks = false;   // 8.124（Phase 159／改善案5）
     repaint();
 }
@@ -8826,36 +8941,42 @@ void TimelineComponent::selectRangeFromMarker (int markerIndex)
 
     hasTimeRange = true;
     timeRangeAllTracks = true;
-    timeRangeTrackIds.clear();   // 8.158：旗の範囲は全トラック（Phase 196）
+    timeRangeSpans.clear();   // 8.158：旗の範囲は全トラック（Phase 196）
     timeRangeStart = start;
     timeRangeEnd = end;
 }
 
 bool TimelineComponent::isTimeRangeAt (int trackIndex, double timeSeconds) const
-
 {
-    if (! hasTimeRange || timeSeconds < timeRangeStart || timeSeconds >= timeRangeEnd)
-        return false;
+    // 8.124：全トラックの範囲は**どの行でも中**（Phase 159／改善案5）。
+    // 8.325：行ごとの範囲は**その行の窓**で見ます（Phase 314）——外枠で見ると、
+    // 段違いに足した塊のあいだ（どの窓にも入っていないところ）まで掴めてしまいます。
+    // 8.326：**同じ行の窓のあいだも同じ**（Phase 315）。そこはCtrl＋クリックで「足す」側です
+    for (const auto& window : getTimeRangeWindowsFor (trackIndex))
+        if (timeSeconds >= window.getStart() && timeSeconds < window.getEnd())
+            return true;
 
-    // 8.124：全トラックの範囲は**どの行でも中**（Phase 159／改善案5）
-    if (timeRangeAllTracks)
-        return juce::isPositiveAndBelow (trackIndex, project.getNumTracks());
-
-    return isTimeRangeOnTrackIndex (trackIndex);   // 8.158（Phase 196）
+    return false;
 }
 
-/** 8.158：**行ごとに返す**（Phase 196）。範囲は複数のトラックにかかり得ます */
-juce::Rectangle<int> TimelineComponent::getTimeRangeBoundsFor (int trackIndex) const
+/** 8.158：**行ごとに返す**（Phase 196）。範囲は複数のトラックにかかり得ます。
+    8.325：**窓も行ごと**です（Phase 314）。8.326：**1行に複数**（Phase 315） */
+std::vector<juce::Rectangle<int>> TimelineComponent::getTimeRangeBoundsFor (int trackIndex) const
 {
-    if (! hasTimeRange || ! juce::isPositiveAndBelow (trackIndex, project.getNumTracks()))
-        return {};
+    std::vector<juce::Rectangle<int>> bounds;
 
-    const int rowY = getTrackRowY (trackIndex);
-    const int startX = timeToX (timeRangeStart);
-    const int endX = timeToX (timeRangeEnd);
+    for (const auto& window : getTimeRangeWindowsFor (trackIndex))
+    {
+        const int rowY = getTrackRowY (trackIndex);
+        const int startX = timeToX (window.getStart());
+        const int endX = timeToX (window.getEnd());
 
-    return { startX, rowY + 4, juce::jmax (2, endX - startX), getTrackAreaHeight (trackIndex) - 8 };
+        bounds.push_back ({ startX, rowY + 4, juce::jmax (2, endX - startX), getTrackAreaHeight (trackIndex) - 8 });
+    }
+
+    return bounds;
 }
+
 bool TimelineComponent::handleTimeRangeMouseDown (const juce::MouseEvent& e, bool allowCreate)
 {
     if (editTool != EditTool::arrow || ! getTimelineArea().contains (e.getPosition()))
@@ -8935,23 +9056,17 @@ bool TimelineComponent::handleTimeRangeMouseDown (const juce::MouseEvent& e, boo
         {
             if (hasTimeRange && ! timeRangeAllTracks)
             {
-                toggleTimeRangeTrack (trackIndex);
-
-                // **時間のほうは広げる。** 塊ごとに始まりと終わりが違うので、
-                // 足したぶんが入る幅まで伸ばします
+                // 8.325：**その塊の窓を、そのトラックへ足す**（Phase 314／HANDOVER 9.2の①）。
                 //
-                // > 段違いの塊を足すと、あいだの静かなところも範囲に入ります。
-                // > 範囲は「1つの窓」で、行ごとに別の窓は持っていません
-                timeRangeStart = juce::jmin (timeRangeStart, block.startTime);
-                timeRangeEnd   = juce::jmax (timeRangeEnd,   block.endTime);
+                // Phase 313までは窓が1つで、段違いの塊を足すと**あいだの別の塊も**
+                // 範囲に入っていました。いまは行ごとに窓を持つので、ほかの行は動きません
+                addBlockToTimeRange (trackIndex, block.startTime, block.endTime);
             }
             else
             {
                 hasTimeRange = true;
                 timeRangeAllTracks = false;
-                setTimeRangeToTrack (trackIndex);
-                timeRangeStart = block.startTime;
-                timeRangeEnd = block.endTime;
+                setTimeRangeToTrack (trackIndex, block.startTime, block.endTime);
             }
 
             repaint();
@@ -8959,9 +9074,8 @@ bool TimelineComponent::handleTimeRangeMouseDown (const juce::MouseEvent& e, boo
         }
 
         hasTimeRange = true;
-        setTimeRangeToTrack (trackIndex);   // 8.158（Phase 196）
-        timeRangeStart = block.startTime;
-        timeRangeEnd = block.endTime;
+        timeRangeAllTracks = false;
+        setTimeRangeToTrack (trackIndex, block.startTime, block.endTime);   // 8.158（Phase 196）
 
         if (e.mods.isPopupMenu())
         {
@@ -8997,12 +9111,10 @@ void TimelineComponent::beginTimeRangeCreation (int trackIndex, double time)
     clearTimeRange();
 
     creatingTimeRange = true;
-    setTimeRangeToTrack (trackIndex);   // 8.158（Phase 196）。囲うあいだに増えていきます
+    setTimeRangeToTrack (trackIndex, time, time);   // 8.158（Phase 196）。囲うあいだに増えていきます
     timeRangeCreateAnchorTrackIndex = trackIndex;
     timeRangeCreateLastRowIndex = trackIndex;   // 8.162（Phase 200）。空きへ出たときの戻り先
     timeRangeAnchorTime = time;
-    timeRangeStart = time;
-    timeRangeEnd = time;
 }
 
 void TimelineComponent::startTimeRangeDrag (const juce::MouseEvent& e)
@@ -9073,7 +9185,7 @@ void TimelineComponent::dragTimeRange (juce::Point<int> mousePosition)
         // 全部ぶん追うことになります（旗の範囲を縦に動かさないのと同じ理由。8.124）
         timeRangeDragTargetTrack = getPrimaryTimeRangeTrackIndex();
 
-        if (timeRangeTrackIds.size() > 1)
+        if (getNumTimeRangeTracks() > 1)
         {
             repaint();
             return;
@@ -9120,7 +9232,7 @@ void TimelineComponent::finishTimeRangeDrag (const juce::MouseEvent& e)
     timeRangeDragTargetTrack = -1;
 
     const bool movedTracks = juce::isPositiveAndBelow (targetTrack, project.getNumTracks())
-                              && timeRangeTrackIds.size() == 1
+                              && getNumTimeRangeTracks() == 1
                               && targetTrack != getPrimaryTimeRangeTrackIndex();
 
     // 8.124：全トラックの範囲（Phase 159／改善案5）。**縦には動かないので横だけ見る**
@@ -9140,31 +9252,109 @@ void TimelineComponent::finishTimeRangeDrag (const juce::MouseEvent& e)
         return;
     }
 
+    // 8.158：**選んでいるトラック全部を、同じだけ動かす**（Phase 196）。
+    // 8.325：それぞれ**自分の窓のぶんだけ**（Phase 314）
     if (! juce::approximatelyEqual (delta, 0.0) || movedTracks)
-    {
-        // 8.158：**選んでいるトラック全部を、同じだけ動かす**（Phase 196）
-        for (const int t : getTimeRangeTrackIndices())
-            moveOrCopyNotesInRange (t, timeRangeStart, timeRangeEnd, delta, isCopy,
-                                     movedTracks ? targetTrack : -1);
-
-        // **範囲も一緒に動かす**（複製のときは複製先へ、トラックをまたいだなら行き先へ）。
-        // 置いていくと、続けて動かそうとしたときに**さっき動かしたものが入っていない**
-        const double length = timeRangeEnd - timeRangeStart;
-
-        timeRangeStart = juce::jmax (0.0, timeRangeStart + delta);
-        timeRangeEnd = timeRangeStart + length;
-
-        if (movedTracks)
-            setTimeRangeToTrack (targetTrack);
-    }
+        moveOrCopyTimeRange (delta, isCopy, movedTracks ? targetTrack : -1);
 
     repaint();
 }
 
-void TimelineComponent::moveOrCopyNotesInRange (int trackIndex, double fromSeconds, double toSeconds,
-                                                 double deltaSeconds, bool copy, int targetTrackIndex)
+//==============================================================================
+// 8.325：範囲全体への操作（Phase 314／HANDOVER 9.2の①）
+//
+// **行ごとの窓で、Undoの区切りは1つ。** キー・メニュー・ドラッグの入口は全部ここです。
+
+void TimelineComponent::deleteNotesInTimeRange()
 {
-    if (! juce::isPositiveAndBelow (trackIndex, project.getNumTracks()))
+    if (! hasTimeRange || timeRangeAllTracks)
+        return;
+
+    // **先に窓を写しておくこと。** 1行消すごとに`clearTimeRangeIfEmpty()`が走り、
+    // 最後の行で範囲ごと畳まれます——畳まれた後に窓を読みに行かないため
+    const auto spans = timeRangeSpans;
+
+    project.beginAction (utf8 ("ノートの削除"));
+
+    for (const auto& span : spans)
+        for (int t = 0; t < project.getNumTracks(); ++t)
+            if (project.getTrack (t).getId() == span.trackId)
+                deleteNotesInRange (t, span.start, span.end, false);
+}
+
+void TimelineComponent::transposeNotesInTimeRange (int semitones)
+{
+    if (! hasTimeRange || timeRangeAllTracks || semitones == 0)
+        return;
+
+    // 8.326：**窓ごとに回す**（Phase 315）。同じトラックの窓は重ならないので、
+    // 1つのノートが2回上がることはありません（`normaliseTimeRangeSpans()`）
+    std::vector<std::pair<int, juce::Range<double>>> targets;
+
+    for (const int t : getTimeRangeTrackIndices())
+        for (const auto& window : getTimeRangeWindowsFor (t))
+            targets.push_back ({ t, window });
+
+    // **全部の窓を先に確かめる。** 2つ目が音域の端で止まると、
+    // 1つ目だけ動いたまま残ります（8.77と同じ理由：戻したときに元へ戻らない）
+    for (const auto& [t, window] : targets)
+    {
+        if (! canTransposeNotesInRange (t, window.getStart(), window.getEnd(), semitones))
+        {
+            if (onStatusMessage != nullptr)
+                onStatusMessage (utf8 ("これ以上は動かせません（MIDIの音域の端です）。"));
+
+            return;
+        }
+    }
+
+    project.beginAction (utf8 ("範囲のトランスポーズ"));
+
+    for (const auto& [t, window] : targets)
+        transposeNotesInRange (t, window.getStart(), window.getEnd(), semitones, false);
+}
+
+void TimelineComponent::moveOrCopyTimeRange (double deltaSeconds, bool copy, int targetTrackIndex)
+{
+    if (! hasTimeRange || timeRangeAllTracks)
+        return;
+
+    // 縦に動かせるのは1本のときだけ（8.158）。8.326：**窓の数ではなくトラックの本数**で見ます
+    // ——同じトラックの離れた塊2つなら、まとめて別のトラックへ移せます
+    const bool movesTrack = juce::isPositiveAndBelow (targetTrackIndex, project.getNumTracks())
+                             && getNumTimeRangeTracks() == 1;
+
+    project.beginAction (copy ? utf8 ("範囲の複製") : utf8 ("範囲の移動"));
+
+    // 8.326：**1トラックぶんの窓を全部まとめて渡す**（Phase 315）。
+    // 窓ごとに呼ぶと、1つ目で動かしたノートが2つ目の窓に入り、もう一度動きます
+    for (const int t : getTimeRangeTrackIndices())
+        moveOrCopyNotesInWindows (t, getTimeRangeWindowsFor (t), deltaSeconds, copy,
+                                  movesTrack ? targetTrackIndex : -1, false);
+
+    // **範囲も一緒に動かす**（複製のときは複製先へ、トラックをまたいだなら行き先へ）。
+    // 置いていくと、続けて動かそうとしたときに**さっき動かしたものが入っていない**
+    for (auto& span : timeRangeSpans)
+    {
+        const double length = span.end - span.start;
+
+        span.start = juce::jmax (0.0, span.start + deltaSeconds);
+        span.end = span.start + length;
+
+        if (movesTrack)
+            span.trackId = project.getTrack (targetTrackIndex).getId();
+    }
+
+    // 頭が0で止まった窓どうしが重なることがあるので、並べ直す
+    normaliseTimeRangeSpans();
+    updateTimeRangeExtent();
+}
+
+void TimelineComponent::moveOrCopyNotesInWindows (int trackIndex, const TimeWindows& windows,
+                                                  double deltaSeconds, bool copy, int targetTrackIndex,
+                                                  bool beginsAction)
+{
+    if (! juce::isPositiveAndBelow (trackIndex, project.getNumTracks()) || windows.empty())
         return;
 
     // 8.95：**行き先のトラック**（Phase 135）。-1なら同じトラック
@@ -9175,9 +9365,10 @@ void TimelineComponent::moveOrCopyNotesInRange (int trackIndex, double fromSecon
     auto target = project.getTrack (targetTrackIndex);
     const bool crossesTracks = (targetTrackIndex != trackIndex);
 
-    project.beginAction (copy ? utf8 ("範囲の複製") : utf8 ("範囲の移動"));
+    if (beginsAction)   // 8.325：まとめる側が区切りを作るときは作らない（Phase 314）
+        project.beginAction (copy ? utf8 ("範囲の複製") : utf8 ("範囲の移動"));
 
-    applyRangeMoveToMidiTrack (track, target, fromSeconds, toSeconds, deltaSeconds, copy, crossesTracks);
+    applyRangeMoveToMidiTrack (track, target, windows, deltaSeconds, copy, crossesTracks);
 
     if (onModelChanged != nullptr)
         onModelChanged();
@@ -9370,8 +9561,22 @@ void TimelineComponent::deleteRangeAllTracks (double fromSeconds, double toSecon
 
     for (int t = 0; t < project.getNumTracks(); ++t)
     {
-        // 8.159：**選んだ行だけ**（Phase 197。`copyRangeAllTracks()`と同じ判断）
-        if (! isTrackInTimeRange (t))
+        // 8.159：**選んだ行だけ**（Phase 197。`copyRangeAllTracks()`と同じ判断）。
+        // 8.325：**窓も行ごと**（Phase 314）。旗の区間なら、どの行も渡された窓です。
+        // 8.326：**1行に窓が複数**あり得ます（Phase 315）
+        TimeWindows windows;
+
+        if (timeRangeAllTracks)
+        {
+            if (isTrackInTimeRange (t))
+                windows.push_back ({ fromSeconds, toSeconds });
+        }
+        else
+        {
+            windows = getTimeRangeWindowsFor (t);
+        }
+
+        if (windows.empty())
             continue;
 
         auto track = project.getTrack (t);
@@ -9383,7 +9588,7 @@ void TimelineComponent::deleteRangeAllTracks (double fromSeconds, double toSecon
             {
                 auto note = track.getNote (n);
 
-                if (isWithinRange (note.getStartTime(), fromSeconds, toSeconds))
+                if (isInAnyWindow (note.getStartTime(), windows))
                     track.removeNote (note, &undoManager);
             }
 
@@ -9391,7 +9596,7 @@ void TimelineComponent::deleteRangeAllTracks (double fromSeconds, double toSecon
             {
                 auto event = track.getCCEvent (c);
 
-                if (isWithinRange (event.getTime(), fromSeconds, toSeconds))
+                if (isInAnyWindow (event.getTime(), windows))
                     track.removeCCEvent (event, &undoManager);
             }
         }
@@ -9399,49 +9604,59 @@ void TimelineComponent::deleteRangeAllTracks (double fromSeconds, double toSecon
         {
             // **消す前に割る**（移動と同じ扱い）。またいでいるクリップを丸ごと消すと、
             // 区間の外の音まで無くなります
-            splitClipsAtRangeEdges (track, fromSeconds, toSeconds);
+            for (const auto& window : windows)
+                splitClipsAtRangeEdges (track, window.getStart(), window.getEnd());
 
             for (int c = track.getNumClips(); --c >= 0;)
             {
                 auto clip = track.getClip (c);
 
-                if (isWithinRange (clip.getStartTime(), fromSeconds, toSeconds))
+                if (isInAnyWindow (clip.getStartTime(), windows))
                     track.removeClip (clip, &undoManager);
             }
         }
     }
 
-    // 8.128：**コード区間も一緒に消す**（Phase 164／本人の要望）。
-    // **後ろから消すこと**（前から消すと以降の番号がずれる）
-    for (int t = 0; t < project.getNumTracks(); ++t)
+    // 8.325：**コード区間とマーカーは、旗の区間のときだけ**（Phase 314）。
+    //
+    // Phase 197で、複数のMIDIトラックを選んだときのCtrl+Xもここを通るようにしました（8.159）。
+    // ところが下の2つは**選んだ行を見ずに**消していたので、MIDIトラックを2本選んで
+    // 切り取ると、**そのあいだにあるマーカーとコード区間まで消えて**いました。
+    // 行ごとの範囲が選ぶのは**MIDIトラックだけ**です。
+    if (timeRangeAllTracks)
     {
-        auto track = project.getTrack (t);
-
-        if (track.getType() != TrackType::Chord)
-            continue;
-
-        for (int r = track.getNumChordRegions(); --r >= 0;)
+        // 8.128：**コード区間も一緒に消す**（Phase 164／本人の要望）。
+        // **後ろから消すこと**（前から消すと以降の番号がずれる）
+        for (int t = 0; t < project.getNumTracks(); ++t)
         {
-            auto region = track.getChordRegion (r);
+            auto track = project.getTrack (t);
 
-            if (isWithinRange (region.getStartTime(), fromSeconds, toSeconds))
-                track.removeChordRegion (region, &undoManager);
+            if (track.getType() != TrackType::Chord)
+                continue;
+
+            for (int r = track.getNumChordRegions(); --r >= 0;)
+            {
+                auto region = track.getChordRegion (r);
+
+                if (isWithinRange (region.getStartTime(), fromSeconds, toSeconds))
+                    track.removeChordRegion (region, &undoManager);
+            }
+
+            track.trimOverlappingChordRegions (&undoManager);
         }
 
-        track.trimOverlappingChordRegions (&undoManager);
-    }
+        // 8.127：**マーカーも一緒に消す**（Phase 163／本人の要望）。
+        //
+        // 区間の中身を消したのに名前だけ残ると、**何も無いところを指す旗**になります。
+        // 移動・複製でマーカーを連れていくと決めたので、消すときも揃えました。
+        // **後ろから消すこと**（前から消すと以降の番号がずれる）
+        for (int m = project.getNumMarkers(); --m >= 0;)
+        {
+            auto marker = project.getMarker (m);
 
-    // 8.127：**マーカーも一緒に消す**（Phase 163／本人の要望）。
-    //
-    // 区間の中身を消したのに名前だけ残ると、**何も無いところを指す旗**になります。
-    // 移動・複製でマーカーを連れていくと決めたので、消すときも揃えました。
-    // **後ろから消すこと**（前から消すと以降の番号がずれる）
-    for (int m = project.getNumMarkers(); --m >= 0;)
-    {
-        auto marker = project.getMarker (m);
-
-        if (isWithinRange (marker.getTime(), fromSeconds, toSeconds))
-            project.removeMarker (marker, &undoManager);
+            if (isWithinRange (marker.getTime(), fromSeconds, toSeconds))
+                project.removeMarker (marker, &undoManager);
+        }
     }
 
     if (onModelChanged != nullptr)
@@ -9456,6 +9671,14 @@ void TimelineComponent::applyRangeMoveToMidiTrack (Track& track, Track& target,
                                                     double fromSeconds, double toSeconds,
                                                     double deltaSeconds, bool copy, bool crossesTracks)
 {
+    applyRangeMoveToMidiTrack (track, target, TimeWindows { { fromSeconds, toSeconds } },
+                               deltaSeconds, copy, crossesTracks);
+}
+
+// 8.326：窓が複数のとき（Phase 315）。**どれかの窓に入っているものを先に全部集める**
+void TimelineComponent::applyRangeMoveToMidiTrack (Track& track, Track& target, const TimeWindows& windows,
+                                                    double deltaSeconds, bool copy, bool crossesTracks)
+{
     auto& undoManager = project.getUndoManager();
 
     // **先に集めてから書くこと。** 複製は`addNote()`で子が増えるので、
@@ -9467,7 +9690,7 @@ void TimelineComponent::applyRangeMoveToMidiTrack (Track& track, Track& target,
     {
         auto note = track.getNote (n);
 
-        if (isWithinRange (note.getStartTime(), fromSeconds, toSeconds))
+        if (isInAnyWindow (note.getStartTime(), windows))
             notes.push_back (note.state);
     }
 
@@ -9475,7 +9698,7 @@ void TimelineComponent::applyRangeMoveToMidiTrack (Track& track, Track& target,
     {
         auto event = track.getCCEvent (c);
 
-        if (isWithinRange (event.getTime(), fromSeconds, toSeconds))
+        if (isInAnyWindow (event.getTime(), windows))
             ccEvents.push_back (event.state);
     }
 
@@ -9532,7 +9755,13 @@ bool TimelineComponent::copyRangeAllTracks (bool alsoDelete)
     {
         // 8.159：**選んだ行だけ**（Phase 197）。旗の区間なら全部、
         // 枠やCtrlで選んだのなら、選んだトラックだけが対象です
-        if (! isTrackInTimeRange (t))
+        //
+        // 8.325：**窓は行ごと**（Phase 314）。**頭からの距離は外枠の頭から**測るので、
+        // 貼り付けても行どうしの段違いはそのまま保たれます
+        // 8.326：**1行に窓が複数**あり得ます（Phase 315）。あいだは運びません
+        const auto windows = getTimeRangeWindowsFor (t);
+
+        if (windows.empty())
             continue;
 
         auto track = project.getTrack (t);
@@ -9543,7 +9772,7 @@ bool TimelineComponent::copyRangeAllTracks (bool alsoDelete)
             {
                 auto note = track.getNote (n);
 
-                if (! isWithinRange (note.getStartTime(), timeRangeStart, timeRangeEnd))
+                if (! isInAnyWindow (note.getStartTime(), windows))
                     continue;
 
                 EditClipboard::Item item;
@@ -9558,7 +9787,7 @@ bool TimelineComponent::copyRangeAllTracks (bool alsoDelete)
             {
                 auto event = track.getCCEvent (c);
 
-                if (! isWithinRange (event.getTime(), timeRangeStart, timeRangeEnd))
+                if (! isInAnyWindow (event.getTime(), windows))
                     continue;
 
                 EditClipboard::Item item;
@@ -9571,6 +9800,8 @@ bool TimelineComponent::copyRangeAllTracks (bool alsoDelete)
         }
         else if (track.getType() == TrackType::Audio)
         {
+            // 8.326：窓ごとに切り出す（オーディオが入るのは旗の区間だけなので、実際は1つ）
+            for (const auto& window : windows)
             for (int c = 0; c < track.getNumClips(); ++c)
             {
                 auto clip = track.getClip (c);
@@ -9579,8 +9810,8 @@ bool TimelineComponent::copyRangeAllTracks (bool alsoDelete)
                 const double end = start + clip.getLength();
 
                 // 区間と重なっているぶんだけ
-                const double visibleStart = juce::jmax (start, timeRangeStart);
-                const double visibleEnd = juce::jmin (end, timeRangeEnd);
+                const double visibleStart = juce::jmax (start, window.getStart());
+                const double visibleEnd = juce::jmin (end, window.getEnd());
 
                 if (visibleEnd <= visibleStart + 1.0e-6)
                     continue;
@@ -9615,7 +9846,12 @@ bool TimelineComponent::copyRangeAllTracks (bool alsoDelete)
     //
     // **同じ「区間を運ぶ」でも入口が2つある**という、まさに1.27の形です。
     // 片方に足したら、もう片方も見ること。
-    for (int t = 0; t < project.getNumTracks(); ++t)
+    //
+    // 8.325：コード区間とマーカーは**旗の区間のときだけ**（Phase 314。`deleteRangeAllTracks()`と同じ判断）。
+    // MIDIトラックを選んでCtrl+Cしたのに、あいだの旗やマーカーまで運ばれるのは驚きです
+    const bool carriesSongParts = timeRangeAllTracks;
+
+    for (int t = 0; carriesSongParts && t < project.getNumTracks(); ++t)
     {
         auto track = project.getTrack (t);
 
@@ -9642,7 +9878,7 @@ bool TimelineComponent::copyRangeAllTracks (bool alsoDelete)
     //
     // **`rowOffset`は-1**にしてあります。トラックの番号ではなく
     // 「どのトラックにも属さない」という印です——貼り付ける側が振り分けに使います
-    for (int m = 0; m < project.getNumMarkers(); ++m)
+    for (int m = 0; carriesSongParts && m < project.getNumMarkers(); ++m)
     {
         auto marker = project.getMarker (m);
 
@@ -9797,7 +10033,7 @@ bool TimelineComponent::pasteRangeAllTracks (double timeSeconds)
     // **貼り付けたところを選んでおく**（続けて動かしたいことが多い）
     hasTimeRange = true;
     timeRangeAllTracks = true;
-    timeRangeTrackIds.clear();   // 8.158（Phase 196）
+    timeRangeSpans.clear();   // 8.158（Phase 196）
     timeRangeStart = startTime;
     timeRangeEnd = juce::jmax (lastEnd, startTime + 0.01);
 
@@ -9818,7 +10054,7 @@ bool TimelineComponent::copyTimeRange (bool alsoDelete)
     // **ノートの平たい列**で、行の区別を持てないためです。
     // ところが**`Kind::trackRange`は前から持っていました**（`rowOffset`にトラックの番号。
     // 8.124の旗の区間がそれで動いている）。**新しく作る必要はなく、そちらへ通すだけ**でした。
-    if (hasTimeRange && (timeRangeAllTracks || timeRangeTrackIds.size() > 1))
+    if (hasTimeRange && (timeRangeAllTracks || getNumTimeRangeTracks() > 1))
         return copyRangeAllTracks (alsoDelete);
 
     const int primaryTrackIndex = getPrimaryTimeRangeTrackIndex();
@@ -9836,11 +10072,15 @@ bool TimelineComponent::copyTimeRange (bool alsoDelete)
     // 8.139：**基準の拍**（Phase 177）。`copyRangeAllTracks()`と同じ理由
     const double rangeStartBeats = project.getBeatPositionAt (timeRangeStart);
 
+    // 8.326：**1本に窓が複数**あり得ます（Phase 315）。あいだは運びません。
+    // 頭からの距離は外枠の頭から測るので、貼り付けても2つの間隔はそのまま
+    const auto windows = getTimeRangeWindowsFor (primaryTrackIndex);
+
     for (int n = 0; n < track.getNumNotes(); ++n)
     {
         auto note = track.getNote (n);
 
-        if (! isWithinRange (note.getStartTime(), timeRangeStart, timeRangeEnd))
+        if (! isInAnyWindow (note.getStartTime(), windows))
             continue;
 
         EditClipboard::Item item;
@@ -9854,7 +10094,7 @@ bool TimelineComponent::copyTimeRange (bool alsoDelete)
     {
         auto event = track.getCCEvent (c);
 
-        if (! isWithinRange (event.getTime(), timeRangeStart, timeRangeEnd))
+        if (! isInAnyWindow (event.getTime(), windows))
             continue;
 
         EditClipboard::Item item;
@@ -9874,8 +10114,9 @@ bool TimelineComponent::copyTimeRange (bool alsoDelete)
 
     EditClipboard::set (EditClipboard::Kind::notes, std::move (items));
 
+    // 8.326：**窓ごとに消す**（Phase 315）。外枠で消すと、あいだの塊まで消えます
     if (alsoDelete)
-        deleteNotesInRange (primaryTrackIndex, timeRangeStart, timeRangeEnd);
+        deleteNotesInTimeRange();
 
     return true;
 }
@@ -9962,9 +10203,8 @@ bool TimelineComponent::pasteNotesAt (double timeSeconds)
     // **貼り付けたところを選んでおく。** 続けて動かしたいことが多く、
     // 選ばれていないと「どこへ入ったのか」も分かりにくい
     hasTimeRange = true;
-    setTimeRangeToTrack (trackIndex);   // 8.158（Phase 196）
-    timeRangeStart = startTime;
-    timeRangeEnd = juce::jmax (lastEnd, startTime + 0.01);
+    timeRangeAllTracks = false;
+    setTimeRangeToTrack (trackIndex, startTime, juce::jmax (lastEnd, startTime + 0.01));   // 8.158（Phase 196）
 
     if (onModelChanged != nullptr)
         onModelChanged();
@@ -9978,10 +10218,13 @@ void TimelineComponent::showTimeRangeMenu (juce::Point<int> screenPosition)
     if (! hasTimeRange)
         return;
 
-    const int trackIndex = getPrimaryTimeRangeTrackIndex();   // 8.158（Phase 196）
-    const double from = timeRangeStart;
-    const double to = timeRangeEnd;
-    const double length = to - from;
+    // 8.325：**選んでいる行全部に効かせる**（Phase 314）。
+    //
+    // Phase 313までは**先頭の1行だけ**でした（Phase 196で複数選べるようにしたとき、
+    // ここだけ取り残されていた）。Deleteキーは全部消すのに、メニューの「削除」は
+    // 1本だけ——同じ名前の操作で結果が違うのは、1.27の形そのものです。
+    // キー・ドラッグと同じ関数を通します。
+    const double length = timeRangeEnd - timeRangeStart;
 
     juce::PopupMenu menu;
     menu.addItem (1, utf8 ("範囲のノートを削除"));
@@ -9996,26 +10239,26 @@ void TimelineComponent::showTimeRangeMenu (juce::Point<int> screenPosition)
 
     menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this)
                             .withTargetScreenArea ({ screenPosition.x, screenPosition.y, 1, 1 }),
-        [this, trackIndex, from, to, length] (int result)
+        [this, length] (int result)
         {
             if (result == 1)
             {
-                deleteNotesInRange (trackIndex, from, to);
+                deleteNotesInTimeRange();
             }
             else if (result == 2)
             {
-                // **「すぐ後ろ」＝範囲1つぶん先。** 4小節ぶんを選んで押せば4小節後ろへ増える
-                moveOrCopyNotesInRange (trackIndex, from, to, length, true);
-
-                // 複製したほうを選び直す（続けて押せば、そのまま繰り返し増やせる）
-                timeRangeStart = from + length;
-                timeRangeEnd = to + length;
+                // **「すぐ後ろ」＝範囲1つぶん先。** 4小節ぶんを選んで押せば4小節後ろへ増える。
+                // 8.325：段違いに選んでいるときは**外枠1つぶん**先です——
+                // 行ごとの長さでずらすと、行どうしの並びが崩れます。
+                //
+                // 複製したほうが選ばれ直すので、続けて押せばそのまま繰り返し増やせます
+                moveOrCopyTimeRange (length, true, -1);
                 repaint();
             }
             else if (result >= 3 && result <= 6)
             {
                 const int semitones = (result == 3) ? 1 : (result == 4) ? -1 : (result == 5) ? 12 : -12;
-                transposeNotesInRange (trackIndex, from, to, semitones);
+                transposeNotesInTimeRange (semitones);
             }
             else if (result == 7)
             {
@@ -10024,7 +10267,8 @@ void TimelineComponent::showTimeRangeMenu (juce::Point<int> screenPosition)
         });
 }
 
-void TimelineComponent::deleteNotesInRange (int trackIndex, double fromSeconds, double toSeconds)
+void TimelineComponent::deleteNotesInRange (int trackIndex, double fromSeconds, double toSeconds,
+                                            bool beginsAction)
 {
     if (! juce::isPositiveAndBelow (trackIndex, project.getNumTracks()))
         return;
@@ -10032,7 +10276,8 @@ void TimelineComponent::deleteNotesInRange (int trackIndex, double fromSeconds, 
     auto track = project.getTrack (trackIndex);
     auto& undoManager = project.getUndoManager();
 
-    project.beginAction (utf8 ("ノートの削除"));
+    if (beginsAction)   // 8.325（Phase 314）
+        project.beginAction (utf8 ("ノートの削除"));
 
     // **後ろから消す**（前から消すと、消したぶんだけ後続の番号がずれる）
     for (int n = track.getNumNotes(); --n >= 0;)
@@ -10071,15 +10316,17 @@ void TimelineComponent::clearTimeRangeIfEmpty()
     // **クリップを動かしてUndoすると、枠だけがそこに残りました**
     // （本人の絵。8.96で「枠だけが宙に浮く」と書いたのと同じことが、
     // 別の道から起きていた）。
-    for (const auto& trackId : timeRangeTrackIds)
+    //
+    // 8.325：**窓は行ごと**（Phase 314）。
+    for (const auto& span : timeRangeSpans)
     {
-        auto track = project.findTrackById (trackId);
+        auto track = project.findTrackById (span.trackId);
 
         if (! track.state.getParent().isValid())
             continue;
 
         for (int n = 0; n < track.getNumNotes(); ++n)
-            if (isWithinRange (track.getNote (n).getStartTime(), timeRangeStart, timeRangeEnd))
+            if (isWithinRange (track.getNote (n).getStartTime(), span.start, span.end))
                 return;   // まだ中身がある
 
         // **クリップは「範囲と重なっているか」で見ること。** 頭が範囲の手前でも、
@@ -10089,7 +10336,7 @@ void TimelineComponent::clearTimeRangeIfEmpty()
             auto clip = track.getClip (c);
             const double start = clip.getStartTime();
 
-            if (start < timeRangeEnd && start + clip.getLength() > timeRangeStart)
+            if (start < span.end && start + clip.getLength() > span.start)
                 return;
         }
     }
@@ -10097,11 +10344,11 @@ void TimelineComponent::clearTimeRangeIfEmpty()
     clearTimeRange();
 }
 
-void TimelineComponent::transposeNotesInRange (int trackIndex, double fromSeconds, double toSeconds,
-                                                int semitones)
+bool TimelineComponent::canTransposeNotesInRange (int trackIndex, double fromSeconds, double toSeconds,
+                                                   int semitones) const
 {
-    if (! juce::isPositiveAndBelow (trackIndex, project.getNumTracks()) || semitones == 0)
-        return;
+    if (! juce::isPositiveAndBelow (trackIndex, project.getNumTracks()))
+        return false;
 
     auto track = project.getTrack (trackIndex);
 
@@ -10117,16 +10364,31 @@ void TimelineComponent::transposeNotesInRange (int trackIndex, double fromSecond
         const int moved = note.getPitch() + semitones;
 
         if (moved < 0 || moved > 127)
-        {
-            if (onStatusMessage != nullptr)
-                onStatusMessage (utf8 ("これ以上は動かせません（MIDIの音域の端です）。"));
-
-            return;
-        }
+            return false;
     }
 
+    return true;
+}
+
+void TimelineComponent::transposeNotesInRange (int trackIndex, double fromSeconds, double toSeconds,
+                                                int semitones, bool beginsAction)
+{
+    if (! juce::isPositiveAndBelow (trackIndex, project.getNumTracks()) || semitones == 0)
+        return;
+
+    if (! canTransposeNotesInRange (trackIndex, fromSeconds, toSeconds, semitones))
+    {
+        if (onStatusMessage != nullptr)
+            onStatusMessage (utf8 ("これ以上は動かせません（MIDIの音域の端です）。"));
+
+        return;
+    }
+
+    auto track = project.getTrack (trackIndex);
     auto& undoManager = project.getUndoManager();
-    project.beginAction (utf8 ("MIDIのトランスポーズ"));
+
+    if (beginsAction)   // 8.325（Phase 314）
+        project.beginAction (utf8 ("MIDIのトランスポーズ"));
 
     for (int n = 0; n < track.getNumNotes(); ++n)
     {
@@ -10160,7 +10422,7 @@ juce::Colour TimelineComponent::getSelectedClipColour()
 
 void TimelineComponent::drawNoteBlock (juce::Graphics& g, juce::Rectangle<int> bounds,
                                         const Track& track, const Track::NoteBlock& block,
-                                        juce::Colour trackColour, juce::Rectangle<int> selectedPart)
+                                        juce::Colour trackColour, const juce::RectangleList<int>& selectedParts)
 {
     // 8.61：**地とノートはトラックの色**（Phase 99／改善案⑫）。
     // オーディオクリップより少しだけ濃くして、種別も見分けられるようにしてある
@@ -10175,10 +10437,14 @@ void TimelineComponent::drawNoteBlock (juce::Graphics& g, juce::Rectangle<int> b
     //
     // **重なりの計算は呼ぶ側**（`paint()`）です——範囲の持ち主はあちらなので、
     // ここへ持ち込むと、塊を描くたびに範囲を訊きに行くことになります
-    if (useSelectedClipFill && ! selectedPart.isEmpty())
+    //
+    // 8.326：**窓が複数なら、重なるぶんを全部**（Phase 315）
+    if (useSelectedClipFill && ! selectedParts.isEmpty())
     {
         g.setColour (getSelectedClipColour().withAlpha (selectedClipFillAlpha));
-        g.fillRect (selectedPart.getIntersection (bounds));
+
+        for (const auto& part : selectedParts)
+            g.fillRect (part.getIntersection (bounds));
     }
 
     // 音域は「その塊に入っているノートの範囲」に合わせる。
@@ -11830,31 +12096,35 @@ void TimelineComponent::paint (juce::Graphics& g)
         // クリップという入れ物が無くなったので、四角はノートから計算します
         if (track.getType() == TrackType::Midi)
         {
+            // 8.326：窓を1回だけ引く（塊ごとに引き直さない。Phase 315）
+            const auto windows = getTimeRangeWindowsFor (t);
+
             for (const auto& block : getNoteBlocksFor (t))
                 // 8.159：**範囲に入っている塊は「選んでいる」ように描く**（Phase 197）。
                 // 範囲は時間の窓なので、**塊が窓と重なっていれば中**とみなします
                 {
                     // 8.160：**範囲と重なっているぶんだけ**を渡す（Phase 198/本人の要望）。
                     // 範囲の端は拍（スナップ）に乗っているので、**拍単位で色が変わります**
-                    juce::Rectangle<int> selectedPart;
+                    //
+                    // 8.325：**その行の窓で**（Phase 314）。外枠で見ると、段違いに足した塊の
+                    // あいだにある塊まで「選んでいる」色になります。
+                    // 8.326：**窓が複数なら、重なるぶんを全部**（Phase 315）。1つの塊に
+                    // 2つの窓がかかることもあります（動かした先で塊がつながったとき）
+                    juce::RectangleList<int> selectedParts;
+                    const auto blockBounds = getNoteBlockBounds (t, block);
 
-                    if (isTrackInTimeRange (t))
+                    for (const auto& window : windows)
                     {
-                        const double from = juce::jmax (block.startTime, timeRangeStart);
-                        const double to   = juce::jmin (block.endTime,   timeRangeEnd);
+                        const double from = juce::jmax (block.startTime, window.getStart());
+                        const double to   = juce::jmin (block.endTime,   window.getEnd());
 
                         if (to > from + 1.0e-6)
-                        {
-                            const auto blockBounds = getNoteBlockBounds (t, block);
-
-                            selectedPart = { timeToX (from), blockBounds.getY(),
-                                              juce::jmax (1, timeToX (to) - timeToX (from)),
-                                              blockBounds.getHeight() };
-                        }
+                            selectedParts.add ({ timeToX (from), blockBounds.getY(),
+                                                 juce::jmax (1, timeToX (to) - timeToX (from)),
+                                                 blockBounds.getHeight() });
                     }
 
-                    drawNoteBlock (g, getNoteBlockBounds (t, block), track, block,
-                                    getTrackColour (t), selectedPart);
+                    drawNoteBlock (g, blockBounds, track, block, getTrackColour (t), selectedParts);
                 }
 
             // 8.93：**時間範囲**（Phase 133）。塊より後に描く——範囲は「その上に
@@ -11865,12 +12135,13 @@ void TimelineComponent::paint (juce::Graphics& g)
             // 種類を問わず描くため、ループの外にもう1つ置いてあります
             if (hasTimeRange && ! timeRangeAllTracks && isTimeRangeOnTrackIndex (t))
             {
-                auto bounds = getTimeRangeBoundsFor (t);   // 8.158（Phase 196）
-
-                g.setColour (AppColours::purple.withAlpha (0.22f));
-                g.fillRect (bounds);
-                g.setColour (AppColours::purple);
-                g.drawRect (bounds, 2);
+                for (const auto& bounds : getTimeRangeBoundsFor (t))   // 8.158・8.326
+                {
+                    g.setColour (AppColours::purple.withAlpha (0.22f));
+                    g.fillRect (bounds);
+                    g.setColour (AppColours::purple);
+                    g.drawRect (bounds, 2);
+                }
             }
 
             // 8.95：**行き先は「行き先のトラックの行」に描く**（Phase 135）。
@@ -11878,18 +12149,43 @@ void TimelineComponent::paint (juce::Graphics& g)
             // **元の範囲を描くループとは分けてあります**：縦に動かすと行き先は
             // 別のトラックの行になるので、`isTimeRangeOnTrackIndex (t)`の中に置くと
             // **移った先には何も出ません**（掴んだものが消えたように見える）
-            if (draggingTimeRange && timeRangeDragTargetTrack == t)
+            //
+            // 8.325：**行き先も行ごとの窓で描く**（Phase 314）。
+            //
+            // Phase 313までは**代表の1行にだけ**出していました（外枠の長さで）。
+            // 窓が行ごとになったので、2本以上選んでいるときは**それぞれの行に、
+            // 自分の窓をずらしたもの**を出します。縦に動くのは1本のときだけ（8.158）。
+            // 8.326：**1本に窓が複数でも、全部を行き先の行へ**（Phase 315）
+            if (draggingTimeRange && ! timeRangeAllTracks)
             {
-                const int startX = timeToX (timeRangeDragPreviewStart);
-                const int endX = timeToX (timeRangeDragPreviewStart + (timeRangeEnd - timeRangeStart));
+                TimeWindows landing;
 
-                juce::Rectangle<int> preview (startX, getTrackRowY (t) + 4,
-                                               juce::jmax (2, endX - startX), getTrackAreaHeight (t) - 8);
+                if (getNumTimeRangeTracks() == 1)
+                {
+                    if (timeRangeDragTargetTrack == t)
+                        landing = getTimeRangeWindowsFor (getPrimaryTimeRangeTrackIndex());
+                }
+                else
+                {
+                    landing = windows;
+                }
 
-                g.setColour (AppColours::orange.withAlpha (0.22f));
-                g.fillRect (preview);
-                g.setColour (AppColours::orange);
-                g.drawRect (preview, 2);
+                const double delta = timeRangeDragPreviewStart - timeRangeDragOriginalStart;
+
+                for (const auto& window : landing)
+                {
+                    const double start = juce::jmax (0.0, window.getStart() + delta);
+                    const int startX = timeToX (start);
+                    const int endX = timeToX (start + window.getLength());
+
+                    juce::Rectangle<int> preview (startX, getTrackRowY (t) + 4,
+                                                   juce::jmax (2, endX - startX), getTrackAreaHeight (t) - 8);
+
+                    g.setColour (AppColours::orange.withAlpha (0.22f));
+                    g.fillRect (preview);
+                    g.setColour (AppColours::orange);
+                    g.drawRect (preview, 2);
+                }
             }
 
             continue;

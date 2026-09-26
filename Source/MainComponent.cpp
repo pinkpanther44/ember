@@ -1,4 +1,5 @@
 #include "MainComponent.h"
+#include "AppMessageBox.h"   // 8.322：メッセージボックスは必ずここを通す（Phase 312）
 #include "AppColours.h"
 #include "AppSettings.h"
 #include "StorageLocations.h"   // 設計書2.3.8：保存先の設定（Phase 57）
@@ -7,6 +8,8 @@
 #include "RecentProjects.h"     // 8.151：最近開いたプロジェクト（Phase 189／⑰）
 #include "Utf8.h"
 #include "AboutDialog.h"        // 8.188：バージョン情報（Phase 226）
+#include "CrashLog.h"           // 8.320：落ちたときの記録を知らせる（Phase 312）
+#include "Branding.h"           // 8.320：報告先（配っているものだけ）
 
 namespace
 {
@@ -1141,7 +1144,7 @@ void MainComponent::insertPluginFromBrowser (const juce::PluginDescription& desc
 
     if (trackId.isEmpty())
     {
-        juce::NativeMessageBox::showAsync (
+        AppMessageBox::showAsync (
             juce::MessageBoxOptions()
                 .withIconType (juce::MessageBoxIconType::InfoIcon)
                 .withTitle (utf8 ("挿入先のトラックがありません"))
@@ -1198,7 +1201,7 @@ void MainComponent::insertPluginIntoTrack (const juce::String& trackId,
 
 void MainComponent::showPluginInsertError (const juce::String& error)
 {
-    juce::NativeMessageBox::showAsync (
+    AppMessageBox::showAsync (
         juce::MessageBoxOptions()
             .withIconType (juce::MessageBoxIconType::WarningIcon)
             .withTitle (utf8 ("プラグインを挿入できませんでした"))
@@ -1363,7 +1366,7 @@ void MainComponent::recordButtonClicked()
     // キャンセルされたら何もしません——**黙って共通の場所へ録らないこと**。
     if (project.getCurrentFile() == juce::File())
     {
-        juce::NativeMessageBox::showAsync (
+        AppMessageBox::showAsync (
             juce::MessageBoxOptions()
                 .withIconType (juce::MessageBoxIconType::QuestionIcon)
                 .withTitle (utf8 ("先にプロジェクトを保存してください"))
@@ -1398,7 +1401,7 @@ void MainComponent::recordButtonClicked()
 
     if (error.isNotEmpty())
     {
-        juce::NativeMessageBox::showAsync (
+        AppMessageBox::showAsync (
             juce::MessageBoxOptions()
                 .withIconType (juce::MessageBoxIconType::WarningIcon)
                 .withTitle (utf8 ("録音を開始できませんでした"))
@@ -1558,7 +1561,7 @@ namespace
         {
             if (error.isNotEmpty())
             {
-                juce::NativeMessageBox::showAsync (
+                AppMessageBox::showAsync (
                     juce::MessageBoxOptions()
                         .withIconType (juce::MessageBoxIconType::WarningIcon)
                         .withTitle (utf8 ("書き出しできませんでした"))
@@ -1585,7 +1588,7 @@ namespace
                 // そのフォルダが開きます
                 const auto target = file;
 
-                juce::NativeMessageBox::showAsync (
+                AppMessageBox::showAsync (
                     juce::MessageBoxOptions()
                         .withIconType (juce::MessageBoxIconType::InfoIcon)
                         .withTitle (utf8 ("書き出しが完了しました"))
@@ -2792,15 +2795,20 @@ void MainComponent::redo()
     audioEngine.updateMixerSettings();
 }
 
-void MainComponent::offerAutoSaveRecovery()
+void MainComponent::offerAutoSaveRecovery (std::function<void()> then)
 {
     if (! autoSave.hasRecoverableAutoSave())
+    {
+        if (then != nullptr)
+            then();
+
         return;
+    }
 
     auto autoSaveFile = AutoSaveManager::getAutoSaveFile();
     const auto savedTime = autoSaveFile.getLastModificationTime().formatted ("%Y-%m-%d %H:%M:%S");
 
-    juce::NativeMessageBox::showAsync (
+    AppMessageBox::showAsync (
         juce::MessageBoxOptions()
             .withIconType (juce::MessageBoxIconType::QuestionIcon)
             .withTitle (utf8 ("前回の作業内容が残っています"))
@@ -2809,8 +2817,18 @@ void MainComponent::offerAutoSaveRecovery()
                               + utf8 ("復元しない場合、この自動保存は破棄されます。"))
             .withButton (utf8 ("復元する"))
             .withButton (utf8 ("破棄する")),
-        [this] (int buttonIndex)
+        [this, then] (int buttonIndex)
         {
+            // 8.320：**どの道で抜けても、次の確認へ進むこと**（Phase 312）。
+            // この中の抜け道は3つです（破棄・復元の失敗・最後まで進む）。
+            // 1つずつ書くと、道を足したときに必ず漏れます。
+            // **窓が閉じてから**出すよう、一度メッセージループへ返します
+            const juce::ErasedScopeGuard next { [then]
+            {
+                if (then != nullptr)
+                    juce::MessageManager::callAsync (then);
+            } };
+
             // ボタンは押された順のインデックスで返る（0=復元する / 1=破棄する）。
             // HANDOVER 2章の「NativeMessageBoxの戻り値はインデックス」参照。
             if (buttonIndex != 0)
@@ -2823,7 +2841,7 @@ void MainComponent::offerAutoSaveRecovery()
 
             if (! autoSave.restoreFromAutoSave())
             {
-                juce::NativeMessageBox::showAsync (
+                AppMessageBox::showAsync (
                     juce::MessageBoxOptions()
                         .withIconType (juce::MessageBoxIconType::WarningIcon)
                         .withTitle (utf8 ("復元できませんでした"))
@@ -2848,7 +2866,7 @@ void MainComponent::offerAutoSaveRecovery()
 
             if (! pluginErrors.isEmpty())
             {
-                juce::NativeMessageBox::showAsync (
+                AppMessageBox::showAsync (
                     juce::MessageBoxOptions()
                         .withIconType (juce::MessageBoxIconType::WarningIcon)
                         .withTitle (utf8 ("一部のプラグインを復元できませんでした"))
@@ -2884,7 +2902,7 @@ void MainComponent::confirmDiscardChanges (std::function<void (bool)> onResult)
     // それはAlertWindow側の話で、NativeMessageBoxには当てはまらない
     // （Windows実装 juce_NativeMessageBox_windows.cpp のTaskDialogで、
     //   ボタンIDに配列インデックスをそのまま割り当てている）。
-    juce::NativeMessageBox::showAsync (
+    AppMessageBox::showAsync (
         juce::MessageBoxOptions()
             .withIconType (juce::MessageBoxIconType::QuestionIcon)
             .withTitle (utf8 ("変更が保存されていません"))
@@ -2954,7 +2972,7 @@ void MainComponent::applyTemplate (const ProjectTemplates::Entry& entry)
 
     if (error.isNotEmpty())
     {
-        juce::NativeMessageBox::showAsync (
+        AppMessageBox::showAsync (
             juce::MessageBoxOptions()
                 .withIconType (juce::MessageBoxIconType::WarningIcon)
                 .withTitle (utf8 ("テンプレートを使えませんでした"))
@@ -3027,7 +3045,7 @@ void MainComponent::saveCurrentAsTemplate()
 
                           if (error.isNotEmpty())
                           {
-                              juce::NativeMessageBox::showAsync (
+                              AppMessageBox::showAsync (
                                   juce::MessageBoxOptions()
                                       .withIconType (juce::MessageBoxIconType::WarningIcon)
                                       .withTitle (utf8 ("テンプレートを保存できませんでした"))
@@ -3051,7 +3069,7 @@ void MainComponent::beginStartupChecks()
 
     if (crashedPlugin.isNotEmpty())
     {
-        juce::NativeMessageBox::showAsync (
+        AppMessageBox::showAsync (
             juce::MessageBoxOptions()
                 .withIconType (juce::MessageBoxIconType::WarningIcon)
                 .withTitle (utf8 ("前回の異常終了を検知しました"))
@@ -3064,7 +3082,11 @@ void MainComponent::beginStartupChecks()
 
     // 前回のオートセーブが残っている＝前回は正常終了していない、と判断して復元を提案する。
     // ダイアログは非同期なので、この時点ではまだ結果が出ていない。
-    offerAutoSaveRecovery();
+    //
+    // 8.320：**落ちたときの記録の案内は、そのあとで**（Phase 312）。
+    // 落ちた次の起動では、復元の確認と記録の案内が**両方**出ます。
+    // 同時に出すと窓が重なり、どちらに答えているのか分からなくなります
+    offerAutoSaveRecovery ([this] { offerCrashReport(); });
 
     // 8.157：**プラグインは裏で見に行く**（Phase 195／8.1のE2）
     startBackgroundPluginScan();
@@ -3121,6 +3143,57 @@ void MainComponent::startBackgroundPluginScan()
     });
 }
 
+//==============================================================================
+// 8.320：前回、本体が落ちていたら知らせる（Phase 312）
+
+void MainComponent::offerCrashReport()
+{
+    // **本体のログだけ**（`crash-…`）。サンドボックスの子と`--crash-selftest`のものは
+    // 名前が違うので、ここには来ません（`CrashLog.h`）
+    const auto newest = CrashLog::findNewestReport();
+
+    if (newest == juce::File())
+        return;
+
+    // **見たものは二度出さない。** 名前（日時入り）で覚え、それより新しいものだけ出します。
+    // 毎回出すと、1度落ちただけの人が**起動のたびに**この窓を閉じることになります
+    const juce::String lastSeenKey { "lastSeenCrashReport" };
+
+    if (newest.getFileName().compare (AppSettings::getString (lastSeenKey)) <= 0)
+        return;
+
+    AppSettings::setString (lastSeenKey, newest.getFileName());
+
+    // **何が入っていて、何が入っていないか**を先に言うこと。
+    // 「送ってください」とだけ書くと、何を渡すのか分からずに止まります
+    juce::String message;
+    message << utf8 ("前回アプリが正常に終了しなかったときの記録が残っています。\n\n")
+            << utf8 ("書いてあるのは「プログラムのどこで止まったか」だけで、")
+            << utf8 ("プロジェクトの中身や、あなたのファイルの名前は入っていません。")
+            << utf8 ("中身はテキストなので、送る前に開いて読めます。");
+
+    // **報告先は、配っているものだけ**（Manta Studioは本人専用。`Branding::issuesUrl`）
+    if (juce::String (Branding::issuesUrl).isNotEmpty())
+        message << "\n\n"
+                << utf8 ("不具合として知らせていただけると、直すのに役立ちます。")
+                << utf8 ("記録のファイルを添えて、こちらへお願いします：\n")
+                << Branding::issuesUrl;
+
+    AppMessageBox::showAsync (
+        juce::MessageBoxOptions()
+            .withIconType (juce::MessageBoxIconType::InfoIcon)
+            .withTitle (utf8 ("落ちたときの記録があります"))
+            .withMessage (message)
+            .withButton (utf8 ("記録のフォルダを開く"))
+            .withButton (utf8 ("閉じる")),
+        [newest] (int buttonIndex)
+        {
+            // **ファイルを選んだ状態で開く**（フォルダだけ開くと、どれか分からない）
+            if (buttonIndex == 0)
+                newest.revealToUser();
+        });
+}
+
 bool MainComponent::hasRecoverableAutoSave() const
 {
     return autoSave.hasRecoverableAutoSave();
@@ -3159,7 +3232,7 @@ void MainComponent::loadProjectFile (const juce::File& file)
 
     if (! project.loadFromFile (file))
     {
-        juce::NativeMessageBox::showAsync (
+        AppMessageBox::showAsync (
             juce::MessageBoxOptions()
                 .withIconType (juce::MessageBoxIconType::WarningIcon)
                 .withTitle (utf8 ("プロジェクトを開けませんでした"))
@@ -3192,7 +3265,7 @@ void MainComponent::loadProjectFile (const juce::File& file)
 
     if (! pluginErrors.isEmpty())
     {
-        juce::NativeMessageBox::showAsync (
+        AppMessageBox::showAsync (
             juce::MessageBoxOptions()
                 .withIconType (juce::MessageBoxIconType::WarningIcon)
                 .withTitle (utf8 ("一部のプラグインを復元できませんでした"))
@@ -3227,7 +3300,7 @@ void MainComponent::saveProject (std::function<void (bool)> onComplete)
 
     if (! saved)
     {
-        juce::NativeMessageBox::showAsync (
+        AppMessageBox::showAsync (
             juce::MessageBoxOptions()
                 .withIconType (juce::MessageBoxIconType::WarningIcon)
                 .withTitle (utf8 ("保存できませんでした"))
@@ -3297,7 +3370,7 @@ void MainComponent::saveProjectAs (std::function<void (bool)> onComplete)
 
             if (! saved)
             {
-                juce::NativeMessageBox::showAsync (
+                AppMessageBox::showAsync (
                     juce::MessageBoxOptions()
                         .withIconType (juce::MessageBoxIconType::WarningIcon)
                         .withTitle (utf8 ("保存できませんでした"))
@@ -3494,7 +3567,7 @@ void MainComponent::exportMidiFile()
             // 一瞬で終わるため、進捗ウィンドウは出さずにその場で実行する。
             const auto error = MidiFileExporter::exportToFile (project, file);
 
-            juce::NativeMessageBox::showAsync (
+            AppMessageBox::showAsync (
                 juce::MessageBoxOptions()
                     .withIconType (error.isNotEmpty() ? juce::MessageBoxIconType::WarningIcon
                                                        : juce::MessageBoxIconType::InfoIcon)

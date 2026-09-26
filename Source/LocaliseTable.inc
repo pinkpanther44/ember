@@ -152,6 +152,7 @@
     { "MP3の書き出しを用意できませんでした。", "Could not set up the MP3 export.", true },
     { "ファイルを作成できませんでした: ", "Could not create the file: ", true },
     { "WAVファイルの書き出し形式を用意できませんでした。", "Could not set up the WAV output format.", true },
+    { "FLACファイルの書き出し形式を用意できませんでした。", "Could not set up the FLAC output format.", true },
     { "ファイルへの書き込みに失敗しました。", "Writing to the file failed.", true },
     { "書き出しを中断しました。", "Export cancelled.", true },
     { "書き出すトラックが選ばれていません。", "No tracks are selected for export.", true },
@@ -318,7 +319,6 @@
     { "ミックスダウンの書き出し", "Export mixdown", false },
     { "書き出しの設定を選んでください。", "Choose the export settings.", true },
     { "形式", "Format", false },
-    { "ビット深度（WAV）", "Bit depth (WAV)", false },
     { "ビット深度", "Bit depth", false },
     { "ビットレート（MP3）", "Bit rate (MP3)", false },
     { "サンプルレート", "Sample rate", false },
@@ -609,6 +609,14 @@
     { "1小節", "1 bar", false },
     { "2小節", "2 bars", false },
     { "音を作り直しています…（出来るまでは元のまま鳴ります）", "Rebuilding the audio... (the original keeps playing until it is ready)", true },
+    { "書いてあるのは「プログラムのどこで止まったか」だけで、", "It records only where in the program it stopped - ", true },
+    { "プロジェクトの中身や、あなたのファイルの名前は入っていません。", "nothing from your projects and none of your file names. ", true },
+    { "中身はテキストなので、送る前に開いて読めます。", "It is plain text, so you can read it before sending it.", true },
+    { "不具合として知らせていただけると、直すのに役立ちます。", "Reporting it as a bug helps get it fixed. ", true },
+    { "前回アプリが正常に終了しなかったときの記録が残っています。\n\n", "A note was kept the last time the app did not close normally.\n\n", true },
+    { "記録のファイルを添えて、こちらへお願いします：\n", "Please attach the file here:\n", true },
+    { "落ちたときの記録があります", "A crash report was saved", false },
+    { "記録のフォルダを開く", "Show the report", false },
 
     // MantaCompEditor.cpp
     { "この音量を超えたぶんを圧縮します", "Compresses whatever goes above this level", true },
@@ -679,6 +687,11 @@
     { "プリセットのフォルダを開く", "Open the preset folder", false },
     { "プリセットを保存", "Save preset", false },
     { "名前を付けて保存します。", "Save it under a name.", true },
+    { "前のプリセット", "Previous preset", true },
+    { "次のプリセット", "Next preset", true },
+    { "プリセットを選ぶ・保存する", "Choose or save a preset", true },
+    { "（当てたあとで変えています）", " (changed since it was chosen)", true },
+    { "　クリックでプリセットを選び直せます", " - click to choose another preset", true },
 
     // MantaReverbEditor.cpp
     { "響きの種類。切り替えると、いま鳴っている響きは止まります", "The kind of reverb. Switching it stops whatever is sounding now", true },

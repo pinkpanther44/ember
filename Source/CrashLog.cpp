@@ -9,9 +9,75 @@
 namespace CrashLog
 {
 
+namespace
+{
+    /** 8.320：**だれが書いたログか**（Phase 312）。名前の頭に出します。
+
+        | | 名前 | 起動時の案内 |
+        |---|---|---|
+        | 本体 | `crash-…` | **出す** |
+        | サンドボックスの子 | `sandbox-crash-…` | 出さない（本体は落ちていない） |
+        | `--crash-selftest` | `selftest-crash-…` | 出さない（わざと落としただけ） |
+
+        落ちた瞬間に読むので、**書き換えるのは起動の直後だけ**にしてあります。 */
+    enum class Role { application, sandboxWorker, selfTest };
+
+    Role role = Role::application;
+
+    [[maybe_unused]] const char* prefixFor (Role r)   // Windows以外では書く場所がありません
+    {
+        switch (r)
+        {
+            case Role::sandboxWorker: return "sandbox-crash-";
+            case Role::selfTest:      return "selftest-crash-";
+            case Role::application:   break;
+        }
+
+        return "crash-";
+    }
+}
+
+void markAsSandboxWorker()
+{
+    role = Role::sandboxWorker;
+}
+
+void markAsSelfTest()
+{
+    role = Role::selfTest;
+}
+
 juce::File getReportFolder()
 {
     return AppSettings::getDataFolder().getChildFile ("crash");
+}
+
+bool isApplicationReport (const juce::File& file)
+{
+    // **頭が`crash-`のものだけ**。`sandbox-crash-`と`selftest-crash-`は
+    // 途中に`crash-`を含むので、「含むか」で見ると拾ってしまいます
+    return file.getFileName().startsWith ("crash-") && file.hasFileExtension (".log");
+}
+
+juce::File findNewestReport (const juce::File& folder)
+{
+    if (! folder.isDirectory())
+        return {};
+
+    // **名前で比べます**（`crash-YYYYMMDD-HHMMSS.log`）。ファイルの更新日時は、
+    // コピーや展開で書き換わることがあるので当てにしません
+    juce::File newest;
+
+    for (const auto& file : folder.findChildFiles (juce::File::findFiles, false, "*.log"))
+        if (isApplicationReport (file) && (newest == juce::File() || file.getFileName() > newest.getFileName()))
+            newest = file;
+
+    return newest;
+}
+
+juce::File findNewestReport()
+{
+    return findNewestReport (getReportFolder());
 }
 
 int getNumStoredReports()
@@ -21,7 +87,13 @@ int getNumStoredReports()
     if (! folder.isDirectory())
         return 0;
 
-    return folder.getNumberOfChildFiles (juce::File::findFiles, "crash-*.log");
+    int count = 0;
+
+    for (const auto& file : folder.findChildFiles (juce::File::findFiles, false, "*.log"))
+        if (isApplicationReport (file))
+            ++count;
+
+    return count;
 }
 
 #if JUCE_WINDOWS
@@ -104,7 +176,8 @@ namespace
         folder.createDirectory();
 
         const auto now = juce::Time::getCurrentTime();
-        auto file = folder.getChildFile ("crash-" + now.formatted ("%Y%m%d-%H%M%S") + ".log");
+        auto file = folder.getChildFile (juce::String (prefixFor (role))
+                                          + now.formatted ("%Y%m%d-%H%M%S") + ".log");
 
         juce::String text;
         text << Branding::productName << " " << JUCE_APPLICATION_VERSION_STRING
@@ -141,6 +214,10 @@ bool runSelfTestIfRequested (const juce::String& commandLine)
 {
     if (! commandLine.contains ("--crash-selftest"))
         return false;
+
+    // 8.320：**本体のログと名前を分けること**（Phase 312）——そうしないと、
+    // リリース前に試しただけで、次に起動したとき「前回落ちました」と出ます
+    role = Role::selfTest;
 
     std::cout << "crash log folder : " << getReportFolder().getFullPathName() << std::endl;
     std::cout << "about to dereference a null pointer on purpose..." << std::endl;

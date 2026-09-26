@@ -27,7 +27,7 @@ the executable, so `Ember.exe` runs as it is.
 |---|---|
 | Audio | ALSA or JACK, instead of Windows Audio |
 | Audio input | **Not opened on the first launch.** Choose your input under Preferences → Audio when you want to record. A broken capture device could otherwise take the whole application down with it |
-| MP3 export | **Not available.** It uses Windows Media Foundation, so **exporting on Linux is WAV only**. Ember reads FLAC, AIFF and Ogg as usual; it does not write them on either system |
+| MP3 export | **Not available.** It uses Windows Media Foundation, so **exporting on Linux is WAV or FLAC**. Ember reads AIFF and Ogg as usual but does not write them on either system |
 | Plugins | VST3 from `~/.vst3`, `/usr/local/lib/vst3` and `/usr/lib/vst3`; LV2 from `~/.lv2`, `/usr/local/lib/lv2` and `/usr/lib/lv2` (and anything on `LV2_PATH`) |
 
 ## Downloading

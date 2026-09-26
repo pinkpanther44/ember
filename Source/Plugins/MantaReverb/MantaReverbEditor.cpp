@@ -256,6 +256,9 @@ MantaReverbEditor::MantaReverbEditor (MantaReverbProcessor& processorToUse)
         MantaFactoryPresets::makeToolbarPresets (processor.getValueTreeState(),
                                                   MantaReverbPresets::all()));
 
+    // 8.318：**いまのプリセットの名前を出す**（Phase 311／`MantaPluginToolbar.h`）
+    toolbar.setShowsCurrentPreset (true);
+
     refreshRoutingControls();
     refreshAlgorithmControls();
 

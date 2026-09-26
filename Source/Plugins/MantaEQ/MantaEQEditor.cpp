@@ -134,6 +134,11 @@ MantaEQEditor::MantaEQEditor (MantaEQProcessor& processorToUse)
         MantaFactoryPresets::makeToolbarPresets (processor.getValueTreeState(),
                                                   MantaEQPresets::all()));
 
+    // 8.318：**いまのプリセットの名前を出す**（Phase 311／`MantaPluginToolbar.h`）。
+    // **右の処理モードとレイテンシーのぶんを渡すこと**——渡さないと、
+    // 名前の欄が広がって**処理モードの箱が118px→48pxに潰れます**（重なりはせず、潰れる）
+    toolbar.setShowsCurrentPreset (true, 200, toolbarTrailingWidth);
+
     //--------------------------------------------------------------------------
     // 仕様書4.7：処理モード。**ツールバーの子として足す**（空いている場所へ置くため）
     setupCombo (modeBox, MantaEQParams::getProcessingModeNames());
@@ -628,11 +633,11 @@ void MantaEQEditor::resized()
     // **`toolbar`の座標**で置くこと（子として足してある）
     auto trailing = toolbar.getTrailingArea();
 
-    latencyLabel.setBounds (trailing.removeFromRight (190));
-    trailing.removeFromRight (6);
-    resolutionBox.setBounds (trailing.removeFromRight (116));
-    trailing.removeFromRight (4);
-    modeBox.setBounds (trailing.removeFromRight (118));
+    latencyLabel.setBounds (trailing.removeFromRight (latencyLabelWidth));
+    trailing.removeFromRight (toolbarTrailingGapWide);
+    resolutionBox.setBounds (trailing.removeFromRight (resolutionBoxWidth));
+    trailing.removeFromRight (toolbarTrailingGapNarrow);
+    modeBox.setBounds (trailing.removeFromRight (modeBoxWidth));
 
     //--------------------------------------------------------------------------
     auto bottom = area.removeFromBottom (bottomStripHeight);

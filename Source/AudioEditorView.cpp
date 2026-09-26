@@ -1,4 +1,5 @@
 #include "AudioEditorView.h"
+#include "AppMessageBox.h"   // 8.322：メッセージボックスは必ずここを通す（Phase 312）
 
 #include "AppColours.h"
 #include "HitPointDetector.h"   // 仕様書5.5.1：ヒットポイント検出（Phase 85）
@@ -1126,7 +1127,7 @@ void AudioEditorView::detectHitPoints()
             // 黙って何も起きないと、ボタンが壊れているようにしか見えません（1.9）
             if (detected.isEmpty())
             {
-                juce::NativeMessageBox::showAsync (
+                AppMessageBox::showAsync (
                     juce::MessageBoxOptions()
                         .withIconType (juce::MessageBoxIconType::InfoIcon)
                         .withTitle (utf8 ("ヒットポイント"))

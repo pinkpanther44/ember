@@ -1,6 +1,5 @@
 #include "AudioEngine.h"
 #include "Utf8.h"
-#include "Mp3Writer.h"   // 8.153：MP3の書き出し（Phase 191／D9b）
 #include "AppSettings.h"        // 8.85：オーディオ・MIDIデバイスの設定を覚える（Phase 125）
 #include "AppColours.h"          // 8.85：レイテンシ表示の色（Phase 125）
 #include "StorageLocations.h"   // 設計書2.3.8：録音ファイルの保存先（Phase 57）
@@ -2575,39 +2574,16 @@ juce::String AudioEngine::renderOfflineToFile (const juce::File& file, double sa
     // 8.80：ビット深度とチャンネル数を選べるようにした（Phase 120／D9・D10）
     const int numOutputChannels = writeMono ? 1 : 2;
 
-    std::unique_ptr<juce::AudioFormatWriter> writer;
-
     // 8.153：**形式で違うのはここだけ**（Phase 191／D9b）。
-    // この下のループは、WAVでもMP3でも同じものを回します
-    if (options.format == ExportOptions::Format::mp3)
-    {
-        juce::String mp3Error;
-        writer = Mp3Writer::createWriter (file, sampleRate, numOutputChannels,
-                                           options.mp3BitrateKbps, mp3Error);
+    // この下のループは、WAVでもMP3でもFLACでも同じものを回します。
+    //
+    // 8.319：**部品を作るのは`ExportOptions::createWriter()`**（Phase 312）。
+    // 窓も音のデバイスも無しに、書いて読み戻して確かめられるように外へ出しました
+    juce::String writerError;
+    auto writer = options.createWriter (file, sampleRate, numOutputChannels, writerError);
 
-        if (writer == nullptr)
-            return mp3Error.isNotEmpty() ? mp3Error
-                                          : utf8 ("MP3の書き出しを用意できませんでした。");
-    }
-    else
-    {
-        file.deleteFile();
-        std::unique_ptr<juce::OutputStream> stream = file.createOutputStream();
-
-        if (stream == nullptr)
-            return utf8 ("ファイルを作成できませんでした: ") + file.getFullPathName();
-
-        // **32bitはJUCEが浮動小数点で書きます**（`WavAudioFormat`が`bits == 32`を
-        // そう扱う）。ダイアログの表記も「32 bit float」にしてあります。
-        juce::WavAudioFormat wavFormat;
-        writer = wavFormat.createWriterFor (stream, juce::AudioFormatWriterOptions{}
-                                                        .withSampleRate (sampleRate)
-                                                        .withNumChannels (numOutputChannels)
-                                                        .withBitsPerSample (options.bitsPerSample));
-
-        if (writer == nullptr)
-            return utf8 ("WAVファイルの書き出し形式を用意できませんでした。");
-    }
+    if (writer == nullptr)
+        return writerError;
 
     // 8.155：**書き出しのあいだはループを切る**（Phase 193／本人の報告）。
     //

@@ -10,7 +10,7 @@ namespace
     // **プロジェクトではなくアプリの設定へ。** 「どう書き出すか」は作業のやり方で、
     // 曲そのものの内容ではないためです（コードパッドの発音パラメータと同じ扱い。8.1のA3）。
     const juce::String exportBitDepthKey  { "exportBitDepth" };
-    const juce::String exportFormatKey     { "exportFormat" };        // 8.153（0=WAV／1=MP3）
+    const juce::String exportFormatKey     { "exportFormat" };        // 8.153（0=WAV／1=MP3／2=FLAC。`Format`の番号）
     const juce::String exportSampleRateKey { "exportSampleRate" };    // 8.153（0=そのまま）
     const juce::String exportMp3BitrateKey { "exportMp3Bitrate" };    // 8.153
 
@@ -30,8 +30,48 @@ namespace
         `index == 0`ではなく**値が0か**で判断できるようにしてあります。 */
     const double sampleRateChoices[] = { 0.0, 44100.0, 48000.0, 88200.0, 96000.0 };
 
-    /** MP3で選べるレートはここまで（MPEG-1 Layer III にあるのは3つだけ。`Mp3Writer.h`）。 */
+    /** MP3で選べるレートはここまで（MPEG-1 Layer III にあるのは3つだけ。`Mp3Writer.h`）。
+
+        8.319：**上の一覧の先頭3つと同じ並びにしておくこと**（Phase 312）。
+        `getSelectedSampleRate()`は、どちらの一覧が入っていても**上の一覧で読みます**
+        ——先頭が揃っていれば、何番目かが同じ値を指すからです。 */
     const double mp3SampleRateChoices[] = { 0.0, 44100.0, 48000.0 };
+
+    //--------------------------------------------------------------------------
+    // 8.319：形式の選択肢（Phase 312）
+    //
+    // **項目IDは`Format`の番号＋1**（0は「選ばれていない」の予約）。
+    // 並べる順（WAV・FLAC・MP3）と番号の順（WAV・MP3・FLAC）が違うので、
+    // **何番目か（index）で読まないこと**——MP3が無いOSでは番目がずれます
+
+    int formatToItemId (ExportOptions::Format format)   { return (int) format + 1; }
+
+    ExportOptions::Format itemIdToFormat (int itemId)
+    {
+        switch (itemId)
+        {
+            case 2:  return ExportOptions::Format::mp3;
+            case 3:  return ExportOptions::Format::flac;
+            default: return ExportOptions::Format::wav;
+        }
+    }
+
+    /** ビット深度の一覧を入れ直す（**項目ID＝ビット数**）。
+
+        **FLACには32bit floatがありません**（JUCEの`FlacAudioFormat`は16と24だけ）。
+        選べないものは並べず、選んでいた値が消えたら24へ落とします。
+        **MP3では使わないので灰色**にします（ビットレートで決まるため）。 */
+    void fillBitDepthBox (juce::ComboBox& box, ExportOptions::Format format, int wantedBits)
+    {
+        box.clear (juce::dontSendNotification);
+
+        for (const auto& choice : bitDepthChoices)
+            if (! (format == ExportOptions::Format::flac && choice.bits == 32))
+                box.addItem (choice.label, choice.bits);
+
+        box.setSelectedId (box.indexOfItemId (wantedBits) >= 0 ? wantedBits : 24, juce::dontSendNotification);
+        box.setEnabled (format != ExportOptions::Format::mp3);
+    }
 
     juce::String describeSampleRate (double rate)
     {
@@ -67,13 +107,15 @@ namespace
         box.setSelectedItemIndex (wantedIndex, juce::dontSendNotification);
     }
 
-    double getSelectedSampleRate (const juce::ComboBox& box, bool isMp3)
-    {
-        const double* rates = isMp3 ? mp3SampleRateChoices : sampleRateChoices;
-        const int numRates = isMp3 ? juce::numElementsInArray (mp3SampleRateChoices)
-                                    : juce::numElementsInArray (sampleRateChoices);
+    /** 8.319：**どちらの一覧が入っていても、広いほうの一覧で読みます**（Phase 312）。
+        MP3の一覧は広いほうの**先頭と同じ並び**なので、何番目かが同じ値を指します。
 
-        return rates[juce::jlimit (0, numRates - 1, box.getSelectedItemIndex())];
+        Phase 311までは「どちらの一覧か」を呼ぶ側が渡していました。形式が3つになると
+        **切り替える前がどれだったか**を覚えておく必要が出るので、要らない形にしました。 */
+    double getSelectedSampleRate (const juce::ComboBox& box)
+    {
+        return sampleRateChoices[juce::jlimit (0, juce::numElementsInArray (sampleRateChoices) - 1,
+                                               box.getSelectedItemIndex())];
     }
 
     juce::String formatSeconds (double seconds)
@@ -104,6 +146,61 @@ bool ExportOptions::isStemMono (const juce::String& trackId) const
             return entry.mono;
 
     return false;
+}
+
+std::unique_ptr<juce::AudioFormatWriter> ExportOptions::createWriter (const juce::File& file, double sampleRate,
+                                                                      int numChannels, juce::String& error) const
+{
+    // 8.153：**MP3は自前の書き手**（Windowsの仕組みを借りる。`Mp3Writer.h`）
+    if (format == Format::mp3)
+    {
+        juce::String mp3Error;
+        auto writer = Mp3Writer::createWriter (file, sampleRate, numChannels, mp3BitrateKbps, mp3Error);
+
+        if (writer == nullptr)
+            error = mp3Error.isNotEmpty() ? mp3Error : utf8 ("MP3の書き出しを用意できませんでした。");
+
+        return writer;
+    }
+
+    // WAVとFLACは**JUCEが持っている書き手**。ファイルの開き方は同じです
+    file.deleteFile();
+    std::unique_ptr<juce::OutputStream> stream = file.createOutputStream();
+
+    if (stream == nullptr)
+    {
+        error = utf8 ("ファイルを作成できませんでした: ") + file.getFullPathName();
+        return nullptr;
+    }
+
+    const auto writerOptions = juce::AudioFormatWriterOptions{}
+                                   .withSampleRate (sampleRate)
+                                   .withNumChannels (numChannels)
+                                   .withBitsPerSample (getEffectiveBitsPerSample());
+
+    if (format == Format::flac)
+    {
+        // 8.319：**圧縮の強さは5**（Phase 312）。FLACの参照実装の既定と同じで、
+        // JUCEの選択肢でも`"5 (Default)"`です。**音は何番でも同じ**——
+        // 違うのはファイルの大きさと、書くのにかかる時間だけです
+        juce::FlacAudioFormat flacFormat;
+        auto writer = flacFormat.createWriterFor (stream, writerOptions.withQualityOptionIndex (5));
+
+        if (writer == nullptr)
+            error = utf8 ("FLACファイルの書き出し形式を用意できませんでした。");
+
+        return writer;
+    }
+
+    // **32bitはJUCEが浮動小数点で書きます**（`WavAudioFormat`が`bits == 32`を
+    // そう扱う）。ダイアログの表記も「32 bit float」にしてあります。
+    juce::WavAudioFormat wavFormat;
+    auto writer = wavFormat.createWriterFor (stream, writerOptions);
+
+    if (writer == nullptr)
+        error = utf8 ("WAVファイルの書き出し形式を用意できませんでした。");
+
+    return writer;
 }
 
 //==============================================================================
@@ -137,41 +234,47 @@ void ExportOptionsDialog::show (bool isStems, double loopRangeSeconds,
 
     auto& window = *holder->window;
 
-    // 8.153：形式（Phase 191／8.1のD9b）。**MP3が使えないときは出しません**
-    // （Windows以外や、Media Foundationにエンコーダが無い環境）
+    // 8.153：形式（Phase 191／8.1のD9b）。
+    //
+    // 8.319：**いつも出します**（Phase 312）。Phase 311までは「MP3が使えないときは出さない」で、
+    // Linuxでは形式を選ぶ欄そのものがありませんでした（WAVしか無かったため）。
+    // **FLACはどのOSでも書ける**ので、選べるものが1つだけ、ということがなくなりました
     const bool canUseMp3 = Mp3Writer::isAvailable();
 
-    if (canUseMp3)
+    const auto initialFormat = [canUseMp3]
     {
-        window.addComboBox ("format", { "WAV", "MP3" }, utf8 ("形式"));
+        switch (AppSettings::getInt (exportFormatKey, 0))
+        {
+            // **前回MP3でも、使えないOSならWAVへ**（Windowsで出した設定を持ち込んだとき）
+            case 1:  return canUseMp3 ? ExportOptions::Format::mp3 : ExportOptions::Format::wav;
+            case 2:  return ExportOptions::Format::flac;
+            default: return ExportOptions::Format::wav;
+        }
+    }();
 
-        if (auto* box = window.getComboBoxComponent ("format"))
-            box->setSelectedItemIndex (AppSettings::getInt (exportFormatKey, 0) == 1 ? 1 : 0,
-                                        juce::dontSendNotification);
+    window.addComboBox ("format", {}, utf8 ("形式"));
+
+    if (auto* box = window.getComboBoxComponent ("format"))
+    {
+        // **劣化しないものを先に**並べます。番号の順（WAV・MP3・FLAC）とは違うので、
+        // 読むときは項目IDで（`itemIdToFormat()`）
+        box->addItem ("WAV", formatToItemId (ExportOptions::Format::wav));
+        box->addItem ("FLAC", formatToItemId (ExportOptions::Format::flac));
+
+        if (canUseMp3)
+            box->addItem ("MP3", formatToItemId (ExportOptions::Format::mp3));
+
+        box->setSelectedId (formatToItemId (initialFormat), juce::dontSendNotification);
     }
 
-    juce::StringArray bitDepthLabels;
+    // ビット深度。**WAVとFLACで使い、MP3では灰色**（`fillBitDepthBox()`）。
+    // 前回の値に戻す（設計書2.5）。無い／消えた値なら既定の24bitへ
+    window.addComboBox ("bitDepth", {}, utf8 ("ビット深度"));
 
-    for (const auto& choice : bitDepthChoices)
-        bitDepthLabels.add (choice.label);
+    if (auto* box = window.getComboBoxComponent ("bitDepth"))
+        fillBitDepthBox (*box, initialFormat, AppSettings::getInt (exportBitDepthKey, 24));
 
-    window.addComboBox ("bitDepth", bitDepthLabels,
-                         canUseMp3 ? utf8 ("ビット深度（WAV）") : utf8 ("ビット深度"));
-
-    // 前回の値に戻す（設計書2.5）。**無い／消えた値なら既定の24bitへ**
-    {
-        const int savedBits = AppSettings::getInt (exportBitDepthKey, 24);
-        int savedIndex = 1;   // 24 bit
-
-        for (int i = 0; i < juce::numElementsInArray (bitDepthChoices); ++i)
-            if (bitDepthChoices[i].bits == savedBits)
-                savedIndex = i;
-
-        if (auto* box = window.getComboBoxComponent ("bitDepth"))
-            box->setSelectedItemIndex (savedIndex, juce::dontSendNotification);
-    }
-
-    // 8.153：MP3のビットレート（Phase 191）
+    // 8.153：MP3のビットレート（Phase 191）。**MP3のときだけ使うので、ほかでは灰色**
     if (canUseMp3)
     {
         juce::StringArray bitrateLabels;
@@ -186,6 +289,7 @@ void ExportOptionsDialog::show (bool isStems, double loopRangeSeconds,
             const int saved = AppSettings::getInt (exportMp3BitrateKey, 320);
             box->setSelectedItemIndex (juce::jmax (0, Mp3Writer::getBitrateChoices().indexOf (saved)),
                                         juce::dontSendNotification);
+            box->setEnabled (initialFormat == ExportOptions::Format::mp3);
         }
     }
 
@@ -195,28 +299,31 @@ void ExportOptionsDialog::show (bool isStems, double loopRangeSeconds,
 
     {
         const double savedRate = AppSettings::getDouble (exportSampleRateKey, 0.0);
-        const bool startsAsMp3 = canUseMp3 && AppSettings::getInt (exportFormatKey, 0) == 1;
-
         if (auto* box = window.getComboBoxComponent ("sampleRate"))
-            fillSampleRateBox (*box, startsAsMp3, savedRate);
+            fillSampleRateBox (*box, initialFormat == ExportOptions::Format::mp3, savedRate);
     }
 
-    // **形式を変えたら、選べるレートも入れ替える。**
-    // MP3に88.2kや96kは無いので、選べるまま書き出して失敗させない（`Mp3Writer.h`）
-    if (canUseMp3)
+    // **形式を変えたら、選べるものも入れ替える。**
+    // MP3に88.2kや96kは無く、FLACに32bit floatは無いので、
+    // 選べるまま書き出して失敗させない（`Mp3Writer.h`・`fillBitDepthBox()`）
     {
         auto* formatBox = window.getComboBoxComponent ("format");
         auto* rateBox = window.getComboBoxComponent ("sampleRate");
+        auto* bitDepthBox = window.getComboBoxComponent ("bitDepth");
+        auto* bitrateBox = window.getComboBoxComponent ("mp3Bitrate");   // MP3が無いOSでは無い
 
-        if (formatBox != nullptr && rateBox != nullptr)
-            formatBox->onChange = [formatBox, rateBox]
+        if (formatBox != nullptr && rateBox != nullptr && bitDepthBox != nullptr)
+            formatBox->onChange = [formatBox, rateBox, bitDepthBox, bitrateBox]
             {
-                const bool isMp3 = (formatBox->getSelectedItemIndex() == 1);
+                const auto format = itemIdToFormat (formatBox->getSelectedId());
 
-                // 入れ替える前に、いま選んでいる値を控える（無ければ「そのまま」へ落ちる）
-                const double current = getSelectedSampleRate (*rateBox,
-                                                               ! isMp3);   // 入れ替え前の一覧で読む
-                fillSampleRateBox (*rateBox, isMp3, current);
+                // **入れ替える前に、いま選んでいる値を控える**（無ければ既定へ落ちる）
+                fillSampleRateBox (*rateBox, format == ExportOptions::Format::mp3,
+                                   getSelectedSampleRate (*rateBox));
+                fillBitDepthBox (*bitDepthBox, format, bitDepthBox->getSelectedId());
+
+                if (bitrateBox != nullptr)
+                    bitrateBox->setEnabled (format == ExportOptions::Format::mp3);
             };
     }
 
@@ -254,13 +361,15 @@ void ExportOptionsDialog::show (bool isStems, double loopRangeSeconds,
 
                 ExportOptions options = previousOptions;
 
-                // 8.153：形式・ビットレート・サンプルレート（Phase 191／D9a・D9b）
+                // 8.153：形式・ビットレート・サンプルレート（Phase 191／D9a・D9b）。
+                // 8.319：**項目IDで読むこと**（Phase 312）。並べる順と番号の順が違います
                 options.format = ExportOptions::Format::wav;
 
-                if (canUseMp3)
-                    if (auto* box = owned->window->getComboBoxComponent ("format"))
-                        if (box->getSelectedItemIndex() == 1)
-                            options.format = ExportOptions::Format::mp3;
+                if (auto* box = owned->window->getComboBoxComponent ("format"))
+                    options.format = itemIdToFormat (box->getSelectedId());
+
+                if (options.format == ExportOptions::Format::mp3 && ! canUseMp3)
+                    options.format = ExportOptions::Format::wav;   // 並べていないので来ないはず
 
                 const bool isMp3 = (options.format == ExportOptions::Format::mp3);
 
@@ -273,14 +382,13 @@ void ExportOptionsDialog::show (bool isStems, double loopRangeSeconds,
                     }
 
                 if (auto* box = owned->window->getComboBoxComponent ("sampleRate"))
-                    options.sampleRate = getSelectedSampleRate (*box, isMp3);
+                    options.sampleRate = getSelectedSampleRate (*box);
 
+                // 8.319：**項目ID＝ビット数**（`fillBitDepthBox()`）。FLACでは32が並ばないので、
+                // 番目で読むと24のつもりが32になります
                 if (auto* box = owned->window->getComboBoxComponent ("bitDepth"))
-                {
-                    const int index = juce::jlimit (0, juce::numElementsInArray (bitDepthChoices) - 1,
-                                                     box->getSelectedItemIndex());
-                    options.bitsPerSample = bitDepthChoices[index].bits;
-                }
+                    if (box->getSelectedId() > 0)
+                        options.bitsPerSample = box->getSelectedId();
 
                 // **毎回入れ直す。** 前回の設定を土台にしているので、
                 // 項目を出さなかったときに前回の「ループ範囲だけ」が残ってしまう
@@ -305,7 +413,7 @@ void ExportOptionsDialog::show (bool isStems, double loopRangeSeconds,
                 // 8.153：形式とレートも覚える（Phase 191）。
                 // **レートは覚えます**——「範囲」と違って、44.1kで出すと決めた人は
                 // 次も44.1kで出します（一度きりの指定ではない）
-                AppSettings::setInt (exportFormatKey, isMp3 ? 1 : 0);
+                AppSettings::setInt (exportFormatKey, (int) options.format);   // 8.319：`Format`の番号のまま
                 AppSettings::setInt (exportMp3BitrateKey, options.mp3BitrateKbps);
                 AppSettings::setDouble (exportSampleRateKey, options.sampleRate);
 

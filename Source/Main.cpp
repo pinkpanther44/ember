@@ -10,6 +10,7 @@
 #include "DrumMapPresetSelfTest.h" // 8.284：ドラムマップのプリセット（Phase 277）
 #include "StorageSelfTest.h"   // 8.286：プロジェクトの置き場所（Phase 279）
 #include "TrackHeaderLayoutSelfTest.h" // 8.295：ヘッダーの並び（Phase 288）
+#include "TimeRangeSelfTest.h"     // 8.325：MIDIの時間範囲（Phase 314）
 #include "AudioDeviceSelfTest.h" // 8.316：デバイスの付け替え（Phase 309）
 #include "SplashWindow.h"        // 8.151：起動画面（Phase 189／改善案⑰）
 #include "ProjectChooser.h"      // 8.151：プロジェクト選択画面（Phase 189／改善案⑰）
@@ -17,6 +18,7 @@
 #include "Branding.h"   // 8.175：表に出る名前（Phase 216）
 #include "AppIcon.h"    // 8.229：窓のアイコン（Phase 249）
 #include "CrashLog.h"   // 8.316：落ちたときに番地を残す（Phase 309）
+#include "AppMessageBox.h"   // 8.322：メッセージボックスの入口（Phase 312）
 
 
 //==============================================================================
@@ -52,6 +54,10 @@ public:
 
         if (sandboxWorker->initialiseFromCommandLine (commandLine, SandboxIPC::commandLineUID))
         {
+            // 8.320：**子のログは名前を分ける**（Phase 312）。子が落ちても本体は落ちていないので、
+            // 次の起動で「前回落ちました」と出すのは間違いです（`CrashLog.h`）
+            CrashLog::markAsSandboxWorker();
+
            #if JUCE_MAC
             juce::Process::setDockIconVisible (false);
            #endif
@@ -59,6 +65,79 @@ public:
         }
 
         sandboxWorker = nullptr; // 親プロセスなのでワーカーは不要
+
+        // 8.322：`--msgbox-exit-test`（Phase 312）。**メッセージボックスを開いたまま終わっても
+        // 落ちないこと**を見ます。1.0.1はこれで落ちていました（`AppMessageBox.h`）。
+        //
+        // **窓を出します**（箱を1つ、1秒ほど）。箱が本当に開いていないと、
+        // 踏みたい瞬間（終了の片付けで箱が閉じる）が来ないためです。
+        //
+        // `--unmanaged`を付けると**直す前の出し方**（`NativeMessageBox::showAsync`を直に）になり、
+        // **落ちるのが正解**です。直したことの証拠は、この2つの差でしか出ません。
+        //
+        // 合格の印は**終了コード0で終わること**。落ちれば0以外になり、
+        // `selftest-crash-…`のログが残ります（起動時の案内には出ません）
+        // 8.322：`--msgbox-answer-test`（Phase 312）。**押したボタンの番号が、今までどおり
+        // 押した順で届くか**を見ます。`showScopedAsync`は数え方が違うので、`AppMessageBox`が
+        // 押した順へ戻しています——**戻し方を間違えると、31箇所の選択が黙って入れ替わります**
+        // （「復元する」を押したのに破棄される）。
+        //
+        // ボタン3つの箱を出し、**外からボタンを押して**（`TDM_CLICK_BUTTON`）、
+        // 届いた番号を`pressed N`と出して終わります
+        if (commandLine.contains ("--msgbox-answer-test"))
+        {
+            CrashLog::markAsSelfTest();
+
+            juce::MessageManager::callAsync ([this]
+            {
+                AppMessageBox::showAsync (juce::MessageBoxOptions()
+                                              .withTitle ("msgbox answer test")
+                                              .withMessage ("Press any button.")
+                                              .withButton ("Zero")
+                                              .withButton ("One")
+                                              .withButton ("Two"),
+                                          [this] (int pressed)
+                                          {
+                                              std::cout << "pressed " << pressed << std::endl;
+                                              quit();
+                                          });
+            });
+
+            return;
+        }
+
+        if (commandLine.contains ("--msgbox-exit-test"))
+        {
+            CrashLog::markAsSelfTest();
+
+            const bool unmanaged = commandLine.contains ("--unmanaged");
+
+            juce::MessageManager::callAsync ([unmanaged]
+            {
+                const auto options = juce::MessageBoxOptions()
+                                         .withIconType (juce::MessageBoxIconType::InfoIcon)
+                                         .withTitle ("msgbox exit test")
+                                         .withMessage ("This box closes by itself - the app quits while it is open.")
+                                         .withButton ("OK")
+                                         .withButton ("Cancel");
+
+                if (unmanaged)
+                    juce::NativeMessageBox::showAsync (options, nullptr);   // 直す前の出し方（試験のためだけ）
+                else
+                    AppMessageBox::showAsync (options, nullptr);
+            });
+
+            // **箱の窓ができるまで待ってから**終わる。早すぎると、閉じる相手の窓がまだありません
+            juce::Timer::callAfterDelay (1200, [this, unmanaged]
+            {
+                std::cout << (unmanaged ? "unmanaged box (the old way)" : "managed box")
+                          << ", open boxes: " << AppMessageBox::getNumOpen()
+                          << " - quitting with it open" << std::endl;
+                quit();
+            });
+
+            return;
+        }
 
         // 8.137：`--measure-musical-time`なら、測ってすぐ終わる（Phase 175／8.1のE1）。
         // **ワーカーと同じで、メインウィンドウは作りません**（`MusicalTimeBench.h`）
@@ -108,6 +187,14 @@ public:
         // **`TimelineComponent`は作りますが、画面には出しません**
         // ——位置を聞くだけなので、ピア（OSの窓）は要りません
         if (TrackHeaderLayoutSelfTest::runIfRequested (commandLine))
+        {
+            quit();
+            return;
+        }
+
+        // 8.325：`--timerange-selftest`も窓を出しません（Phase 314）。
+        // 押す操作は**マウスの出来事を作って**渡します（`TimeRangeSelfTest.h`）
+        if (TimeRangeSelfTest::runIfRequested (commandLine))
         {
             quit();
             return;
@@ -396,6 +483,12 @@ public:
 
     void shutdown() override
     {
+        // 8.322：**いちばん先に、開いているメッセージボックスを全部閉じること**（Phase 312）。
+        // この関数を抜けたあとで`MessageManager`が消えます。箱が開いたままだと、
+        // 片付けで閉じた箱が別スレッドから`MessageManager`を作り直して落ちます
+        // （1.0.1で実際に落ちていました。`AppMessageBox.h`）
+        AppMessageBox::closeAll();
+
         chooserWindow = nullptr;
         splash = nullptr;
         mainWindow = nullptr;

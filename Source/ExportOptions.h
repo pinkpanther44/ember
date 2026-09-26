@@ -1,6 +1,7 @@
 #pragma once
 
 #include <juce_gui_basics/juce_gui_basics.h>
+#include <juce_audio_formats/juce_audio_formats.h>   // 8.319：書き出しの部品を作る（Phase 312）
 
 #include "Utf8.h"   // 8.307：一覧の日本語（Phase 300でここへ移りました）
 
@@ -28,6 +29,15 @@
     |---|---|---|
     | サンプルレート | クリップ再生がリサンプリングしていなかった | **Phase 190で直した**（8.152） |
     | MP3 | JUCEにエンコーダが無く、LAMEを抱える話になる | **Windowsが持っていた**（`Mp3Writer.h`） |
+
+    ### FLAC（Phase 312で足しました。8.319）
+
+    **JUCEが最初から持っていました**（`JUCE_USE_FLAC`は既定で1）。
+    FLACを**読める**のはそのためで、**書く部品も同じところに入っていました**。
+
+    **Linuxでは書き出しがWAVしかありませんでした**（MP3はWindowsの仕組みを借りているため）。
+    FLACはどちらのOSでも出せる、**劣化しない圧縮**です——WAVの半分ほどの大きさで、
+    中身は1ビットも変わりません。
 */
 
 /** 8.81：ステム書き出しの、トラック1本ぶんの設定（Phase 121/D10a）。
@@ -55,13 +65,29 @@ struct ExportStemTrack
 
 struct ExportOptions
 {
-    /** 8.153：書き出す形式（Phase 191／8.1のD9b）。 */
-    enum class Format { wav, mp3 };
+    /** 8.153：書き出す形式（Phase 191／8.1のD9b）。
+
+        8.319：**FLACを足しました**（Phase 312）。**並びを変えないこと**——
+        アプリの設定に**この番号のまま**覚えています（0＝WAV／1＝MP3／2＝FLAC）。 */
+    enum class Format { wav, mp3, flac };
 
     Format format = Format::wav;
 
-    /** WAVのビット深度。16／24／32（32は浮動小数点）。**MP3では使いません。** */
+    /** WAVとFLACのビット深度。16／24／32（32は浮動小数点）。**MP3では使いません。**
+
+        8.319：**FLACに32bit floatはありません**（JUCEの`FlacAudioFormat`は16と24だけ）。
+        書くときは`getEffectiveBitsPerSample()`を通すこと。 */
     int bitsPerSample = 24;
+
+    /** 8.319：**実際に書くビット深度**（Phase 312）。FLACで32が選ばれていたら24へ寄せます。
+
+        ダイアログはFLACのときに32を出しませんが、**前回WAVの32bitで出した設定**が
+        そのまま残っていることがあります。JUCEは合わない深度を渡されると
+        **黙って`nullptr`を返す**ので、ここで寄せておかないと書き出しが失敗します。 */
+    int getEffectiveBitsPerSample() const
+    {
+        return format == Format::flac ? juce::jmin (bitsPerSample, 24) : bitsPerSample;
+    }
 
     /** 8.153：MP3のビットレート（kbps）。**WAVでは使いません。** */
     int mp3BitrateKbps = 320;
@@ -76,8 +102,28 @@ struct ExportOptions
         グラフごとこのレートで回すので、プラグインもこのレートで動きます。 */
     double sampleRate = 0.0;
 
-    /** 拡張子（`.wav`／`.mp3`）。**判定を書き写さないこと**（8.2）。 */
-    juce::String getFileExtension() const { return format == Format::mp3 ? ".mp3" : ".wav"; }
+    /** 拡張子（`.wav`／`.mp3`／`.flac`）。**判定を書き写さないこと**（8.2）。 */
+    juce::String getFileExtension() const
+    {
+        switch (format)
+        {
+            case Format::mp3:  return ".mp3";
+            case Format::flac: return ".flac";
+            case Format::wav:  break;
+        }
+
+        return ".wav";
+    }
+
+    /** 8.319：**書き出しの部品を作る**（Phase 312）。形式で違うのは**ここだけ**です。
+
+        もとは`AudioEngine::renderOfflineToFile()`の中にありました。外へ出したのは
+        **窓も音のデバイスも無しに、書いて読み戻して確かめるため**です
+        （`--storage-selftest`）。
+
+        作れなければ`nullptr`を返し、理由を`error`へ入れます。 */
+    std::unique_ptr<juce::AudioFormatWriter> createWriter (const juce::File& file, double sampleRate,
+                                                           int numChannels, juce::String& error) const;
 
     /** ループ範囲だけを書き出すか（8.1のD11）。
 

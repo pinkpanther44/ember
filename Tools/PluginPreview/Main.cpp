@@ -46,12 +46,14 @@
 #include <juce_gui_extra/juce_gui_extra.h>
 
 #include "AppColours.h"
+#include "AppSettings.h"   // 8.321：プリセットのフォルダを作っていないか見る
 #include "Branding.h"
 #include "IconAssets.h"
 
 #include <iterator>   // 8.295：std::size（絵の行数を表から数える）
 
 #include "Plugins/MantaFactoryPresets.h"
+#include "Plugins/MantaPluginToolbar.h"   // 8.318：いまのプリセットの名前（Phase 311）
 #include "Plugins/MantaPluginFormat.h"   // 8.288：表と名乗りを突き合わせる（Phase 281）
 
 #include "Plugins/MantaEQ/MantaEQProcessor.h"
@@ -73,6 +75,8 @@
 #include "Plugins/OrangutanDrums/OrangutanDrumsPresets.h"
 #include "Plugins/Kakapo/KakapoProcessor.h"
 
+#include <functional>
+#include <typeinfo>
 #include <memory>
 #include <vector>
 
@@ -98,13 +102,18 @@ namespace
     //==========================================================================
     // 画面を撮る
 
+    /** `prepare`は**窓を作る前に**状態を整えるためのもの（8.318。プリセットを当てた姿を撮る）。 */
     template <typename ProcessorType>
-    void snapshot (const juce::String& fileStem, AppColours::Theme theme, const char* themeName)
+    void snapshot (const juce::String& fileStem, AppColours::Theme theme, const char* themeName,
+                   std::function<void (ProcessorType&)> prepare = {})
     {
         AppColours::setTheme (theme);
 
         ProcessorType processor;
         processor.prepareToPlay (48000.0, 512);
+
+        if (prepare != nullptr)
+            prepare (processor);
 
         std::unique_ptr<juce::AudioProcessorEditor> editor (processor.createEditor());
 
@@ -971,6 +980,96 @@ namespace
         snapshots<OrangutanDrumsProcessor> ("orangutan_drums");
         snapshots<KakapoProcessor> ("kakapo");
 
+        // 8.318：**プリセットを当てた姿も撮ります**（Phase 311）。
+        // 既定の姿は「何も当てていない」なので、**名前が出ているところは誰も見ません**
+        // （Kakapoの「弾いたところ」と同じ理由）。
+        //
+        // 名前は**状態へ直に書いてから**窓を作ります——プロジェクトを開き直したときと
+        // 同じ道で、**保存された名前を読めているか**もこれで見えます
+        {
+            auto withPreset = [] (juce::AudioProcessorValueTreeState& apvts,
+                                  const juce::String& name, bool modified)
+            {
+                apvts.state.setProperty (MantaPluginToolbar::presetNameProperty, name, nullptr);
+                apvts.state.setProperty (MantaPluginToolbar::presetModifiedProperty, modified, nullptr);
+            };
+
+            snapshot<MantaSynthProcessor> ("manta_synth_preset", AppColours::Theme::Light, "light",
+                [&] (MantaSynthProcessor& p)
+                {
+                    const auto& preset = MantaSynthPresets::all().front();
+                    MantaSynthPresets::apply (p.getValueTreeState(), preset);
+                    withPreset (p.getValueTreeState(), preset.name, false);
+                });
+
+            snapshot<RaccoGuitarProcessor> ("racco_guitar_preset", AppColours::Theme::Light, "light",
+                [&] (RaccoGuitarProcessor& p)
+                {
+                    const auto& preset = RaccoGuitarPresets::all().front();
+                    MantaFactoryPresets::apply (p.getValueTreeState(), preset);
+                    withPreset (p.getValueTreeState(), preset.name, false);
+                });
+
+            snapshot<JavaRhinoBassProcessor> ("java_rhino_bass_preset", AppColours::Theme::Light, "light",
+                [&] (JavaRhinoBassProcessor& p)
+                {
+                    const auto& preset = JavaRhinoBassPresets::all().front();
+                    MantaFactoryPresets::apply (p.getValueTreeState(), preset);
+                    withPreset (p.getValueTreeState(), preset.name, false);
+                });
+
+            // **Orangutanは「触った」印まで入れて撮ります。** 帯がいちばん狭いので、
+            // 名前と`*`と`▾`が**同時に**収まるかは、ここでしか確かめられません。
+            // 名前も**いちばん長いもの**を選びます
+            snapshot<OrangutanDrumsProcessor> ("orangutan_drums_preset", AppColours::Theme::Light, "light",
+                [&] (OrangutanDrumsProcessor& p)
+                {
+                    const auto& kits = OrangutanDrumsPresets::all();
+                    const auto* longest = &kits.front();
+
+                    for (const auto& kit : kits)
+                        if (kit.name.length() > longest->name.length())
+                            longest = &kit;
+
+                    MantaFactoryPresets::apply (p.getValueTreeState(), *longest);
+                    withPreset (p.getValueTreeState(), longest->name, true);
+                });
+
+            // 8.318：**エフェクト4つ**（Phase 311。本人の指定で音源に続けて点けた）。
+            // **いちばん長い名前＋「触った」印**で撮ります——EQは帯の右に部品が詰まっていて、
+            // 名前の欄に残る幅がいちばん少ない窓です
+            auto longestOf = [] (const std::vector<MantaFactoryPresets::Preset>& presets)
+            {
+                const auto* longest = &presets.front();
+
+                for (const auto& preset : presets)
+                    if (preset.name.length() > longest->name.length())
+                        longest = &preset;
+
+                return longest;
+            };
+
+            auto effect = [&] (juce::AudioProcessorValueTreeState& apvts,
+                               const std::vector<MantaFactoryPresets::Preset>& presets)
+            {
+                const auto* preset = longestOf (presets);
+                MantaFactoryPresets::apply (apvts, *preset);
+                withPreset (apvts, preset->name, true);
+            };
+
+            snapshot<MantaEQProcessor> ("manta_eq_preset", AppColours::Theme::Light, "light",
+                [&] (MantaEQProcessor& p) { effect (p.getValueTreeState(), MantaEQPresets::all()); });
+
+            snapshot<MantaCompProcessor> ("manta_comp_preset", AppColours::Theme::Light, "light",
+                [&] (MantaCompProcessor& p) { effect (p.getValueTreeState(), MantaCompPresets::all()); });
+
+            snapshot<MantaDelayProcessor> ("manta_delay_preset", AppColours::Theme::Light, "light",
+                [&] (MantaDelayProcessor& p) { effect (p.getValueTreeState(), MantaDelayPresets::all()); });
+
+            snapshot<MantaReverbProcessor> ("manta_reverb_preset", AppColours::Theme::Light, "light",
+                [&] (MantaReverbProcessor& p) { effect (p.getValueTreeState(), MantaReverbPresets::all()); });
+        }
+
         // 8.292：**Kakapoは、何か弾いたところも撮ります**（Phase 285）。
         // 既定の状態は「まだ聞いています」なので、**判定が出ている姿は誰も見ません**
         // ——`Orangutan Drums`で頁を撮り忘れたのと同じ話（8.290）
@@ -1101,9 +1200,501 @@ namespace
         }
     }
 
+    //==========================================================================
+    // 8.318：**いまのプリセットの名前**（Phase 311／本人の要望）
+    //
+    // 絵（`*_preset_light.png`）は「出ているか」しか見せません。
+    // ここで数えるのは**名前が正しく付いてくるか**です——Undoで戻したら印が消えるか、
+    // A/Bで入れ替えたら名前も入れ替わるか、窓を閉じて開き直しても残るか。
+    //
+    // **どれも画面を触らないと起きないこと**なので、ツールバーを直に作って、
+    // 画面から押すのと同じ道（`*ForTesting`）を通します
+
+    void checkOne (bool condition, const juce::String& what)
+    {
+        if (condition)
+            say ("  ok    " + what);
+        else
+            problem ("preset name: " + what);
+    }
+
+    void runPresetNameCheck()
+    {
+        say ("--- the preset name in the toolbar ---");
+
+        MantaSynthProcessor processor;
+        processor.prepareToPlay (48000.0, 512);
+
+        auto& apvts = processor.getValueTreeState();
+        const auto& all = MantaSynthPresets::all();
+
+        if (all.size() < 2)
+        {
+            problem ("preset name: fewer than two synth presets to try");
+            return;
+        }
+
+        const auto& first = all[0];
+        const auto& second = all[1];
+
+        auto makeToolbar = [&]
+        {
+            auto toolbar = std::make_unique<MantaPluginToolbar> (processor, apvts, "PluginPreviewTest");
+
+            std::vector<MantaPluginToolbar::FactoryPreset> presets;
+            presets.push_back ({ first.category, first.name,
+                                 [&apvts, &first] { MantaSynthPresets::apply (apvts, first); } });
+            presets.push_back ({ second.category, second.name,
+                                 [&apvts, &second] { MantaSynthPresets::apply (apvts, second); } });
+
+            toolbar->setFactoryPresets (std::move (presets));
+            toolbar->setShowsCurrentPreset (true);
+            return toolbar;
+        };
+
+        // **つまみを1つ回したのと同じこと。** 選択肢のパラメータだと、
+        // 動かした先が同じ段に丸められて「変わっていない」ことがあるので、連続値のものを選びます
+        juce::AudioParameterFloat* knob = nullptr;
+
+        for (auto* parameter : processor.getParameters())
+            if ((knob = dynamic_cast<juce::AudioParameterFloat*> (parameter)) != nullptr)
+                break;
+
+        if (knob == nullptr)
+        {
+            problem ("preset name: the synth has no continuous parameter to turn");
+            return;
+        }
+
+        // `AudioParameterFloat::getValue()`は非公開なので、**基底の型から**読みます
+        juce::AudioProcessorParameter* knobBase = knob;
+
+        auto turnKnob = [knobBase] { knobBase->setValueNotifyingHost (knobBase->getValue() > 0.5f ? 0.1f : 0.9f); };
+
+        auto storedName = [&apvts]
+        {
+            return apvts.state.getProperty (MantaPluginToolbar::presetNameProperty).toString();
+        };
+
+        auto storedModified = [&apvts]
+        {
+            return (bool) apvts.state.getProperty (MantaPluginToolbar::presetModifiedProperty, false);
+        };
+
+        auto toolbar = makeToolbar();
+
+        checkOne (toolbar->getCurrentPresetName().isEmpty(), "a fresh synth has no preset name");
+        checkOne (! apvts.state.hasProperty (MantaPluginToolbar::presetNameProperty),
+                  "...and nothing is written into its state");
+
+        toolbar->choosePresetForTesting (0);
+
+        checkOne (toolbar->getCurrentPresetName() == first.name, "choosing a preset shows its name");
+        checkOne (! toolbar->isCurrentPresetModified(), "...not marked as changed");
+        checkOne (storedName() == first.name, "...and the name goes into the plugin's state");
+
+        turnKnob();
+        toolbar->tickForTesting();
+
+        checkOne (toolbar->isCurrentPresetModified(), "turning a knob afterwards marks it as changed");
+        checkOne (storedModified(), "...and the mark goes into the state too");
+
+        toolbar->undoForTesting();
+
+        checkOne (toolbar->getCurrentPresetName() == first.name && ! toolbar->isCurrentPresetModified(),
+                  "undo takes the change back, and the mark with it");
+
+        // **プリセットをまたいだUndo。** ひとつ上の項目は「同じプリセットの中で戻す」だけで、
+        // 名前は元から合っています——**名前を戻さない作りでも通ってしまいました**（実測）。
+        // 名前が付いてくる必要があるのは、**別のプリセットを当てたあとで戻したとき**です
+        turnKnob();
+        toolbar->tickForTesting();          // 積む：「1つ目のプリセット」のときの音
+        toolbar->choosePresetForTesting (1);
+
+        checkOne (toolbar->getCurrentPresetName() == second.name, "choosing another shows the new name");
+
+        toolbar->undoForTesting();
+
+        checkOne (toolbar->getCurrentPresetName() == first.name,
+                  "undo across a preset change brings the earlier name back");
+
+        toolbar->choosePresetForTesting (1);
+
+        // Bの箱は「窓を開いた時点」の音＝何も当てていない
+        toolbar->toggleABForTesting();
+        checkOne (toolbar->getCurrentPresetName().isEmpty(),
+                  "A/B: the other slot shows what it was holding (no preset)");
+
+        toolbar->toggleABForTesting();
+        checkOne (toolbar->getCurrentPresetName() == second.name, "...and switching back brings the name back");
+
+        // **窓を閉じて開き直す**（ツールバーは窓と一緒に作り直されます）
+        toolbar.reset();
+        auto reopened = makeToolbar();
+
+        checkOne (reopened->getCurrentPresetName() == second.name, "a reopened window shows the saved name");
+        checkOne (! reopened->isCurrentPresetModified(), "...not marked as changed");
+
+        turnKnob();
+        reopened->tickForTesting();
+        reopened.reset();
+
+        auto again = makeToolbar();
+        checkOne (again->isCurrentPresetModified(), "a window reopened after a change still shows the mark");
+        again.reset();
+
+        // **プロジェクトに入る道**（`getStateInformation`／`setStateInformation`）を通しても残ること
+        juce::MemoryBlock saved;
+        processor.getStateInformation (saved);
+
+        MantaSynthProcessor reloaded;
+        reloaded.prepareToPlay (48000.0, 512);
+        reloaded.setStateInformation (saved.getData(), (int) saved.getSize());
+
+        checkOne (reloaded.getValueTreeState().state.getProperty (MantaPluginToolbar::presetNameProperty)
+                      .toString() == second.name,
+                  "the name survives the plugin's own save and load");
+
+        // 8.321：**◀・▶で送る**（Phase 312）。
+        //
+        // **並びはメニューと同じ**でなければいけません。メニューは小分けごとに畳むので、
+        // 渡した順（Alpha・Bravo・Charlie）と**メニューに並ぶ順**（Alpha・Charlie・Bravo）が違う
+        // ——わざとそう並べて、▶がメニューのほうに従うかを見ます
+        if (all.size() >= 3)
+        {
+            MantaSynthProcessor stepped;
+            stepped.prepareToPlay (48000.0, 512);
+
+            auto& steppedState = stepped.getValueTreeState();
+
+            MantaPluginToolbar stepper (stepped, steppedState, "PluginPreviewStepTest");
+
+            std::vector<MantaPluginToolbar::FactoryPreset> presets;
+            presets.push_back ({ "X", "Alpha",   [&steppedState, &all] { MantaSynthPresets::apply (steppedState, all[0]); } });
+            presets.push_back ({ "Y", "Bravo",   [&steppedState, &all] { MantaSynthPresets::apply (steppedState, all[1]); } });
+            presets.push_back ({ "X", "Charlie", [&steppedState, &all] { MantaSynthPresets::apply (steppedState, all[2]); } });
+
+            stepper.setFactoryPresets (std::move (presets));
+            stepper.setShowsCurrentPreset (true);
+
+            stepper.stepPresetForTesting (+1);
+            checkOne (stepper.getCurrentPresetName() == "Alpha", "from no preset, the next button goes to the first in the menu");
+
+            stepper.stepPresetForTesting (+1);
+            checkOne (stepper.getCurrentPresetName() == "Charlie",
+                      "...it follows the menu's order (same category first), not the order the list was given in  ("
+                          + stepper.getCurrentPresetName() + ")");
+
+            stepper.stepPresetForTesting (+1);
+            stepper.stepPresetForTesting (+1);
+            checkOne (stepper.getCurrentPresetName() == "Alpha", "...and wraps round at the end");
+
+            stepper.stepPresetForTesting (-1);
+            checkOne (stepper.getCurrentPresetName() == "Bravo", "the previous button goes back, wrapping the other way");
+
+            // **送るボタンを押しただけで、本人の置き場所にフォルダを作らないこと**
+            // （メニューを開くほうは作ります。あちらは「保存」へ進む入口なので）
+            checkOne (! AppSettings::getDataFolder().getChildFile ("Presets")
+                           .getChildFile ("PluginPreviewStepTest").exists(),
+                      "stepping does not create a preset folder");
+        }
+
+        // **点けていないプラグインの状態には書かないこと**（点けていないのはKakapoだけ）
+        {
+            KakapoProcessor kakapo;
+            kakapo.prepareToPlay (48000.0, 512);
+
+            MantaPluginToolbar plain (kakapo, kakapo.getValueTreeState(), "PluginPreviewTest");
+            plain.tickForTesting();
+
+            checkOne (! kakapo.getValueTreeState().state.hasProperty (MantaPluginToolbar::presetNameProperty),
+                      "a plugin that does not show the name (Kakapo) gets nothing written");
+        }
+    }
+
+    //==========================================================================
+    // 8.318：**名前の欄を広げたせいで、帯のほかの部品が狭くなっていないか**（Phase 311）
+    //
+    // エフェクトに点けたとき、Manta EQの帯で**処理モードの箱が押しつぶされました**
+    // （EQは帯の右に434pxぶん部品を置いています）。
+    //
+    // > **最初は「重なっていないか」を数えていて、それでは捕まりませんでした。**
+    // > `Rectangle::removeFromRight()`は**残りの幅に合わせて縮む**ので、
+    // > 箱は重ならず、**細くなるだけ**です。重なりを数える試験は、
+    // > 幅を渡し忘れた作りでも**全部通りました**（実測）。
+    //
+    // そこで**名前を出さないときの並びと見比べます**。
+    //
+    // - ボタンや箱は、**出さないときと同じ幅**のままであること
+    // - 文字の欄（題名・状態・遅れ）は縮んでよい。ただし**文字が収まっていること**
+    //
+    // わざと**長い名前**を入れて、欄がいちばん広がった姿で測ります
+
+    /** 8.324：名前の字の大きさを変えたらどうなるかの見本（**数えるだけ**）。先頭がいまの大きさ。 */
+    std::vector<float> surveyFontHeights;
+
+    template <typename ProcessorType>
+    void checkToolbarLayout (const juce::String& label, bool expectArrows,
+                             const juce::StringArray* namesToFit = nullptr)
+    {
+        ProcessorType processor;
+        processor.prepareToPlay (48000.0, 512);
+
+        processor.getValueTreeState().state.setProperty (MantaPluginToolbar::presetNameProperty,
+                                                         "A Deliberately Long Preset Name For Testing",
+                                                         nullptr);
+
+        std::unique_ptr<juce::AudioProcessorEditor> editor (processor.createEditor());
+
+        if (editor == nullptr)
+        {
+            problem (label + ": createEditor() returned nothing");
+            return;
+        }
+
+        editor->setBounds (0, 0, editor->getWidth(), editor->getHeight());
+        editor->resized();
+
+        // ツールバーは**子の子にいることもある**ので、木を辿って探します
+        MantaPluginToolbar* toolbar = nullptr;
+
+        std::function<void (juce::Component&)> find = [&] (juce::Component& component)
+        {
+            for (auto* child : component.getChildren())
+            {
+                if (toolbar != nullptr)
+                    return;
+
+                if (auto* found = dynamic_cast<MantaPluginToolbar*> (child))
+                    toolbar = found;
+                else
+                    find (*child);
+            }
+        };
+
+        find (*editor);
+
+        if (toolbar == nullptr)
+        {
+            problem (label + ": no toolbar found");
+            return;
+        }
+
+        // Presetsボタンは**文字が「Presets」のまま**です（名前は描くときに差し替えるだけ）
+        juce::Component* presetButton = nullptr;
+
+        for (auto* child : toolbar->getChildren())
+            if (auto* button = dynamic_cast<juce::TextButton*> (child))
+                if (button->getButtonText() == "Presets")
+                    presetButton = button;
+
+        if (presetButton == nullptr)
+        {
+            problem (label + ": no Presets button in the toolbar");
+            return;
+        }
+
+        auto recordBounds = [toolbar]
+        {
+            std::vector<juce::Rectangle<int>> bounds;
+
+            for (auto* child : toolbar->getChildren())
+                bounds.push_back (child->getBounds());
+
+            return bounds;
+        };
+
+        // 8.321：**◀▶が出ているか**（Phase 312）。文字の無いボタン2つがそれです。
+        // **名前の欄を削らない窓でだけ出る**決まりなので、窓ごとに「出るはず」を書いておき、
+        // 並びが変わって出たり消えたりしたら落とします
+        int visibleArrows = 0;
+
+        for (auto* child : toolbar->getChildren())
+            if (auto* button = dynamic_cast<juce::TextButton*> (child))
+                if (button->getButtonText().isEmpty() && button->isVisible())
+                    ++visibleArrows;
+
+        if ((visibleArrows == 2) != expectArrows)
+            problem (label + ": expected " + (expectArrows ? juce::String ("the arrows") : juce::String ("no arrows"))
+                       + ", found " + juce::String (visibleArrows) + " visible");
+
+        // 8.323：**ボタンの文字が収まっているか**（Phase 312）。Undo・Redoを58→40pxへ
+        // 細くしたので、`Undo`が切れたり押しつぶされたりしていないかを数えます。
+        // 余白は`LookAndFeel_V4::drawButtonText()`と同じ式で見積もります
+        for (auto* child : toolbar->getChildren())
+        {
+            auto* button = dynamic_cast<juce::TextButton*> (child);
+
+            if (button == nullptr || button == presetButton || ! button->isVisible()
+                 || button->getButtonText().isEmpty())
+                continue;
+
+            const auto font = button->getLookAndFeel().getTextButtonFont (*button, button->getHeight());
+            const int cornerSize = juce::jmin (button->getHeight(), button->getWidth()) / 2;
+            const int fontHeight = juce::roundToInt (font.getHeight() * 0.6f);
+            const int indent = juce::jmin (fontHeight, 2 + cornerSize / 2);
+            const float needed = juce::GlyphArrangement::getStringWidth (font, button->getButtonText()) + 2.0f * (float) indent;
+
+            if (needed > (float) button->getWidth())
+                problem (label + ": \"" + button->getButtonText() + "\" does not fit its button ("
+                           + juce::String ((int) std::ceil (needed)) + "px needed, "
+                           + juce::String (button->getWidth()) + "px wide)");
+        }
+
+        // **点けた姿（窓が作ったまま）を先に測り、それから消して測る**
+        // ——点け直す側の引数（上限・右に残す幅）は窓しか知らないので、この順番です
+        const auto shown = recordBounds();
+        const int boxWidth = presetButton->getWidth();
+
+        toolbar->setShowsCurrentPreset (false);
+        editor->resized();
+
+        const auto hidden = recordBounds();
+
+        int faults = 0;
+
+        for (int i = 0; i < toolbar->getNumChildComponents(); ++i)
+        {
+            auto* child = toolbar->getChildComponent (i);
+
+            if (child == presetButton || ! child->isVisible() || hidden[(size_t) i].isEmpty())
+                continue;
+
+            if (auto* text = dynamic_cast<juce::Label*> (child))
+            {
+                const auto needed = juce::GlyphArrangement::getStringWidth (text->getFont(), text->getText())
+                                    + (float) text->getBorderSize().getLeftAndRight();
+
+                if (needed > (float) shown[(size_t) i].getWidth())
+                {
+                    ++faults;
+                    problem (label + ": the text \"" + text->getText() + "\" no longer fits ("
+                               + juce::String ((int) std::ceil (needed)) + "px needed, "
+                               + juce::String (shown[(size_t) i].getWidth()) + "px left)");
+                }
+
+                continue;
+            }
+
+            if (shown[(size_t) i].getWidth() < hidden[(size_t) i].getWidth())
+            {
+                ++faults;
+                problem (label + ": " + juce::String (typeid (*child).name()) + " was squeezed from "
+                           + juce::String (hidden[(size_t) i].getWidth()) + "px to "
+                           + juce::String (shown[(size_t) i].getWidth()) + "px by the preset box");
+            }
+        }
+
+        // 8.323／8.324：**工場プリセットの名前が、いくつ全部見えるか**（Phase 312。数えるだけで、落としません）。
+        // 名前の欄の中の文字の幅は`MantaPluginToolbar::getPresetNameTextWidth()`（描く側と同じ式）。
+        // **字は描くところと同じもの**（`MantaPluginToolbar::getPresetNameFont()`）
+        if (namesToFit != nullptr && ! namesToFit->isEmpty())
+        {
+            auto* button = dynamic_cast<juce::TextButton*> (presetButton);
+            const float textArea = (float) MantaPluginToolbar::getPresetNameTextWidth (boxWidth);   // 描く側と同じ式
+
+            juce::String line;
+
+            for (const float height : surveyFontHeights)
+            {
+                const auto font = MantaPluginToolbar::getPresetNameFont (*button).withHeight (height);
+                const float mark = (float) MantaPluginToolbar::getPresetMarkWidth (font);   // 描く側と同じ
+
+                int fit = 0, fitWithMark = 0;
+
+                for (const auto& name : *namesToFit)
+                {
+                    const float w = juce::GlyphArrangement::getStringWidth (font, name);
+                    fit += (w <= textArea) ? 1 : 0;
+                    fitWithMark += (w + mark <= textArea) ? 1 : 0;
+                }
+
+                line << "  " << juce::String (height, 1) << "px " << fit << "/" << fitWithMark;
+            }
+
+            say ("  info  " + label + " (" + juce::String (namesToFit->size()) + " names, "
+                   + juce::String ((int) textArea) + "px; whole/with *):" + line);
+
+            // **いまの大きさで切れる名前**を挙げる（数だけだと、どれが切れるのか分からない）
+            {
+                const auto font = MantaPluginToolbar::getPresetNameFont (*button);
+                const float mark = (float) MantaPluginToolbar::getPresetMarkWidth (font);   // 描く側と同じ
+                juce::StringArray cut, cutWithMark;
+
+                for (const auto& name : *namesToFit)
+                {
+                    const float w = juce::GlyphArrangement::getStringWidth (font, name);
+
+                    if (w > textArea)
+                        cut.add (name + " (" + juce::String ((int) std::ceil (w - textArea)) + "px short)");
+                    else if (w + mark > textArea)
+                        cutWithMark.add (name + " (" + juce::String ((int) std::ceil (w + mark - textArea)) + "px short)");
+                }
+
+                // 8.324：**落とします**（Phase 312）。字を12pxにし、欄の余白を詰めて、
+                // **8つの窓すべてで、工場プリセットの名前が`*`付きでも全部見える**ようになりました。
+                // 名前の長いプリセットを足したり、帯の並びを変えたりして切れたら、ここで分かります
+                if (! cut.isEmpty())
+                    problem (label + ": preset names cut off: " + cut.joinIntoString (", "));
+
+                if (! cutWithMark.isEmpty())
+                    problem (label + ": preset names cut off once the * mark is added: " + cutWithMark.joinIntoString (", "));
+            }
+        }
+
+        if (faults == 0)
+            say ("  ok    " + label + ": preset box " + juce::String (boxWidth) + "px"
+                   + (visibleArrows == 2 ? " with arrows" : "")
+                   + ", nothing else in the toolbar lost room");
+    }
+
+    static juce::StringArray namesOf (const std::vector<MantaFactoryPresets::Preset>& presets)
+    {
+        juce::StringArray names;
+
+        for (const auto& preset : presets)
+            names.add (preset.name);
+
+        return names;
+    }
+
+    void runToolbarLayoutCheck()
+    {
+        surveyFontHeights = { MantaPluginToolbar::presetNameFontHeightForTesting(), 14.4f, 13.0f, 11.0f };
+
+        juce::StringArray synthNames;
+
+        for (const auto& preset : MantaSynthPresets::all())
+            synthNames.add (preset.name);
+
+        const auto racco = namesOf (RaccoGuitarPresets::all());
+        const auto java = namesOf (JavaRhinoBassPresets::all());
+        const auto orangutan = namesOf (OrangutanDrumsPresets::all());
+        const auto eq = namesOf (MantaEQPresets::all());
+        const auto comp = namesOf (MantaCompPresets::all());
+        const auto delay = namesOf (MantaDelayPresets::all());
+        const auto reverb = namesOf (MantaReverbPresets::all());
+
+        say ("--- the preset box in each toolbar ---");
+
+        // 8.323：**◀▶は名前の欄に110px残る窓で**（`MantaPluginToolbar::resized()`）。
+        // Undo・Redoを細くしたので、Orangutan・EQにも出るようになりました
+        checkToolbarLayout<MantaSynthProcessor> ("Red Panda", true, &synthNames);
+        checkToolbarLayout<RaccoGuitarProcessor> ("Racco Guitar", true, &racco);
+        checkToolbarLayout<JavaRhinoBassProcessor> ("Java Rhino Bass", true, &java);
+        checkToolbarLayout<OrangutanDrumsProcessor> ("Orangutan Drums", true, &orangutan);
+        checkToolbarLayout<MantaEQProcessor> ("Manta EQ", true, &eq);
+        checkToolbarLayout<MantaCompProcessor> ("Manta Comp", true, &comp);
+        checkToolbarLayout<MantaDelayProcessor> ("Manta Delay", true, &delay);
+        checkToolbarLayout<MantaReverbProcessor> ("Manta Reverb", true, &reverb);
+        checkToolbarLayout<KakapoProcessor> ("Kakapo (does not show the name)", false);
+    }
+
     void runPresetCheck()
     {
         runTableCheck();
+        runPresetNameCheck();
+        runToolbarLayoutCheck();
 
         say ("--- factory presets ---");
 

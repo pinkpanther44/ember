@@ -1,4 +1,5 @@
 #include "TrackRackComponent.h"
+#include "AppMessageBox.h"   // 8.322：メッセージボックスは必ずここを通す（Phase 312）
 #include "AppColours.h"
 #include "Utf8.h"
 #include "AudioEngine.h"
@@ -338,7 +339,7 @@ void TrackRackComponent::vcaButtonClicked()
 
     if (vcaIds.isEmpty())
     {
-        juce::NativeMessageBox::showAsync (
+        AppMessageBox::showAsync (
             juce::MessageBoxOptions()
                 .withIconType (juce::MessageBoxIconType::InfoIcon)
                 .withTitle (utf8 ("VCAトラックがありません"))
@@ -458,7 +459,7 @@ void TrackRackComponent::chooseInstrument()
 
     if (menu.getNumItems() == 0)
     {
-        juce::NativeMessageBox::showAsync (
+        AppMessageBox::showAsync (
             juce::MessageBoxOptions()
                 .withIconType (juce::MessageBoxIconType::InfoIcon)
                 .withTitle (utf8 ("音源プラグインがありません"))
@@ -483,7 +484,7 @@ void TrackRackComponent::chooseInstrument()
 
             if (error.isNotEmpty())
             {
-                juce::NativeMessageBox::showAsync (
+                AppMessageBox::showAsync (
                     juce::MessageBoxOptions()
                         .withIconType (juce::MessageBoxIconType::WarningIcon)
                         .withTitle (utf8 ("音源を割り当てられませんでした"))
@@ -626,7 +627,7 @@ void TrackRackComponent::addSendClicked()
 
     if (menu.getNumItems() == 0)
     {
-        juce::NativeMessageBox::showAsync (
+        AppMessageBox::showAsync (
             juce::MessageBoxOptions()
                 .withIconType (juce::MessageBoxIconType::InfoIcon)
                 .withTitle (utf8 ("センドトラックがありません"))
@@ -838,7 +839,7 @@ void TrackRackComponent::showInsertSlotMenu (int insertIndex)
                 refreshInsertSlots();
 
                 if (error.isNotEmpty())
-                    juce::NativeMessageBox::showAsync (
+                    AppMessageBox::showAsync (
                         juce::MessageBoxOptions()
                             .withIconType (juce::MessageBoxIconType::WarningIcon)
                             .withTitle (utf8 ("サイドチェインを設定できませんでした"))
@@ -865,7 +866,7 @@ void TrackRackComponent::addInsertClicked()
 
     if (menu.getNumItems() == 0)
     {
-        juce::NativeMessageBox::showAsync (
+        AppMessageBox::showAsync (
             juce::MessageBoxOptions()
                 .withIconType (juce::MessageBoxIconType::InfoIcon)
                 .withTitle (utf8 ("プラグインがありません"))
@@ -885,7 +886,7 @@ void TrackRackComponent::addInsertClicked()
 
             if (error.isNotEmpty())
             {
-                juce::NativeMessageBox::showAsync (
+                AppMessageBox::showAsync (
                     juce::MessageBoxOptions()
                         .withIconType (juce::MessageBoxIconType::WarningIcon)
                         .withTitle (utf8 ("インサートを追加できませんでした"))
@@ -954,7 +955,7 @@ void TrackRackComponent::handlePluginDrop (AudioEngine& audioEngine, const Track
 
     if (error.isNotEmpty())
     {
-        juce::NativeMessageBox::showAsync (
+        AppMessageBox::showAsync (
             juce::MessageBoxOptions()
                 .withIconType (juce::MessageBoxIconType::WarningIcon)
                 .withTitle (utf8 ("プラグインを挿入できませんでした"))
@@ -1183,7 +1184,7 @@ void TrackRackComponent::itemDropped (const SourceDetails& details)
             rack.refreshSendSlots();
 
         if (error.isNotEmpty())
-            juce::NativeMessageBox::showAsync (
+            AppMessageBox::showAsync (
                 juce::MessageBoxOptions()
                     .withIconType (juce::MessageBoxIconType::WarningIcon)
                     .withTitle (utf8 ("コピーできませんでした"))

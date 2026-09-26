@@ -417,6 +417,12 @@ OrangutanDrumsEditor::OrangutanDrumsEditor (OrangutanDrumsProcessor& processorTo
         MantaFactoryPresets::makeToolbarPresets (processorToUse.getValueTreeState(),
                                                   OrangutanDrumsPresets::all()));
 
+    // 8.318：**いまのキットの名前を出す**（Phase 311／`MantaPluginToolbar.h`）。
+    // **この帯には38pxしか空きがありません**（ヘッダーの「ツールバーに題名が入りません」）。
+    // 上限を広く渡しても、帯の残りいっぱい（約110px）で止まります——
+    // キットの名前（`FUTURE BASS`など）は収まり、長ければ「…」で詰めます
+    toolbar.setShowsCurrentPreset (true);
+
     fieldImage = AppIcon::loadEmbedded (fieldImageName);
 
     //--------------------------------------------------------------------------

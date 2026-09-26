@@ -27,6 +27,12 @@ MantaCompEditor::MantaCompEditor (MantaCompProcessor& processorToUse)
         MantaFactoryPresets::makeToolbarPresets (processor.getValueTreeState(),
                                                   MantaCompPresets::all()));
 
+    // 8.318：**いまのプリセットの名前を出す**（Phase 311／`MantaPluginToolbar.h`）。
+    // 右の状態表示（`statusLabel`）には幅を取っておきません——あれは**文字の欄1つ**で、
+    // 狭くなっても重ならず、詰まるだけです。いちばん長い表示（外部SC・Listen・自動の時定数・
+    // 遅れ）でも約260pxで、名前の欄を200pxに広げたあとも324px残ります
+    toolbar.setShowsCurrentPreset (true);
+
     //--------------------------------------------------------------------------
     // ① Threshold / Ratio / Knee。**ここだけオレンジ**（圧縮の効きを決めるところ）
     setupSectionLabel (compressionTitle, "Compression");

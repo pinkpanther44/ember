@@ -203,5 +203,17 @@ private:
     static constexpr int knobWidth = 60;
     static constexpr int comboColumnWidth = 110;
 
+    // 8.318：**ツールバーの右に置くもの**（Phase 311）。`resized()`が並べ、
+    // 合計をツールバーへ渡して**プリセット名の欄がここへ食い込まないように**します。
+    // **片方だけ変えないこと**——並べる幅と取っておく幅がずれると、また重なります
+    static constexpr int latencyLabelWidth = 190;
+    static constexpr int resolutionBoxWidth = 116;
+    static constexpr int modeBoxWidth = 118;
+    static constexpr int toolbarTrailingGapWide = 6;
+    static constexpr int toolbarTrailingGapNarrow = 4;
+    static constexpr int toolbarTrailingWidth = latencyLabelWidth + toolbarTrailingGapWide
+                                              + resolutionBoxWidth + toolbarTrailingGapNarrow
+                                              + modeBoxWidth;
+
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MantaEQEditor)
 };

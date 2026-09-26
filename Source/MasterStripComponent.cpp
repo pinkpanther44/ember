@@ -1,4 +1,5 @@
 #include "MasterStripComponent.h"
+#include "AppMessageBox.h"   // 8.322：メッセージボックスは必ずここを通す（Phase 312）
 #include "AppColours.h"
 #include "AudioEngine.h"
 #include "Utf8.h"
@@ -281,7 +282,7 @@ void MasterStripComponent::itemDropped (const SourceDetails& details)
 
     if (error.isNotEmpty())
     {
-        juce::NativeMessageBox::showAsync (
+        AppMessageBox::showAsync (
             juce::MessageBoxOptions()
                 .withIconType (juce::MessageBoxIconType::WarningIcon)
                 .withTitle (utf8 ("プラグインを挿入できませんでした"))
