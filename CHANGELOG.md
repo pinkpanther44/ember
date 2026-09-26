@@ -6,6 +6,67 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.1.0] - 2026-09-26
+
+### Added
+
+- **Export to FLAC**, at 16 or 24 bit, on Windows and on Linux. Linux could
+  only export WAV until now. FLAC has no 32-bit float, so that setting is
+  written at 24 bit. The format choice is always shown in the export window
+
+- **The built-in instruments and effects show which preset is loaded.** The
+  Presets button now carries the preset's name, and a `*` appears once you
+  change anything. The name is saved with the project and follows Undo, Redo
+  and A/B. **◀ and ▶** on either side step to the previous or next preset, in
+  the same order as the menu, wrapping round at the ends. Every factory preset
+  name fits in full, even with the `*`. Kakapo keeps its plain Presets button
+
+- **If Ember closed unexpectedly last time, it says so on the next start** —
+  once, with a button that opens the folder holding the note it left
+  (see 1.0.1). Nothing is sent anywhere
+
+- **Two blocks on the same MIDI track can be selected without what lies
+  between them.** Click one block and Ctrl-click the other: each gets its own
+  frame, and deleting, moving, transposing, cutting or copying touches those
+  two only. Moving them together keeps the distance between them, and they can
+  be dragged onto another MIDI track as a pair
+
+### Changed
+
+- **A MIDI range selection over several tracks keeps a window per track.**
+  Clicking a block on one track and Ctrl-clicking a block at a different time
+  on another used to stretch one window over both, so everything in between,
+  on every selected track, was deleted or moved along with them. Now each
+  track keeps only the block you picked. Drawing a box over several tracks
+  works as before: every row gets the same window
+
+- **Ctrl-clicking another block on a track that is already selected adds it.**
+  Before, it took that track out of the selection
+
+- The Undo and Redo buttons in the plugin windows are narrower, to make room
+  for the preset name and its ◀ ▶ buttons
+
+### Fixed
+
+- **Quitting while a message box was still open could crash Ember** as the
+  box was answered after the main window had gone. Open message boxes are now
+  closed first
+
+- **Deleting, moving or transposing a MIDI range over several tracks is one
+  Undo step.** It took one Undo per track
+
+- **Cutting a range of notes on several MIDI tracks no longer deletes the
+  markers and chord regions in between**, and copying no longer takes them
+  along. A range picked from a marker still includes them, as intended
+
+- **The range's right-click menu acts on every selected track.** Delete,
+  "duplicate right after" and transposing only reached the first one
+
+- **Transposing a range stops as a whole at the edge of the MIDI range.** If
+  one track could not go any higher, the others used to move anyway
+
+---
+
 ## [1.0.1] - 2026-09-23
 
 ### Fixed
