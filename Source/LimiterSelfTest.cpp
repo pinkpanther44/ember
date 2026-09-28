@@ -45,6 +45,39 @@ namespace LimiterSelfTest
 
         constexpr double twoPi = 6.283185307179586;
 
+        /** 8.335：**どの処理系でも同じ値を出す正規乱数**（Box–Muller）。
+
+            `std::normal_distribution`は**作り方が処理系まかせ**で、同じ`mt19937`の種からでも
+            MSVCとGCCで**別の信号**になります（`mt19937`の出す整数そのものは規格で決まっている）。
+            1.2.0の準備で、Linuxだけトゥルーピークの検査が落ちて気づきました。
+            `std::normal_distribution<float>`と同じ呼び方（`gauss (random)`）にしてあります。 */
+        class PortableGauss
+        {
+        public:
+            PortableGauss (float meanToUse, float sigmaToUse) : mean (meanToUse), sigma (sigmaToUse) {}
+
+            float operator() (std::mt19937& engine)
+            {
+                if (hasSpare)
+                {
+                    hasSpare = false;
+                    return mean + sigma * spare;
+                }
+
+                const double u1 = ((double) engine() + 0.5) / 4294967296.0;
+                const double u2 = ((double) engine() + 0.5) / 4294967296.0;
+                const double radius = std::sqrt (-2.0 * std::log (u1));
+
+                spare = (float) (radius * std::sin (twoPi * u2));
+                hasSpare = true;
+                return mean + sigma * (float) (radius * std::cos (twoPi * u2));
+            }
+
+        private:
+            float mean, sigma, spare = 0.0f;
+            bool hasSpare = false;
+        };
+
         //======================================================================
         using Parameters = LimiterEngine::Parameters;
 
@@ -228,7 +261,7 @@ namespace LimiterSelfTest
             const float allowed = ceiling * (1.0f + 1.0e-6f);
 
             std::mt19937 random (1);
-            std::normal_distribution<float> gauss (0.0f, 1.0f);
+            PortableGauss gauss (0.0f, 1.0f);
 
             // 入力3種（+24 dB のホワイトノイズ・掃引サイン・単発インパルス）
             std::vector<float> noiseL (24000), noiseR (24000);
@@ -356,7 +389,7 @@ namespace LimiterSelfTest
             for (bool truePeak : { false, true })
             {
                 std::mt19937 random (3);
-                std::normal_distribution<float> gauss (0.0f, 0.05f);
+                PortableGauss gauss (0.0f, 0.05f);
                 std::vector<float> input (48000);
                 for (auto& v : input)
                     v = std::clamp (gauss (random), -0.5f, 0.5f);
@@ -387,23 +420,25 @@ namespace LimiterSelfTest
             const double rate = 48000.0;
             const float ceilingDb = -1.0f;
 
-            // 出力TP ≤ 天井 +0.1 dB。**高域の多い信号**（+24 dBのノイズを高域寄りに＋11 kHz付近のサイン）
-            std::mt19937 random (5);
-            std::normal_distribution<float> gauss (0.0f, 1.0f);
-            std::vector<float> signal (48000);
-            float previous = 0.0f;
-
-            for (size_t i = 0; i < signal.size(); ++i)
+            // 出力TP ≤ 天井 +0.1 dB。**高域の多い信号**（+24 dBのノイズを高域寄りに＋11 kHz付近のサイン）。
+            // 8.335：**種を8通り**にして最悪で見る（1つの種ではたまたま通ることがあった。Linuxで別の信号になって −0.88 dB）
+            auto makeSignals = [rate] (unsigned int seed, std::vector<float>& signal, std::vector<float>& bandLimited)
             {
-                const float white = gauss (random);
-                const float bright = white - 0.8f * previous;   // 高域寄り
-                previous = white;
-                signal[i] = 4.0f * bright + 6.0f * (float) std::sin (twoPi * 11025.0 * (double) i / rate + 0.7);
-            }
+                std::mt19937 random (seed);
+                PortableGauss gauss (0.0f, 1.0f);
+                signal.assign (48000, 0.0f);
+                float previous = 0.0f;
 
-            // **同じ信号を20 kHzで帯域制限したもの**（実際の曲はマスターの時点で20 kHz付近までしか無い）
-            std::vector<float> bandLimited (signal.size(), 0.0f);
-            {
+                for (size_t i = 0; i < signal.size(); ++i)
+                {
+                    const float white = gauss (random);
+                    const float bright = white - 0.8f * previous;   // 高域寄り
+                    previous = white;
+                    signal[i] = 4.0f * bright + 6.0f * (float) std::sin (twoPi * 11025.0 * (double) i / rate + 0.7);
+                }
+
+                // **同じ信号を20 kHzで帯域制限したもの**（実際の曲はマスターの時点で20 kHz付近までしか無い）
+                bandLimited.assign (signal.size(), 0.0f);
                 constexpr int half = 127;
                 const double cutoff = 20000.0 / rate;   // 0.4167（ナイキストの 0.83）
                 std::vector<double> lowpass ((size_t) (2 * half + 1));
@@ -419,7 +454,7 @@ namespace LimiterSelfTest
                         y += lowpass[(size_t) (i + half)] * signal[(size_t) (n - i)];
                     bandLimited[(size_t) n] = (float) y;
                 }
-            }
+            };
 
             auto measure = [&] (const std::vector<float>& source, int oversampling, double& meterReading)
             {
@@ -446,23 +481,76 @@ namespace LimiterSelfTest
                 return toDb (referenceTruePeak (tail));
             };
 
-            for (int oversampling = 0; oversampling < 4; ++oversampling)
-            {
-                double meterReading = 0.0;
-                const double tp = measure (bandLimited, oversampling, meterReading);
+            auto osName = [] (int oversampling) { return oversampling == 0 ? juce::String ("off") : juce::String (1 << oversampling) + "x"; };
 
-                check (tp <= ceilingDb + 0.1, "output true peak with oversampling " + juce::String (oversampling == 0 ? "off" : juce::String (1 << oversampling) + "x")
-                                                 + ": " + db (tp) + " (ceiling " + db (ceilingDb, 1) + ", allowed +0.1 dB; the plug-in's own meter reads "
-                                                 + db (meterReading) + ")");
+            std::vector<float> signal, bandLimited;
+            double worst[4] { -240.0, -240.0, -240.0, -240.0 }, worstMeter[4] {};
+            unsigned int worstSeed[4] {};
+
+            for (unsigned int seed = 5; seed < 13; ++seed)
+            {
+                makeSignals (seed, signal, bandLimited);
+
+                for (int oversampling = 0; oversampling < 4; ++oversampling)
+                {
+                    double meterReading = 0.0;
+                    const double tp = measure (bandLimited, oversampling, meterReading);
+
+                    if (tp > worst[oversampling])
+                    {
+                        worst[oversampling] = tp;
+                        worstMeter[oversampling] = meterReading;
+                        worstSeed[oversampling] = seed;
+                    }
+                }
+            }
+
+            for (int oversampling = 0; oversampling < 4; ++oversampling)
+                check (worst[oversampling] <= ceilingDb + 0.1,
+                       "output true peak with oversampling " + osName (oversampling) + ", worst of 8 signals: " + db (worst[oversampling])
+                         + " (ceiling " + db (ceilingDb, 1) + ", allowed +0.1 dB; seed " + juce::String (worstSeed[oversampling])
+                         + ", the plug-in's own meter reads " + db (worstMeter[oversampling]) + ")");
+
+            // 見張りの補間が、ナイキスト寄りの正弦波をどれだけ低く読むか（相をずらして最小を取る。合否は付けない）
+            {
+                juce::StringArray readings;
+
+                for (double f : { 10000.0, 15000.0, 18000.0, 20000.0, 22000.0 })
+                {
+                    double lowest = 1.0;
+
+                    for (int phaseStep = 0; phaseStep < 16; ++phaseStep)
+                    {
+                        LimiterDsp::TruePeakDetector detector;
+                        detector.prepare();
+                        float reading = 0.0f;
+
+                        for (int i = 0; i < 4800; ++i)
+                        {
+                            const float v = (float) std::sin (twoPi * f * i / rate + twoPi * phaseStep / 16.0);
+                            const float r = detector.push (v);
+                            if (i > 200)
+                                reading = std::max (reading, r);
+                        }
+
+                        lowest = std::min (lowest, (double) reading);
+                    }
+
+                    readings.add (juce::String ((int) (f / 1000.0)) + " kHz " + db (toDb (lowest)));
+                }
+
+                info ("the true-peak detector reads a full-scale sine at: " + readings.joinIntoString (", "));
             }
 
             // **ナイキストの間際まで持ち上げたまま**の信号（実際の曲より厳しい）。合否は付けず、値だけ出す
+            makeSignals (5, signal, bandLimited);
+
             for (int oversampling : { 0, 1, 2 })
             {
                 double meterReading = 0.0;
                 const double tp = measure (signal, oversampling, meterReading);
 
-                info ("with content right up to Nyquist, oversampling " + juce::String (oversampling == 0 ? "off" : juce::String (1 << oversampling) + "x")
+                info ("with content right up to Nyquist, oversampling " + osName (oversampling)
                         + ": output true peak " + db (tp) + ", the plug-in's meter reads " + db (meterReading));
             }
 
@@ -677,7 +765,7 @@ namespace LimiterSelfTest
             // （乱数を作る時間まで入れると、1サンプルごとの関数呼び出しと乱数で数倍に見えます）
             {
                 std::mt19937 random (9);
-                std::normal_distribution<float> gauss (0.0f, 0.3f);   // 数 dB ずっとリミットがかかる音量
+                PortableGauss gauss (0.0f, 0.3f);   // 数 dB ずっとリミットがかかる音量
                 std::vector<float> source (48000);
                 for (auto& v : source)
                     v = gauss (random);
@@ -721,7 +809,7 @@ namespace LimiterSelfTest
             juce::AudioBuffer<float> buffer (2, 512);
             juce::MidiBuffer midi;
             std::mt19937 random (21);
-            std::normal_distribution<float> gauss (0.0f, 0.12f);
+            PortableGauss gauss (0.0f, 0.12f);
             float b0 = 0, b1 = 0, b2 = 0;
             const double rate = 48000.0;
             const int blocks = (int) (seconds * rate / 512);

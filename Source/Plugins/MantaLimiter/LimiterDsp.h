@@ -380,7 +380,11 @@ namespace LimiterDsp
     public:
         void prepare()
         {
-            const auto h = designInterpolator (truePeakFactor, truePeakTapsPerPhase, 8.0);
+            // 8.335：Kaiser の β は **4**（はじめは8）。8では肩がナイキストより手前で落ち、20 kHz の正弦波を −0.10 dB、
+            // 高域の多い音では本当のピークを 0.15 dB 低く読んで、天井を +0.1 dB より超えた（OS Off。8通りの信号の最悪）。
+            // 6 → −0.94、5 → −0.97、4 → −0.99 dBTP（天井 −1.0）。阻止域は浅くなるが、見張りには肩の急さのほうが効く。
+            // タップ数は同じなので CPU は変わらない
+            const auto h = designInterpolator (truePeakFactor, truePeakTapsPerPhase, 4.0);
 
             // **タップごとに8相を並べる**（[j][k]、相0は使わないので0）。内側のループが相をまたぐので、
             // 8つの足し算が互いに独立になり、まとめて計算できます
