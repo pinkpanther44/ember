@@ -93,6 +93,9 @@ TimelineComponent::TimelineComponent (ProjectModel& projectToUse, WaveformCache&
 
     horizontalScrollBar.addListener (this);
     verticalScrollBar.addListener (this);
+
+    // 8.327：離したら全体を作り直す（掴んでいるあいだは伸ばさない。Phase 317）
+    horizontalScrollBar.onReleased = [this] { updateScrollBars(); };
     addAndMakeVisible (horizontalScrollBar);
     addAndMakeVisible (verticalScrollBar);
 
@@ -734,7 +737,8 @@ void TimelineComponent::updateScrollBars()
     const double visibleSeconds = pixelsPerSecond > 0.0 ? timelineArea.getWidth() / pixelsPerSecond : 0.0;
     const double contentSeconds = juce::jmax (getScrollableLengthSeconds(), visibleSeconds);   // 8.162（Phase 200）
 
-    horizontalScrollBar.setRangeLimits ({ 0.0, contentSeconds }, juce::dontSendNotification);
+    // 8.327：**掴んでいるあいだは伸ばさない**（Phase 317。`SteadyScrollBar.h`）
+    horizontalScrollBar.setRangeLimitsUnlessHeld ({ 0.0, contentSeconds });
     horizontalScrollBar.setCurrentRange ({ scrollStartSeconds, scrollStartSeconds + visibleSeconds },
                                           juce::dontSendNotification);
 

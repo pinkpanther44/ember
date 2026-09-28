@@ -9,6 +9,8 @@
 #include "JavaRhinoBass/JavaRhinoBassProcessor.h" // 8.257：7つめ（Phase 265）
 #include "OrangutanDrums/OrangutanDrumsProcessor.h" // 8.288：8つめ（Phase 281）
 #include "Kakapo/KakapoProcessor.h"               // 8.292：9つめ（Phase 285）
+#include "MantaAnalyzer/MantaAnalyzerProcessor.h" // 8.329：10こめ（Phase 319）
+#include "MantaLimiter/MantaLimiterProcessor.h"   // 8.333：11こめ（Phase 322）
 #include "../Branding.h"   // 8.175：ブランドごとの名前（Phase 216）
 
 namespace MantaPlugins
@@ -167,6 +169,36 @@ namespace MantaPlugins
                 [] () -> std::unique_ptr<juce::AudioPluginInstance>
                 {
                     return std::make_unique<KakapoProcessor>();
+                }
+            },
+            {
+                // 8.329：10こめ＝**スペクトラムアナライザー**（Phase 319／本人の仕様書）。
+                // 音には触らないので分類は`Fx|Analyzer`（ブラウザの絞り込みでそう名乗る。8.68）
+                "manta:analyzer",
+                Branding::analyzerPluginName,
+                "Spectrum Analyzer",
+                "Fx|Analyzer",
+                "1.0.0",
+                0x4d414e31,   // 'MAN1'
+                false,
+                [] () -> std::unique_ptr<juce::AudioPluginInstance>
+                {
+                    return std::make_unique<MantaAnalyzerProcessor>();
+                }
+            },
+            {
+                // 8.333：11こめ＝**リミッター**（Phase 322／本人の仕様書・設計書）。
+                // Ember側は`Af Elephant Limiter`、Manta Studio側は`Manta Limiter`（`Branding.h`）
+                "manta:limiter",
+                Branding::limiterPluginName,
+                "True Peak Limiter",
+                "Fx|Dynamics",
+                "1.0.0",
+                0x4d4c4d31,   // 'MLM1'
+                false,
+                [] () -> std::unique_ptr<juce::AudioPluginInstance>
+                {
+                    return std::make_unique<MantaLimiterProcessor>();
                 }
             },
         };

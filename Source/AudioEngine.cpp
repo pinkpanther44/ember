@@ -3218,8 +3218,10 @@ namespace
             // **オンが既定の状態**なので、目立たせるのは「切ってある」ほう。
             // 切ってあることに気づかずに「音が変わらない」と悩むのを防ぐ
             powerButton.setButtonText (isOn ? utf8 ("オン") : utf8 ("バイパス中"));
-            powerButton.setColour (juce::TextButton::buttonColourId, AppColours::background);
-            powerButton.setColour (juce::TextButton::buttonOnColourId, AppColours::background);
+            // 8.331：**地は透明**（Phase 321／本人の指定）。帯の色がそのまま見えるように
+            // （それまでは`AppColours::background`で、ライトでは帯の上に白い四角が浮いていた）
+            powerButton.setColour (juce::TextButton::buttonColourId, juce::Colours::transparentBlack);
+            powerButton.setColour (juce::TextButton::buttonOnColourId, juce::Colours::transparentBlack);
             powerButton.setColour (juce::TextButton::textColourOffId, AppColours::orange);
             powerButton.setColour (juce::TextButton::textColourOnId, AppColours::textPrimary);
         }
@@ -3229,8 +3231,9 @@ namespace
             const bool pinned = pinButton.getToggleState();
 
             pinButton.setButtonText (pinned ? utf8 ("前面固定") : utf8 ("固定なし"));
-            pinButton.setColour (juce::TextButton::buttonColourId, AppColours::background);
-            pinButton.setColour (juce::TextButton::buttonOnColourId, AppColours::background);
+            // 8.331：地は透明（`updatePowerButtonLook()`と同じ）
+            pinButton.setColour (juce::TextButton::buttonColourId, juce::Colours::transparentBlack);
+            pinButton.setColour (juce::TextButton::buttonOnColourId, juce::Colours::transparentBlack);
             pinButton.setColour (juce::TextButton::textColourOffId, AppColours::textSecondary);
             pinButton.setColour (juce::TextButton::textColourOnId, AppColours::purple);
         }
@@ -3662,8 +3665,12 @@ juce::StringArray AudioEngine::getPluginParameterNames (const juce::String& trac
     if (node == nullptr || node->getProcessor() == nullptr)
         return names;
 
+    // 8.332：**自動化できないと名乗るパラメータは、名前を空にして返す**（Phase 322）。
+    // 並び（＝オートメーションの番号。9.5）は変えられないので、抜かずに空にします。
+    // メニューを作る側（`ArrangeView`）が空の名前を飛ばします。
+    // リミッターのLookahead・Oversamplingのように、**レイテンシーを変えるもの**がここに当たります
     for (auto* parameter : node->getProcessor()->getParameters())
-        names.add (parameter->getName (40));
+        names.add (parameter->isAutomatable() ? parameter->getName (40) : juce::String());
 
     return names;
 }

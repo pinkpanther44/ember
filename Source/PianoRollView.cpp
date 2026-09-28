@@ -388,6 +388,7 @@ PianoRollView::PianoRollView (ProjectModel& projectToUse, AudioEngine& engineToU
 
     horizontalScrollBar.setRangeLimits ({ 0.0, 60.0 });
     horizontalScrollBar.addListener (this);
+    horizontalScrollBar.onReleased = [this] { updateHorizontalScrollBar(); };   // 8.327（Phase 317）
     addAndMakeVisible (horizontalScrollBar);
 
     refreshTrackList(); // 中でrefreshClipSelection()とupdateInstrumentLabel()まで行う
@@ -635,7 +636,8 @@ void PianoRollView::updateHorizontalScrollBar()
 
     // **通知を出さないこと**（`dontSendNotification`）。ここから`scrollBarMoved()`が
     // 呼ばれると、ピアノロール→ビュー→ピアノロールと往復する
-    horizontalScrollBar.setRangeLimits ({ 0.0, contentSeconds }, juce::dontSendNotification);
+    // 8.327：**掴んでいるあいだは伸ばさない**（Phase 317。`SteadyScrollBar.h`）
+    horizontalScrollBar.setRangeLimitsUnlessHeld ({ 0.0, contentSeconds });
     horizontalScrollBar.setCurrentRange ({ start, start + visibleSeconds }, juce::dontSendNotification);
 }
 

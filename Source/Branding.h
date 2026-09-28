@@ -142,6 +142,22 @@ namespace Branding
         **名前を分けないものが4つめ**です。 */
     inline constexpr const char* scalePluginName = "Kakapo";
 
+    /** 8.329：10こめ＝スペクトラムアナライザー（Phase 319／本人の仕様書）。
+
+        **名前は本人の指定**（`Manta Analyzer`／`Ember Analyzer`）。EQ・Compと同じく
+        製品名を前に付ける形で、動物の名前にはしていません。
+
+        仕様書3.6は「製品名は画面に出さない」（DAWの標準機能にするかもしれないため）ので、
+        **この名前が出るのはブラウザと窓のタイトルだけ**です。 */
+    inline constexpr const char* analyzerPluginName = isEmber ? "Ember Analyzer" : "Manta Analyzer";
+
+    /** 8.333：11こめ＝リミッター（Phase 322／本人の仕様書・設計書）。
+
+        **Ember側はアフリカゾウ**（`Af`＝African。本人の指定）。IUCNのEN（危機）——
+        マルミミゾウ（CR）と分けて数えるようになってからの区分です。
+        ほかのエフェクトと同じく、Manta Studio側は`Manta ～`にしてあります（本人が選びました）。 */
+    inline constexpr const char* limiterPluginName = isEmber ? "Af Elephant Limiter" : "Manta Limiter";
+
     /** プリセットの置き場所（`%APPDATA%\<data>\Presets\<これ>\`）。
 
         **プラグイン名とは別に持ちます。** 名前を変えたときに
@@ -155,6 +171,7 @@ namespace Branding
     inline constexpr const char* bassPresetFolder = "JavaRhinoBass";  // 8.257（Phase 265）
     inline constexpr const char* drumsPresetFolder = "OrangutanDrums"; // 8.288（Phase 281）
     inline constexpr const char* scalePresetFolder = "Kakapo";         // 8.292（Phase 285）
+    inline constexpr const char* limiterPresetFolder = "MantaLimiter"; // 8.333（Phase 322）
 
     //==========================================================================
     // 既定値

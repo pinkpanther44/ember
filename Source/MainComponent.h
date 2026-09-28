@@ -23,6 +23,7 @@
 #include "ClipAudioRenderer.h"   // 8.147：トランスポーズを裏で作る（Phase 185）
 #include "ProjectTemplates.h"     // 8.151：プロジェクトテンプレート（Phase 189／D8）
 #include "MidiFileExporter.h"
+#include "EditorWindow.h"       // 8.328：Pop outの窓（Phase 318）
 
 //==============================================================================
 /**
@@ -538,7 +539,7 @@ private:
 
     // 仕様書4.2：ポップアウト中のみ生きるウィンドウ。ドッキング中はnullptr。
     // ピアノロール本体は所有せず（setContentNonOwned）、あくまで枠として使う。
-    std::unique_ptr<juce::DocumentWindow> editorWindow;
+    std::unique_ptr<EditorWindow> editorWindow;   // 8.328：借りる・返すは`setBorrowedContent()`で（Phase 318）
 
     juce::Label audioErrorLabel;
     std::unique_ptr<juce::FileChooser> fileChooser;

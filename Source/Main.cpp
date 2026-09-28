@@ -11,6 +11,8 @@
 #include "StorageSelfTest.h"   // 8.286：プロジェクトの置き場所（Phase 279）
 #include "TrackHeaderLayoutSelfTest.h" // 8.295：ヘッダーの並び（Phase 288）
 #include "TimeRangeSelfTest.h"     // 8.325：MIDIの時間範囲（Phase 314）
+#include "AnalyzerSelfTest.h"      // 8.329：アナライザー（Phase 319）
+#include "LimiterSelfTest.h"       // 8.333：リミッター（Phase 322）
 #include "AudioDeviceSelfTest.h" // 8.316：デバイスの付け替え（Phase 309）
 #include "SplashWindow.h"        // 8.151：起動画面（Phase 189／改善案⑰）
 #include "ProjectChooser.h"      // 8.151：プロジェクト選択画面（Phase 189／改善案⑰）
@@ -195,6 +197,21 @@ public:
         // 8.325：`--timerange-selftest`も窓を出しません（Phase 314）。
         // 押す操作は**マウスの出来事を作って**渡します（`TimeRangeSelfTest.h`）
         if (TimeRangeSelfTest::runIfRequested (commandLine))
+        {
+            quit();
+            return;
+        }
+
+        // 8.329：`--analyzer-selftest`も窓を出しません（Phase 319）。
+        // エディタは作りますが、画面には出さず画像へ描きます
+        if (AnalyzerSelfTest::runIfRequested (commandLine))
+        {
+            quit();
+            return;
+        }
+
+        // 8.333：`--limiter-selftest`も窓を出しません（Phase 322）
+        if (LimiterSelfTest::runIfRequested (commandLine))
         {
             quit();
             return;

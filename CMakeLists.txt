@@ -336,6 +336,10 @@ target_sources(PersonalDAW
         Source/TrackHeaderLayoutSelfTest.cpp
         # 8.325：MIDIの時間範囲を窓なしで確かめる（Phase 314）
         Source/TimeRangeSelfTest.cpp
+        # 8.329：アナライザーを窓なしで確かめる（Phase 319）
+        Source/AnalyzerSelfTest.cpp
+        # 8.333：リミッターを窓なしで確かめる（Phase 322）
+        Source/LimiterSelfTest.cpp
         Source/ProjectChooser.cpp
 
         # 9.5：**Manta Studio内部専用のプラグイン**（Phase 204）。
@@ -419,6 +423,28 @@ target_sources(PersonalDAW
         Source/Plugins/Kakapo/KakapoParameters.cpp
         Source/Plugins/Kakapo/KakapoProcessor.cpp
         Source/Plugins/Kakapo/KakapoEditor.cpp
+
+        # 8.329：10こめ「Manta Analyzer／Ember Analyzer」（Phase 319／本人の仕様書・設計書）。
+        # 解析のコア（Fifo・SpectrumAnalyzer・TargetRange・CurveBuilder）は、
+        # ホストにも画面にも依存しません（設計書2.1。`--analyzer-selftest`がそこを直に試します）
+        Source/Plugins/MantaAnalyzer/AnalyzerSettings.cpp
+        Source/Plugins/MantaAnalyzer/SpectrumAnalyzer.cpp
+        Source/Plugins/MantaAnalyzer/TargetRange.cpp
+        Source/Plugins/MantaAnalyzer/CurveBuilder.cpp
+        Source/Plugins/MantaAnalyzer/AnalyzerThemeColors.cpp
+        Source/Plugins/MantaAnalyzer/AnalyzerView.cpp
+        Source/Plugins/MantaAnalyzer/MantaAnalyzerProcessor.cpp
+        Source/Plugins/MantaAnalyzer/MantaAnalyzerEditor.cpp
+
+        # 8.333：11こめ「Manta Limiter／Af Elephant Limiter」（Phase 322／本人の仕様書・設計書）。
+        # コア（LimiterCore・LimiterDsp・LimiterEngine・LimiterMeters）はホストにも画面にも依存しない
+        # （`--limiter-selftest`がそこを直に試します）
+        Source/Plugins/MantaLimiter/MantaLimiterParameters.cpp
+        Source/Plugins/MantaLimiter/LimiterCore.cpp
+        Source/Plugins/MantaLimiter/LimiterEngine.cpp
+        Source/Plugins/MantaLimiter/LimiterMeters.cpp
+        Source/Plugins/MantaLimiter/MantaLimiterProcessor.cpp
+        Source/Plugins/MantaLimiter/MantaLimiterEditor.cpp
 )
 
 target_compile_definitions(PersonalDAW

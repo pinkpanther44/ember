@@ -1561,7 +1561,8 @@ void ArrangeView::buildAutomationTargetMenu (juce::PopupMenu& menu, int trackInd
             juce::PopupMenu slotMenu;
 
             for (int p = 0; p < parameterNames.size(); ++p)
-                addTarget (AutomationTargets::makePluginTarget (insertIndex, p), parameterNames[p], slotMenu);
+                if (parameterNames[p].isNotEmpty())   // 8.332：自動化できないものは空で来る
+                    addTarget (AutomationTargets::makePluginTarget (insertIndex, p), parameterNames[p], slotMenu);
 
             menu.addSubMenu (audioEngine.getPluginSlotName (trackId, insertIndex), slotMenu);
         }

@@ -13,33 +13,6 @@
 
 namespace
 {
-    /** 仕様書4.2：エディタをポップアウトするためのウィンドウ（Phase 16）。
-
-        中身（ピアノロール）は`setContentNonOwned`で借りるだけで、所有しない。
-        メインウィンドウへ戻すときに、そのまま親を付け替えられるようにするため。 */
-    class EditorWindow : public juce::DocumentWindow
-    {
-    public:
-        EditorWindow (const juce::String& name, juce::Colour backgroundColour)
-            : DocumentWindow (name, backgroundColour, juce::DocumentWindow::allButtons)
-        {
-            setUsingNativeTitleBar (true);
-            setResizable (true, false);
-        }
-
-        std::function<void()> onCloseRequested;
-
-        void closeButtonPressed() override
-        {
-            // HANDOVER 1.5：**ウィンドウが自分のコールバックの中で自分を破棄してはいけない。**
-            // 呼び出し元のスタックが解放済みメモリを触ることになる。
-            // ここでは依頼を投げるだけにして、実際の破棄は呼ばれた側が
-            // このスタックを抜けてから行う（MainComponent::dockEditor）。
-            if (onCloseRequested != nullptr)
-                onCloseRequested();
-        }
-    };
-
     // 設計書2.5：アプリ全体の設定として保存するキー
     const juce::String editorWindowBoundsKey  { "editorWindowBounds" };
     const juce::String editorPanelHeightKey   { "editorPanelHeight" };
@@ -591,7 +564,7 @@ MainComponent::~MainComponent()
     if (editorWindow != nullptr)
     {
         saveEditorWindowBounds();
-        editorWindow->clearContentComponent();
+        editorWindow->clearBorrowedContent();
         editorWindow.reset();
     }
 
@@ -947,9 +920,9 @@ void MainComponent::setEditorContent (EditorContent newContent)
     // 両方へ付けると、同じコンポーネントを2つの親が握ることになる。
     if (editorWindow != nullptr)
     {
-        editorWindow->clearContentComponent();
+        editorWindow->clearBorrowedContent();
         editorWindow->setName (getEditorContentTitle());
-        editorWindow->setContentNonOwned (getEditorContentComponent(), false);
+        editorWindow->setBorrowedContent (getEditorContentComponent());
     }
     else
     {
@@ -994,7 +967,7 @@ void MainComponent::popOutEditor()
     editorPanel.setContent (nullptr);
 
     auto window = std::make_unique<EditorWindow> (getEditorContentTitle(), AppColours::background);
-    window->setContentNonOwned (getEditorContentComponent(), false);
+    window->setBorrowedContent (getEditorContentComponent());
 
     // 設計書2.5：前回の位置・サイズを復元する（毎回置き直さずに済むように）。
     // モニター構成が変わって画面外になっている場合に備え、必ず画面内へ寄せる。
@@ -1075,7 +1048,7 @@ void MainComponent::dockEditor()
 
     // ウィンドウを壊す前に中身を外す。付けたまま破棄すると、
     // 借りているだけのピアノロールの親が宙に浮く。
-    editorWindow->clearContentComponent();
+    editorWindow->clearBorrowedContent();
     editorWindow.reset();
 
     editorPanel.setContent (getEditorContentComponent());

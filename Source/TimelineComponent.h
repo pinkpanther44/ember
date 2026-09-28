@@ -12,6 +12,7 @@
 #include "TrackTypeIcons.h"   // 8.295：種類の絵（Consoleと共用。Phase 288）
 
 #include <optional>   // 8.150：掴んだマーカーが「無い」ことを返す（Phase 188）
+#include "SteadyScrollBar.h"      // 8.327：掴んでいるあいだは全体を伸ばさない（Phase 317）
 
 //==============================================================================
 /**
@@ -507,6 +508,10 @@ public:
 
     /** 旗から区間を選ぶ（旗はルーラーの上にあり、座標で押すと描き方に左右されるため）。 */
     void selectRangeFromMarkerForTesting (int markerIndex) { selectRangeFromMarker (markerIndex); }
+
+    /** 8.327：横スクロールバーのつまみを掴んで動かす試しのため（Phase 317）。 */
+    juce::ScrollBar& getHorizontalScrollBarForTesting() { return horizontalScrollBar; }
+    double getScrollStartSecondsForTesting() const { return scrollStartSeconds; }
 
     //==========================================================================
     // 仕様書4.4・6章：ドラッグ&ドロップの受け口（Phase 21）
@@ -2569,7 +2574,7 @@ private:
     bool showBarsAndBeats = true;
     juce::TextButton timeFormatButton { "Bars" };
 
-    juce::ScrollBar horizontalScrollBar { false };
+    SteadyScrollBar horizontalScrollBar { false };   // 8.327：掴んでいるあいだは全体を伸ばさない（Phase 317）
     juce::ScrollBar verticalScrollBar { true };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (TimelineComponent)

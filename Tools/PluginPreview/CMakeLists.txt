@@ -127,7 +127,25 @@ target_sources(PluginPreview
 
         "${DAW_ROOT}/Source/Plugins/Kakapo/KakapoParameters.cpp"
         "${DAW_ROOT}/Source/Plugins/Kakapo/KakapoProcessor.cpp"
-        "${DAW_ROOT}/Source/Plugins/Kakapo/KakapoEditor.cpp")
+        "${DAW_ROOT}/Source/Plugins/Kakapo/KakapoEditor.cpp"
+
+        # 8.329：10こめ（Phase 319）
+        "${DAW_ROOT}/Source/Plugins/MantaAnalyzer/AnalyzerSettings.cpp"
+        "${DAW_ROOT}/Source/Plugins/MantaAnalyzer/SpectrumAnalyzer.cpp"
+        "${DAW_ROOT}/Source/Plugins/MantaAnalyzer/TargetRange.cpp"
+        "${DAW_ROOT}/Source/Plugins/MantaAnalyzer/CurveBuilder.cpp"
+        "${DAW_ROOT}/Source/Plugins/MantaAnalyzer/AnalyzerThemeColors.cpp"
+        "${DAW_ROOT}/Source/Plugins/MantaAnalyzer/AnalyzerView.cpp"
+        "${DAW_ROOT}/Source/Plugins/MantaAnalyzer/MantaAnalyzerProcessor.cpp"
+        "${DAW_ROOT}/Source/Plugins/MantaAnalyzer/MantaAnalyzerEditor.cpp"
+
+        # 8.333：11こめ（Phase 322）
+        "${DAW_ROOT}/Source/Plugins/MantaLimiter/MantaLimiterParameters.cpp"
+        "${DAW_ROOT}/Source/Plugins/MantaLimiter/LimiterCore.cpp"
+        "${DAW_ROOT}/Source/Plugins/MantaLimiter/LimiterEngine.cpp"
+        "${DAW_ROOT}/Source/Plugins/MantaLimiter/LimiterMeters.cpp"
+        "${DAW_ROOT}/Source/Plugins/MantaLimiter/MantaLimiterProcessor.cpp"
+        "${DAW_ROOT}/Source/Plugins/MantaLimiter/MantaLimiterEditor.cpp")
 
 target_include_directories(PluginPreview PRIVATE "${DAW_ROOT}/Source")
 

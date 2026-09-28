@@ -10,6 +10,7 @@
 #include "IconAssets.h"          // 8.133：ツールの絵（Phase 169）
 #include "ValueEntrySlider.h"     // 8.118：Swing・グルーヴの強さもConsoleと同じつまみへ（Phase 153）
 #include "StatusStrip.h"          // 8.195：出るときだけ出る帯（Phase 232）
+#include "SteadyScrollBar.h"      // 8.327：掴んでいるあいだは全体を伸ばさない（Phase 317）
 
 //==============================================================================
 /**
@@ -412,7 +413,7 @@ private:
         **Viewportには横スクロールをさせない。** させると鍵盤も左へ流れて消え、
         ルーラーとコード帯も別経路でスクロール量を知る必要が出る。
         アレンジ画面と同じく、**横は自前**（`PianoRollComponent::scrollStartSeconds`）。 */
-    juce::ScrollBar horizontalScrollBar { false };
+    SteadyScrollBar horizontalScrollBar { false };   // 8.327：掴んでいるあいだは全体を伸ばさない（Phase 317）
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PianoRollView)
 };

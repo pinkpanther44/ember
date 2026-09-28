@@ -10,6 +10,7 @@
 #include "AudioEngine.h"
 #include "AppColours.h"
 #include "ExportOptions.h"    // 8.307：ステム一覧の見切れ（Phase 300）
+#include "EditorWindow.h"     // 8.328：Pop outの窓でもドラッグできるか（Phase 318）
 
 #include <juce_events/juce_events.h>
 #include <juce_graphics/juce_graphics.h>
@@ -521,6 +522,33 @@ namespace TrackHeaderLayoutSelfTest
             }
 
             check (strips.size() >= 3, "there are strips of more than one kind to look at");
+
+            //------------------------------------------------------------------
+            // 8.328：**Pop outした窓の中でも、ストリップを掴んで並べ替えられること**
+            // （Phase 318／本人の報告）。
+            //
+            // ドラッグは送り手の祖先から`DragAndDropContainer`を探して始まります。
+            // ドックでは`MainComponent`がそれで、**Pop outすると祖先にいなくなっていました**
+            // （ストリップは黙って何もしない）。窓そのものが受け持つようにしてあります。
+            //
+            // **本物のドラッグは試しでは起こせません**（JUCEが本物のマウスが押されているかを見る）。
+            // ここで見るのは、その手前の「受け持ち役が見つかるか」です。
+            if (auto* strip = strips.getFirst())
+            {
+                juce::Component console;   // Consoleの代わり（ストリップの親）
+                console.addAndMakeVisible (strip);
+
+                EditorWindow window ("Console", juce::Colours::black, false);
+                window.setBorrowedContent (&console);
+
+                auto* container = juce::DragAndDropContainer::findParentDragContainerFor (strip);
+
+                check (container != nullptr && window.isParentOf (dynamic_cast<juce::Component*> (container)),
+                        "a strip in the popped-out window finds a drag container inside that window");
+
+                window.clearBorrowedContent();
+                console.removeChildComponent (strip);
+            }
 
             //------------------------------------------------------------------
             // 8.298：**いちばん低い高さで、フェーダーが下限を割らないこと**

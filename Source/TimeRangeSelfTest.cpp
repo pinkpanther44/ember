@@ -9,6 +9,7 @@
 #include <juce_events/juce_events.h>
 #include <juce_gui_basics/juce_gui_basics.h>
 
+#include <algorithm>
 #include <iostream>
 
 namespace TimeRangeSelfTest
@@ -630,6 +631,66 @@ namespace TimeRangeSelfTest
                     "...together with the notes on every track");
             check (song.findNote (song.idA, 0.0) && song.findNote (song.idB, 2.5),
                     "what comes before the marker stays");
+        }
+
+        //----------------------------------------------------------------------
+        // 8.327：**横スクロールバーのつまみを掴んで動かす**（Phase 317／本人の報告「カクカクする」）。
+        //
+        // 右はどこまでも行けるように、全体の長さを「いまの位置＋画面2つぶん」で作っています（8.162）。
+        // JUCEのスクロールバーは、つまみの1pxを「全体の長さ÷動ける幅」で秒に直すので、
+        // **掴んでいるあいだに全体が伸びると、1pxあたりの秒が毎回変わります**。
+        // マウスを同じだけ動かしたら、画面も同じだけ動くこと——を数えます
+        say ("--- dragging the horizontal scroll bar's thumb");
+        {
+            ProjectModel project;
+            SelectionState selection;
+            WaveformCache cache;
+            project.createNewProject();
+
+            TimelineComponent timeline (project, cache, selection);
+            timeline.setSize (1600, 900);
+
+            auto& bar = timeline.getHorizontalScrollBarForTesting();
+            const double limitBefore = bar.getMaximumRangeLimit();
+            const int y = bar.getHeight() / 2;
+
+            say ("        bar " + juce::String (bar.getWidth()) + "x" + juce::String (bar.getHeight())
+                   + ", range " + juce::String (bar.getCurrentRangeStart(), 2) + "+" + juce::String (bar.getCurrentRangeSize(), 2)
+                   + " of " + juce::String (bar.getMaximumRangeLimit(), 2));
+
+            // 曲が空なので、全体は画面2つぶん＝つまみは左半分。**その真ん中あたり**を掴む
+            const juce::Point<int> grab (bar.getWidth() / 4, y);
+            const auto modifiers = buttons (false);
+
+            bar.mouseDown (makeEvent (bar, grab, modifiers, grab, false));
+
+            std::vector<double> steps;
+            double previous = timeline.getScrollStartSecondsForTesting();
+
+            for (int i = 1; i <= 30; ++i)
+            {
+                const juce::Point<int> at (grab.x + i * 8, y);
+                bar.mouseDrag (makeEvent (bar, at, modifiers, grab, true));
+
+
+                // 8.327：**知らせを流さずに読む**。つまみを動かしたその出来事の中で、
+                // 画面も動いていること（後回しにすると、つまみと中身が1コマずれて描かれる）
+                const double now = timeline.getScrollStartSecondsForTesting();
+                steps.push_back (now - previous);
+                previous = now;
+            }
+
+            const juce::Point<int> end (grab.x + 30 * 8, y);
+            bar.mouseUp (makeEvent (bar, end, modifiers, grab, true));
+
+            const auto [smallest, largest] = std::minmax_element (steps.begin(), steps.end());
+
+            check (*smallest > 0.0, "every 8 px to the right scrolls the view right away, in the same mouse event");
+            check (*smallest > 0.0 && *largest <= *smallest * 1.02,
+                    "every 8 px scrolls the same amount (smallest " + juce::String (*smallest, 4)
+                      + " s, largest " + juce::String (*largest, 4) + " s)");
+            check (bar.getMaximumRangeLimit() > limitBefore,
+                    "after letting go, the bar reaches further to the right (as before, 8.162)");
         }
 
         //----------------------------------------------------------------------
