@@ -6,6 +6,52 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.2.0] - 2026-09-28
+
+### Added
+
+- **Ember Analyzer**, a new built-in effect. It shows the spectrum of what
+  passes through it as a smoothed curve with a peak-hold line, and reads out
+  the frequency and level under the mouse. Click the graph to clear the peaks.
+  Smoothing, speed and the other settings sit behind the gear button and are
+  saved with the project. The sound passes through untouched. Its background
+  follows the light or dark theme
+
+- **Af Elephant Limiter**, a new built-in effect: a look-ahead limiter that
+  never lets a sample past the ceiling
+  - Four styles (Transparent, Punchy, Aggressive, Safe), with Attack, Release
+    (or Auto Release) and channel Link
+  - **True Peak** keeps the peaks between samples under the ceiling too, and
+    **Oversampling** at 2x, 4x or 8x is available
+  - Also: DC Filter, Unity Gain (hear the limiting at the same loudness), and
+    Audition (hear only what is being taken off)
+  - Dither to 16, 20 or 24 bit, with optional noise shaping
+  - Meters: input, gain reduction and output (true peak), plus loudness
+    (Momentary, Short-term, Integrated, LRA, PLR) with an optional target
+    such as −14 LUFS
+  - A scrolling view shows input, output and gain reduction on one dB scale
+  - 11 factory presets, from mastering and streaming to drum and vocal buses
+  - The delay it adds is reported to Ember, so the track stays in time with
+    the others
+
+### Changed
+
+- **Settings that cannot be automated no longer appear in the automation
+  menu** (for example the limiter's Lookahead and Oversampling)
+
+- The bypass and pin buttons at the top of a plugin window have a see-through
+  background
+
+### Fixed
+
+- **Dragging the horizontal scrollbar in the Arrange view or the piano roll no
+  longer stutters.** The view was drawn one step behind the scrollbar
+
+- **Tracks in a popped-out Console can be reordered by dragging again.** It
+  only worked while the Console was docked
+
+---
+
 ## [1.1.0] - 2026-09-26
 
 ### Added
