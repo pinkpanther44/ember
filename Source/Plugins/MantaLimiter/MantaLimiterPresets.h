@@ -22,6 +22,7 @@ namespace MantaLimiterPresets
     inline const std::vector<MantaFactoryPresets::Preset>& all()
     {
         using namespace MantaLimiterParams;
+        // `link`だけは名前空間を書く：Linuxでは`<unistd.h>`の`link()`とぶつかって曖昧になる（8.335）
 
         // **`static`であること**（`makeToolbarPresets()`が参照で掴みます）
         static const std::vector<MantaFactoryPresets::Preset> presets
@@ -61,7 +62,7 @@ namespace MantaLimiterPresets
                 { truePeak, 0.0f } } },
             { "Bass Glue", "Bass",
               { { output, -2.0f }, { style, 0.0f }, { lookahead, 5.0f }, { release, 300.0f },
-                { link, 100.0f }, { dcFilter, 1.0f } } },
+                { MantaLimiterParams::link, 100.0f }, { dcFilter, 1.0f } } },
         };
 
         return presets;

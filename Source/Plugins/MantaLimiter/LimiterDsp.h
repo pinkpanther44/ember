@@ -127,7 +127,7 @@ namespace LimiterDsp
             centre = 2 * K - 1;
 
             // 中央から奇数だけ離れた係数（2K個）。中央は 0.5 ちょうど（**片方の出力をただの遅延にするため**）
-            taps.assign ((size_t) 2 * K, 0.0f);
+            taps.assign ((size_t) (2 * K), 0.0f);
             double sum = 0.0;
 
             for (int t = 0; t < 2 * K; ++t)

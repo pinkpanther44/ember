@@ -40,7 +40,7 @@ public:
     }
 
 private:
-    std::array<T, Capacity> items {};
+    std::array<T, (size_t) Capacity> items {};
     std::atomic<uint32_t> writePosition { 0 }, readPosition { 0 };
 };
 
