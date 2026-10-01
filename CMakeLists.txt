@@ -67,6 +67,35 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(JUCE)
 
 # ---------------------------------------------------------------------------
+# 8.336：**Signalsmith Stretch**（ピッチ＋フォルマントの変換。Gibbon Voice／Manta Shifter）。
+#
+# 本人の設計書（ライト版）の決定：変換の核はこのライブラリに任せ、ピッチ検出と
+# 目標音高は自作する。**MIT**（AGPLv3と組み合わせて問題なし。同梱のLICENSE.txtを参照）。
+# ヘッダーだけのライブラリで、FFTなどは同じ作者の**Signalsmith Linear**を使います。
+#
+# **版は釘で留めます**（JUCEと同じ）。Stretchの`CMakeLists.txt`は、`signalsmith-linear`という
+# ターゲットが無ければ自分でLinearを取りに行くので、**先にこちらでLinearを宣言**して、
+# 取ってくる版をこちらで決めています（Stretch 1.4.0 が指定しているのと同じ 0.6.4）。
+#
+# **インクルードは`SYSTEM`で足します**（下の`target_include_directories`）。
+# `juce_recommended_warning_flags`はよそのヘッダーにも警告を出すので、
+# そのままだとライブラリの中の警告で本当の警告が埋もれます。
+# ---------------------------------------------------------------------------
+FetchContent_Declare(
+    signalsmith-linear
+    GIT_REPOSITORY https://github.com/Signalsmith-Audio/linear.git
+    GIT_TAG        0.6.4
+    GIT_SHALLOW    TRUE
+)
+FetchContent_Declare(
+    signalsmith-stretch
+    GIT_REPOSITORY https://github.com/Signalsmith-Audio/signalsmith-stretch.git
+    GIT_TAG        1.4.0
+    GIT_SHALLOW    TRUE
+)
+FetchContent_MakeAvailable(signalsmith-linear signalsmith-stretch)
+
+# ---------------------------------------------------------------------------
 # アプリケーション定義
 # ---------------------------------------------------------------------------
 # PRODUCT_NAME が exe 名とウィンドウタイトルになります（Phase 56で改名。HANDOVER 8.1のB2）。
@@ -445,7 +474,33 @@ target_sources(PersonalDAW
         Source/Plugins/MantaLimiter/LimiterMeters.cpp
         Source/Plugins/MantaLimiter/MantaLimiterProcessor.cpp
         Source/Plugins/MantaLimiter/MantaLimiterEditor.cpp
+
+        # 8.336：12こめ「Manta Shifter／Gibbon Voice」（Phase 325／本人の仕様書・設計書（ライト版））。
+        # 検出（PitchDetector）・目標（ShifterControl）・本体（ShifterEngine）はホストにも画面にも依存しない。
+        # 変換の核は Signalsmith Stretch（上の FetchContent）で、`IPitchEngine`の裏に隠してある
+        Source/Plugins/MantaShifter/ShifterParameters.cpp
+        Source/Plugins/MantaShifter/PitchDetector.cpp
+        Source/Plugins/MantaShifter/SignalsmithEngine.cpp
+        # 8.337：2つめのエンジン＝TD-PSOLA（自作。ライブラリを使わない）
+        Source/Plugins/MantaShifter/PsolaEngine.cpp
+        Source/Plugins/MantaShifter/ShifterEngine.cpp
+        Source/Plugins/MantaShifter/MantaShifterProcessor.cpp
+        Source/Plugins/MantaShifter/MantaShifterEditor.cpp
+        # 8.336：シフターを窓なしで確かめる（Phase 325）
+        Source/ShifterSelfTest.cpp
 )
+
+# 8.336：Signalsmith のヘッダーは**SYSTEM**で（中の警告で本当の警告が埋もれないように）。
+# ターゲットをリンクせずに場所だけ渡すのは、Linear の`CMakeLists.txt`が Apple 以外では何も足さないため
+target_include_directories(PersonalDAW SYSTEM PRIVATE
+    "${signalsmith-stretch_SOURCE_DIR}/include"
+    "${signalsmith-linear_SOURCE_DIR}/include")
+
+# Linear はテンプレートが多く、MSVC では 1 つのオブジェクトの節の上限を超える（ライブラリの説明どおり）
+if (MSVC)
+    set_source_files_properties(Source/Plugins/MantaShifter/SignalsmithEngine.cpp Source/Plugins/MantaShifter/PitchDetector.cpp
+                                PROPERTIES COMPILE_OPTIONS "/bigobj")
+endif()
 
 target_compile_definitions(PersonalDAW
     PRIVATE

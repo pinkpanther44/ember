@@ -47,6 +47,9 @@ namespace
              // 8.189：**LV2のぶんを足すこと**（Phase 227）。JUCEに同梱されている
              // lilv／serd／sord／sratom（どれもISC、David Robillard）を通しています
              << utf8 ("  ・LV2 と lilv / serd / sord / sratom — LV2プラグインを読み込むために使用")
+             << juce::newLine
+             // 8.336：Signalsmith Stretch／Linear（どちらもMIT）。全文は配布物のREADMEに載せてある
+             << utf8 ("  ・Signalsmith Stretch / Linear（MIT） — ピッチとフォルマントの変換に使用")
              << juce::newLine;
 
         if (! Branding::hasAsioSupport)

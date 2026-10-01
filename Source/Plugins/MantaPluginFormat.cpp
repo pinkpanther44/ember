@@ -11,6 +11,7 @@
 #include "Kakapo/KakapoProcessor.h"               // 8.292：9つめ（Phase 285）
 #include "MantaAnalyzer/MantaAnalyzerProcessor.h" // 8.329：10こめ（Phase 319）
 #include "MantaLimiter/MantaLimiterProcessor.h"   // 8.333：11こめ（Phase 322）
+#include "MantaShifter/MantaShifterProcessor.h"   // 8.336：12こめ（Phase 325）
 #include "../Branding.h"   // 8.175：ブランドごとの名前（Phase 216）
 
 namespace MantaPlugins
@@ -199,6 +200,22 @@ namespace MantaPlugins
                 [] () -> std::unique_ptr<juce::AudioPluginInstance>
                 {
                     return std::make_unique<MantaLimiterProcessor>();
+                }
+            },
+            {
+                // 8.336：12こめ＝**ピッチ／フォルマントシフター**（Phase 325／本人の仕様書・設計書）。
+                // Ember側は`Gibbon Voice`、Manta Studio側は`Manta Shifter`（`Branding.h`）。
+                // **エフェクトなのにMIDIを受けます**（MIDIモード。送り元はインサートの右クリックで選ぶ。8.336）
+                "manta:shifter",
+                Branding::shifterPluginName,
+                "Pitch & Formant Shifter",
+                "Fx|Pitch Shift",
+                "1.0.0",
+                0x4d534831,   // 'MSH1'
+                false,
+                [] () -> std::unique_ptr<juce::AudioPluginInstance>
+                {
+                    return std::make_unique<MantaShifterProcessor>();
                 }
             },
         };

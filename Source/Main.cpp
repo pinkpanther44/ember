@@ -13,6 +13,7 @@
 #include "TimeRangeSelfTest.h"     // 8.325：MIDIの時間範囲（Phase 314）
 #include "AnalyzerSelfTest.h"      // 8.329：アナライザー（Phase 319）
 #include "LimiterSelfTest.h"       // 8.333：リミッター（Phase 322）
+#include "ShifterSelfTest.h"       // 8.336：シフター（Phase 325）
 #include "AudioDeviceSelfTest.h" // 8.316：デバイスの付け替え（Phase 309）
 #include "SplashWindow.h"        // 8.151：起動画面（Phase 189／改善案⑰）
 #include "ProjectChooser.h"      // 8.151：プロジェクト選択画面（Phase 189／改善案⑰）
@@ -212,6 +213,13 @@ public:
 
         // 8.333：`--limiter-selftest`も窓を出しません（Phase 322）
         if (LimiterSelfTest::runIfRequested (commandLine))
+        {
+            quit();
+            return;
+        }
+
+        // 8.336：`--shifter-selftest`も窓を出しません（Phase 325）
+        if (ShifterSelfTest::runIfRequested (commandLine))
         {
             quit();
             return;

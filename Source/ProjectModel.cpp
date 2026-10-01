@@ -4164,6 +4164,17 @@ void PluginInstance::setSidechainSourceTrackId (const juce::String& trackId, juc
     state.setProperty (IDs::sidechainSourceTrackId, trackId, undoManager);
 }
 
+// 8.336：インサートのMIDI入力（Phase 325）
+juce::String PluginInstance::getMidiSourceTrackId() const
+{
+    return state[IDs::midiSourceTrackId];
+}
+
+void PluginInstance::setMidiSourceTrackId (const juce::String& trackId, juce::UndoManager* undoManager)
+{
+    state.setProperty (IDs::midiSourceTrackId, trackId, undoManager);
+}
+
 // 8.63：インサートのバイパス（Phase 101／改善案㉘）
 bool PluginInstance::isBypassed() const
 {
@@ -6036,6 +6047,11 @@ void ProjectModel::removeTrack (const Track& track)
         for (int i = 0; i < other.getNumInserts(); ++i)
             if (other.getInsert (i).getSidechainSourceTrackId() == removedId)
                 other.getInsert (i).setSidechainSourceTrackId ({}, &undoManager);
+
+        // 8.336：MIDI入力の送り元（Phase 325）
+        for (int i = 0; i < other.getNumInserts(); ++i)
+            if (other.getInsert (i).getMidiSourceTrackId() == removedId)
+                other.getInsert (i).setMidiSourceTrackId ({}, &undoManager);
 
         // 8.50：**消えたフォルダの中身は、外へ出す**（Phase 89／D2）。
         // 親のIDだけ残ると、深さも「隠れているか」も答えが出ない迷子になる

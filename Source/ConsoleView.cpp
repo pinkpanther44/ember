@@ -102,7 +102,8 @@ void ConsoleView::valueTreePropertyChanged (juce::ValueTree&, const juce::Identi
     // 仕様書5.7.2：サイドチェインの割り当てが変わったとき（Phase 12d-3）。
     // 設定操作そのものはAudioEngine側で配線まで済ませているが、
     // **Undo/Redoはモデルだけを戻す**ため、ここでグラフを追従させる必要がある。
-    if (property == IDs::sidechainSourceTrackId)
+    // 8.336：インサートのMIDI入力も同じ（Phase 325）
+    if (property == IDs::sidechainSourceTrackId || property == IDs::midiSourceTrackId)
     {
         audioEngine.rewireAllTrackConnections();
 

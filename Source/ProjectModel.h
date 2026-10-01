@@ -335,6 +335,14 @@ public:
     juce::String getSidechainSourceTrackId() const;
     void setSidechainSourceTrackId (const juce::String& trackId, juce::UndoManager* undoManager);
 
+    /** 8.336：**MIDI入力**として使うMIDIトラックのID（Phase 325。空文字なら使わない）。
+
+        MIDIを受けるエフェクト（Manta Shifter／Gibbon Voice のMIDIモード）のため。
+        そのトラックのMIDIプレイヤーから、このインサートのMIDI入力へ繋がる（`AudioEngine::rebuildMidiSourceConnections()`）。
+        MIDIを受けないプラグインに残っていても、単に無視される。 */
+    juce::String getMidiSourceTrackId() const;
+    void setMidiSourceTrackId (const juce::String& trackId, juce::UndoManager* undoManager);
+
     //==========================================================================
     /** 8.63：**このインサートを通さない**（Phase 101／改善案㉘。仕様書5.7）。
 

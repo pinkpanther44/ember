@@ -145,9 +145,33 @@ target_sources(PluginPreview
         "${DAW_ROOT}/Source/Plugins/MantaLimiter/LimiterEngine.cpp"
         "${DAW_ROOT}/Source/Plugins/MantaLimiter/LimiterMeters.cpp"
         "${DAW_ROOT}/Source/Plugins/MantaLimiter/MantaLimiterProcessor.cpp"
-        "${DAW_ROOT}/Source/Plugins/MantaLimiter/MantaLimiterEditor.cpp")
+        "${DAW_ROOT}/Source/Plugins/MantaLimiter/MantaLimiterEditor.cpp"
+
+        # 8.336：12こめ（Phase 325）
+        "${DAW_ROOT}/Source/Plugins/MantaShifter/ShifterParameters.cpp"
+        "${DAW_ROOT}/Source/Plugins/MantaShifter/PitchDetector.cpp"
+        "${DAW_ROOT}/Source/Plugins/MantaShifter/SignalsmithEngine.cpp"
+        "${DAW_ROOT}/Source/Plugins/MantaShifter/PsolaEngine.cpp"
+        "${DAW_ROOT}/Source/Plugins/MantaShifter/ShifterEngine.cpp"
+        "${DAW_ROOT}/Source/Plugins/MantaShifter/MantaShifterProcessor.cpp"
+        "${DAW_ROOT}/Source/Plugins/MantaShifter/MantaShifterEditor.cpp")
 
 target_include_directories(PluginPreview PRIVATE "${DAW_ROOT}/Source")
+
+# 8.336：Signalsmith Stretch／Linear も**本体が落としたものを使い回します**（JUCEと同じ。`out/_deps`）
+if (NOT DEFINED SIGNALSMITH_DEPS_DIR)
+    set(SIGNALSMITH_DEPS_DIR "${DAW_ROOT}/out/_deps")
+endif()
+
+target_include_directories(PluginPreview SYSTEM PRIVATE
+    "${SIGNALSMITH_DEPS_DIR}/signalsmith-stretch-src/include"
+    "${SIGNALSMITH_DEPS_DIR}/signalsmith-linear-src/include")
+
+if (MSVC)
+    set_source_files_properties("${DAW_ROOT}/Source/Plugins/MantaShifter/SignalsmithEngine.cpp"
+                                "${DAW_ROOT}/Source/Plugins/MantaShifter/PitchDetector.cpp"
+                                PROPERTIES COMPILE_OPTIONS "/bigobj")
+endif()
 
 target_compile_definitions(PluginPreview
     PRIVATE

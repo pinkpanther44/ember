@@ -6,6 +6,40 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.3.0] - 2026-10-01
+
+### Added
+
+- **Gibbon Voice**, a new built-in effect that moves the pitch and the
+  formants (the size of the voice) of a single voice independently
+  - **Pitch** and **Formant**, each ±12 semitones. **Link** makes the two
+    knobs move together when you turn either one, for the classic
+    sped-up-tape voice
+  - Four modes: **Transpose** (a fixed shift), **Quantize** (pulls each note
+    to the nearest note of a key and scale, with Retune Speed from instant to
+    200 ms), **Robot** (one fixed pitch) and **MIDI** (sings the notes you
+    play; MIDI Hold keeps the last note)
+  - **Two engines** on a switch: **1 (PSOLA)**, the default, follows the
+    voice period by period and keeps the pitch exact on clean single voices;
+    **2 (Spectral)** copes better with chords, breathy or rough voices
+  - Drive, Mix, Output and Bypass, a display of the detected and the output
+    pitch, and 13 factory presets
+  - Its delay (about 51 ms) is reported to Ember, so the track stays in time
+    with the others. With engine 1, breaths and consonants pass through
+    unshifted
+
+- **MIDI input for insert effects.** Right-click an insert slot and choose
+  **MIDI Input** to feed it the notes of a MIDI track; the slot shows
+  `[MIDI]`. Gibbon Voice's MIDI mode uses this. Delay compensation does not
+  apply to MIDI, so put the effect first in the chain
+
+### Changed
+
+- The About box and the README list Signalsmith Stretch and Signalsmith
+  Linear (MIT), which Gibbon Voice uses
+
+---
+
 ## [1.2.0] - 2026-09-28
 
 ### Added

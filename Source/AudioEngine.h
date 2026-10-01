@@ -329,6 +329,10 @@ public:
     juce::AudioDeviceManager& getDeviceManagerForTesting()   { return deviceManager; }
     GuardedAudioCallback& getAudioCallbackGuardForTesting()  { return guardedPlayer; }
 
+    /** 8.336：試験用（`--shifter-selftest`）。そのインサートのMIDI入力へ、送り元のMIDIプレイヤーが繋がっているか。 */
+    bool isInsertMidiSourceConnectedForTesting (const juce::String& trackId, int insertIndex,
+                                                const juce::String& sourceTrackId) const;
+
     /** オーディオデバイスの構成が変わったときに呼ばれる（UIの入力表示更新用）。
         メッセージスレッドから呼ばれる。 */
     std::function<void()> onAudioDeviceChanged;
@@ -450,6 +454,23 @@ public:
     juce::String setInsertSidechainSource (const juce::String& trackId, int insertIndex,
                                             const juce::String& sourceTrackId);
 
+    /** 8.336：**MIDIを受けるエフェクト**か（Phase 325。Manta Shifter／Gibbon VoiceのMIDIモードのため）。
+
+        `acceptsMidi()`が真で、**音源ではない**インサート。サイドチェインと同じく、
+        読み込んだ本体に訊くしかないのでエンジン側で答えます。 */
+    bool insertAcceptsMidiInput (const juce::String& trackId, int insertIndex) const;
+
+    /** 8.336：インサートのMIDI入力に使うMIDIトラックを設定する（空文字なら解除）。
+
+        送り元の**MIDIプレイヤー**（クリップを読んでMIDIを出すノード）から、インサートのMIDI入力へ繋ぎます。
+        音源へ行く配線はそのまま（MIDIは枝分かれできる）。
+
+        **レイテンシー補正はMIDIには効きません**（JUCEのグラフが遅らせるのはオーディオだけ）。
+        受ける側より前のインサートに遅れがあると、そのぶんMIDIが早く着きます。
+        配線できたかを確かめて、失敗した理由を返します（成功時は空文字）。 */
+    juce::String setInsertMidiSource (const juce::String& trackId, int insertIndex,
+                                      const juce::String& sourceTrackId);
+
     /** 全トラックの配線（経路・センド・サイドチェイン）をモデルの内容に合わせて張り直す。
 
         **プラグインの読み込み直しは行わない**ので、`rebuildTrackNodes()`と違って
@@ -504,6 +525,10 @@ public:
         インサートや音源を抜き差ししたトラックでは、他トラックから入っていた
         サイドチェインも一緒に切れてしまう。センドと同じく、経路を触ったら必ず呼ぶこと。 */
     void rebuildSidechainConnections();
+
+    /** 8.336：インサートのMIDI入力の配線を、モデルの内容に合わせて張り直す（Phase 325）。
+        サイドチェインと同じく、経路を触ったら必ず呼ぶこと（`disconnectTrackChain()`が一緒に外すため）。 */
+    void rebuildMidiSourceConnections();
 
     //==========================================================================
     // 仕様書5.2.2：センド

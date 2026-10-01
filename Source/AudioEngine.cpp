@@ -1234,6 +1234,7 @@ void AudioEngine::rewireAllTrackConnections()
 
     rebuildDrumOutConnections();   // 8.143（Phase 181／改善案⑮）
     rebuildSidechainConnections();
+    rebuildMidiSourceConnections();   // 8.336：MIDIの送り元（Phase 325）
 }
 
 void AudioEngine::rebuildSidechainConnections()
@@ -1327,6 +1328,101 @@ juce::String AudioEngine::setInsertSidechainSource (const juce::String& trackId,
     if (! graph.isConnected ({ { sourceNodes->channelNode->nodeID, 0 },
                                 { insertNode->nodeID, firstChannel } }))
         return utf8 ("サイドチェインの配線に失敗しました。");
+
+    return {};
+}
+
+//==============================================================================
+// 8.336：インサートのMIDI入力（Phase 325。Manta Shifter／Gibbon Voice のMIDIモードのため）
+//==============================================================================
+
+namespace
+{
+    /** MIDIを受けるエフェクトか（音源は入力を持たないので外れる）。 */
+    bool acceptsMidiAsEffect (juce::AudioProcessorGraph::Node::Ptr node)
+    {
+        if (node == nullptr)
+            return false;
+
+        auto* processor = node->getProcessor();
+        return processor != nullptr && processor->acceptsMidi() && processor->getTotalNumInputChannels() > 0;
+    }
+}
+
+bool AudioEngine::insertAcceptsMidiInput (const juce::String& trackId, int insertIndex) const
+{
+    auto* nodes = findTrackNodes (trackId);
+
+    if (nodes == nullptr || ! juce::isPositiveAndBelow (insertIndex, (int) nodes->insertNodes.size()))
+        return false;
+
+    return acceptsMidiAsEffect (nodes->insertNodes[(size_t) insertIndex]);
+}
+
+void AudioEngine::rebuildMidiSourceConnections()
+{
+    for (auto& nodes : trackNodes)
+    {
+        auto track = findTrackById (nodes.trackId);
+
+        if (! track.state.getParent().isValid())
+            continue;
+
+        const int numInserts = juce::jmin (track.getNumInserts(), (int) nodes.insertNodes.size());
+
+        for (int i = 0; i < numInserts; ++i)
+        {
+            auto insertNode = nodes.insertNodes[(size_t) i];
+            const auto sourceTrackId = track.getInsert (i).getMidiSourceTrackId();
+
+            if (sourceTrackId.isEmpty() || ! acceptsMidiAsEffect (insertNode))
+                continue;
+
+            // 送り元は**MIDIプレイヤー**（MIDIトラックだけが持つ）。自分のトラックでもよい（輪にはならない）
+            auto* sourceNodes = findTrackNodes (sourceTrackId);
+
+            if (sourceNodes == nullptr || sourceNodes->midiPlayerNode == nullptr)
+                continue;   // 送り元が消えた・MIDIトラックでなくなった場合は、その1本だけ無視する
+
+            graph.addConnection ({ { sourceNodes->midiPlayerNode->nodeID, juce::AudioProcessorGraph::midiChannelIndex },
+                                    { insertNode->nodeID, juce::AudioProcessorGraph::midiChannelIndex } });
+        }
+    }
+}
+
+juce::String AudioEngine::setInsertMidiSource (const juce::String& trackId, int insertIndex,
+                                                const juce::String& sourceTrackId)
+{
+    auto track = findTrackById (trackId);
+
+    if (! track.state.getParent().isValid() || ! juce::isPositiveAndBelow (insertIndex, track.getNumInserts()))
+        return utf8 ("インサートが見つかりません。");
+
+    project.beginAction (utf8 ("MIDI入力の設定"));
+    track.getInsert (insertIndex).setMidiSourceTrackId (sourceTrackId, &project.getUndoManager());
+
+    // 解除したときに古い接続が残らないよう、経路そのものを繋ぎ直す（サイドチェインと同じ理由）
+    rewireAllTrackConnections();
+
+    if (sourceTrackId.isEmpty())
+        return {};
+
+    // 実際に繋がったかを確かめる（「設定したのに効かない」を黙って起こさない）
+    auto* nodes = findTrackNodes (trackId);
+    auto* sourceNodes = findTrackNodes (sourceTrackId);
+
+    if (nodes == nullptr || sourceNodes == nullptr || sourceNodes->midiPlayerNode == nullptr
+         || ! juce::isPositiveAndBelow (insertIndex, (int) nodes->insertNodes.size()))
+        return utf8 ("MIDIの送り元になるMIDIトラックが見つかりません。");
+
+    auto insertNode = nodes->insertNodes[(size_t) insertIndex];
+
+    if (! acceptsMidiAsEffect (insertNode))
+        return utf8 ("このプラグインはMIDI入力を持っていません。");
+
+    if (! graph.isConnected ({ { sourceNodes->midiPlayerNode->nodeID, juce::AudioProcessorGraph::midiChannelIndex },
+                                { insertNode->nodeID, juce::AudioProcessorGraph::midiChannelIndex } }))
+        return utf8 ("MIDI入力の配線に失敗しました。");
 
     return {};
 }
@@ -1990,6 +2086,7 @@ juce::String AudioEngine::addInsertToTrack (const juce::String& trackId, const j
     rebuildSendConnections();
     rebuildDrumOutConnections();   // 8.143（Phase 181／改善案⑮）
     rebuildSidechainConnections();
+    rebuildMidiSourceConnections();   // 8.336：MIDIの送り元（Phase 325）
 
     return {};
 }
@@ -2055,6 +2152,7 @@ void AudioEngine::removeInsertFromTrack (const juce::String& trackId, int insert
 
     rebuildDrumOutConnections();   // 8.143（Phase 181／改善案⑮）
     rebuildSidechainConnections(); // 同上（仕様書5.7.2）
+    rebuildMidiSourceConnections();   // 8.336：MIDIの送り元（Phase 325）
 }
 
 void AudioEngine::moveInsertInTrack (const juce::String& trackId, int fromIndex, int toIndex)
@@ -2134,6 +2232,7 @@ void AudioEngine::moveInsertInTrack (const juce::String& trackId, int fromIndex,
     rebuildSendConnections();
     rebuildDrumOutConnections();   // 8.143（Phase 181／改善案⑮）
     rebuildSidechainConnections();
+    rebuildMidiSourceConnections();   // 8.336：MIDIの送り元（Phase 325）
 }
 
 juce::String AudioEngine::copyInsertToTrack (const juce::String& sourceTrackId, int sourceIndex,
@@ -2216,6 +2315,7 @@ void AudioEngine::rebuildGraphForBypassChange()
     rebuildSendConnections();
     rebuildDrumOutConnections();   // 8.143（Phase 181／改善案⑮）
     rebuildSidechainConnections();
+    rebuildMidiSourceConnections();   // 8.336：MIDIの送り元（Phase 325）
 }
 
 void AudioEngine::openInsertEditor (const juce::String& trackId, int insertIndex)
@@ -4107,6 +4207,7 @@ juce::String AudioEngine::loadInstrumentForTrack (const juce::String& trackId,
     rebuildSendConnections();
     rebuildDrumOutConnections();   // 8.143（Phase 181／改善案⑮）
     rebuildSidechainConnections();
+    rebuildMidiSourceConnections();   // 8.336：MIDIの送り元（Phase 325）
 
     return {};
 }
@@ -4147,6 +4248,7 @@ void AudioEngine::removeInstrumentFromTrack (const juce::String& trackId)
 
     rebuildDrumOutConnections();   // 8.143（Phase 181／改善案⑮）
     rebuildSidechainConnections();
+    rebuildMidiSourceConnections();   // 8.336：MIDIの送り元（Phase 325）
 }
 
 bool AudioEngine::trackHasInstrument (const juce::String& trackId) const
@@ -4594,4 +4696,22 @@ void AudioEngine::previewNoteOff (const juce::String& trackId, int pitch)
     if (auto* nodes = findTrackNodes (trackId))
         if (nodes->midiPlayer != nullptr)
             nodes->midiPlayer->triggerPreviewNoteOff (pitch);
+}
+
+//==============================================================================
+// 8.336：試験用（`--shifter-selftest`。Phase 325）
+
+bool AudioEngine::isInsertMidiSourceConnectedForTesting (const juce::String& trackId, int insertIndex,
+                                                         const juce::String& sourceTrackId) const
+{
+    auto* nodes = findTrackNodes (trackId);
+    auto* sourceNodes = findTrackNodes (sourceTrackId);
+
+    if (nodes == nullptr || sourceNodes == nullptr || sourceNodes->midiPlayerNode == nullptr
+         || ! juce::isPositiveAndBelow (insertIndex, (int) nodes->insertNodes.size())
+         || nodes->insertNodes[(size_t) insertIndex] == nullptr)
+        return false;
+
+    return graph.isConnected ({ { sourceNodes->midiPlayerNode->nodeID, juce::AudioProcessorGraph::midiChannelIndex },
+                                { nodes->insertNodes[(size_t) insertIndex]->nodeID, juce::AudioProcessorGraph::midiChannelIndex } });
 }

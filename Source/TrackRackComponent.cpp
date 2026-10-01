@@ -666,6 +666,9 @@ void TrackRackComponent::refreshInsertSlots()
         // 短い印を名前に足し、設計書2.6にならってオレンジで示す。
         const bool hasSidechain = insert.getSidechainSourceTrackId().isNotEmpty();
 
+        // 8.336：MIDI入力の送り元があるスロットも印で（Phase 325）
+        const bool hasMidiSource = insert.getMidiSourceTrackId().isNotEmpty();
+
         // 8.63：**通していないスロットも印で示す**（Phase 101／改善案㉘）。
         // **文字だけを薄くするのでは足りません**：暗い地の上では
         // 「読みにくい」のか「切ってある」のかが見分けられないので、印も付けます
@@ -674,6 +677,9 @@ void TrackRackComponent::refreshInsertSlots()
         if (hasSidechain)
             name += " [SC]";
 
+        if (hasMidiSource)
+            name += " [MIDI]";
+
         if (bypassed)
             name = "(" + name + ")";
 
@@ -681,7 +687,7 @@ void TrackRackComponent::refreshInsertSlots()
         button->setColour (juce::TextButton::buttonColourId, AppColours::background);
         button->setColour (juce::TextButton::textColourOffId,
                            bypassed ? AppColours::textSecondary.withAlpha (0.6f)
-                                    : (hasSidechain ? AppColours::orange : AppColours::textPrimary));
+                                    : (hasSidechain || hasMidiSource ? AppColours::orange : AppColours::textPrimary));
 
         // Phase 61（8.1のC1）：左クリックでGUI、右クリックでメニュー（8.21）
         button->onClick = [this, i] { insertSlotClicked (i); };
@@ -802,10 +808,41 @@ void TrackRackComponent::showInsertSlotMenu (int insertIndex)
         menu.addSeparator();
     }
 
+    // 8.336：**MIDIを受けるエフェクト**にだけ、MIDIの送り元を選ぶ項目を出す（Phase 325）。
+    // Manta Shifter／Gibbon Voice のMIDIモードのため。候補はMIDIトラックだけ（MIDIプレイヤーを持つもの）。
+    // **自分のトラックも選べます**——MIDIプレイヤーは音の出所なので、輪にはなりません
+    juce::StringArray midiSourceIds;
+
+    if (audioEngine.insertAcceptsMidiInput (track.getId(), insertIndex))
+    {
+        const auto currentSourceId = track.getInsert (insertIndex).getMidiSourceTrackId();
+
+        juce::PopupMenu midiMenu;
+
+        // 200番台をMIDI入力用に使う（201＝解除、202以降＝送り元の並び順）
+        midiMenu.addItem (201, utf8 ("なし"), true, currentSourceId.isEmpty());
+        midiMenu.addSeparator();
+
+        for (int t = 0; t < project.getNumTracks(); ++t)
+        {
+            auto candidate = project.getTrack (t);
+
+            if (candidate.getType() != TrackType::Midi)
+                continue;
+
+            midiSourceIds.add (candidate.getId());
+            midiMenu.addItem (201 + midiSourceIds.size(), candidate.getName(),
+                              true, candidate.getId() == currentSourceId);
+        }
+
+        menu.addSubMenu (utf8 ("MIDI入力"), midiMenu, midiSourceIds.size() > 0);
+        menu.addSeparator();
+    }
+
     menu.addItem (2, utf8 ("インサートを削除"));
 
     menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (insertButtons[insertIndex]),
-        [this, insertIndex, sourceIds] (int result)
+        [this, insertIndex, sourceIds, midiSourceIds] (int result)
         {
             if (result == 1)
             {
@@ -828,6 +865,24 @@ void TrackRackComponent::showInsertSlotMenu (int insertIndex)
                 audioEngine.rebuildGraphForBypassChange();
 
                 refreshInsertSlots();
+            }
+            else if (result >= 201)
+            {
+                // 8.336：201＝解除、202以降＝midiSourceIdsの並び順
+                const auto sourceId = (result == 201) ? juce::String() : midiSourceIds[result - 202];
+
+                const auto error = audioEngine.setInsertMidiSource (track.getId(), insertIndex, sourceId);
+
+                refreshInsertSlots();
+
+                if (error.isNotEmpty())
+                    AppMessageBox::showAsync (
+                        juce::MessageBoxOptions()
+                            .withIconType (juce::MessageBoxIconType::WarningIcon)
+                            .withTitle (utf8 ("MIDI入力を設定できませんでした"))
+                            .withMessage (error)
+                            .withButton ("OK"),
+                        nullptr);
             }
             else if (result >= 101)
             {

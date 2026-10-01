@@ -139,6 +139,7 @@ namespace IDs
     const juce::Identifier pluginState       { "state" };
 
     const juce::Identifier sidechainSourceTrackId { "sidechainSourceTrackId" };
+    const juce::Identifier midiSourceTrackId { "midiSourceTrackId" };   // 8.336（Phase 325）
     const juce::Identifier pluginBypassed { "bypassed" };
 
     const juce::Identifier DRUMMAPS  { "DRUMMAPS" };

@@ -63,6 +63,8 @@
 #include "Plugins/MantaComp/MantaCompPresets.h"
 #include "Plugins/MantaLimiter/MantaLimiterProcessor.h"   // 8.333（Phase 322）
 #include "Plugins/MantaLimiter/MantaLimiterPresets.h"
+#include "Plugins/MantaShifter/MantaShifterProcessor.h"   // 8.336（Phase 325）
+#include "Plugins/MantaShifter/MantaShifterPresets.h"
 #include "Plugins/MantaSynth/MantaSynthProcessor.h"
 #include "Plugins/MantaSynth/MantaSynthPresets.h"
 #include "Plugins/MantaDelay/MantaDelayProcessor.h"
@@ -982,6 +984,7 @@ namespace
         snapshots<OrangutanDrumsProcessor> ("orangutan_drums");
         snapshots<KakapoProcessor> ("kakapo");
         snapshots<MantaLimiterProcessor> ("manta_limiter");   // 8.333（Phase 322）
+        snapshots<MantaShifterProcessor> ("manta_shifter");   // 8.336（Phase 325）
 
         // 8.318：**プリセットを当てた姿も撮ります**（Phase 311）。
         // 既定の姿は「何も当てていない」なので、**名前が出ているところは誰も見ません**
@@ -1074,6 +1077,9 @@ namespace
 
             snapshot<MantaLimiterProcessor> ("manta_limiter_preset", AppColours::Theme::Light, "light",
                 [&] (MantaLimiterProcessor& p) { effect (p.getValueTreeState(), MantaLimiterPresets::all()); });
+
+            snapshot<MantaShifterProcessor> ("manta_shifter_preset", AppColours::Theme::Light, "light",
+                [&] (MantaShifterProcessor& p) { effect (p.getValueTreeState(), MantaShifterPresets::all()); });
         }
 
         // 8.292：**Kakapoは、何か弾いたところも撮ります**（Phase 285）。
@@ -1681,6 +1687,7 @@ namespace
         const auto delay = namesOf (MantaDelayPresets::all());
         const auto reverb = namesOf (MantaReverbPresets::all());
         const auto limiter = namesOf (MantaLimiterPresets::all());   // 8.333
+        const auto shifter = namesOf (MantaShifterPresets::all());   // 8.336
 
         say ("--- the preset box in each toolbar ---");
 
@@ -1695,6 +1702,7 @@ namespace
         checkToolbarLayout<MantaDelayProcessor> ("Manta Delay", true, &delay);
         checkToolbarLayout<MantaReverbProcessor> ("Manta Reverb", true, &reverb);
         checkToolbarLayout<MantaLimiterProcessor> ("Manta Limiter", true, &limiter);   // 8.333
+        checkToolbarLayout<MantaShifterProcessor> ("Manta Shifter", true, &shifter);   // 8.336
         checkToolbarLayout<KakapoProcessor> ("Kakapo (does not show the name)", false);
     }
 
@@ -1711,6 +1719,7 @@ namespace
         checkPresets<MantaDelayProcessor> ("Manta Delay", MantaDelayPresets::all());
         checkPresets<MantaReverbProcessor> ("Manta Reverb", MantaReverbPresets::all());
         checkPresets<MantaLimiterProcessor> ("Manta Limiter", MantaLimiterPresets::all());   // 8.333
+        checkPresets<MantaShifterProcessor> ("Manta Shifter", MantaShifterPresets::all());   // 8.336
         checkPresets<RaccoGuitarProcessor> ("Racco Guitar", RaccoGuitarPresets::all());
         checkPresets<JavaRhinoBassProcessor> ("Java Rhino Bass", JavaRhinoBassPresets::all());
         checkPresets<OrangutanDrumsProcessor> ("Orangutan Drums", OrangutanDrumsPresets::all());

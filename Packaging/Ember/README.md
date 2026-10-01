@@ -185,8 +185,31 @@ The full text is in `LICENSE.txt`, and also at <https://www.gnu.org/licenses/>.
 | [JUCE](https://juce.com) | The framework Ember is built with, used here under the AGPLv3 option of the JUCE licence |
 | LV2, with lilv, serd, sord and sratom | Used for hosting LV2 plugins. Bundled with JUCE; ISC licence, Copyright David Robillard |
 | VST3 SDK | Used for hosting plugins, under the GPLv3 option. VST is a trademark of Steinberg Media Technologies GmbH, registered in Europe and other countries |
+| [Signalsmith Stretch](https://github.com/Signalsmith-Audio/signalsmith-stretch) 1.4.0 | Pitch and formant shifting in Gibbon Voice. MIT licence, Copyright (c) 2022 Geraint Luff / Signalsmith Audio Ltd. |
+| [Signalsmith Linear](https://github.com/Signalsmith-Audio/linear) 0.6.4 | FFTs for Signalsmith Stretch and for Gibbon Voice's pitch detection. MIT licence, Copyright (c) 2025 Signalsmith Audio |
 
 Ember does **not** include the Steinberg ASIO SDK and contains no ASIO code.
+
+The MIT licence of Signalsmith Stretch and Signalsmith Linear asks for this notice
+to travel with the program:
+
+> Permission is hereby granted, free of charge, to any person obtaining a copy
+> of this software and associated documentation files (the "Software"), to deal
+> in the Software without restriction, including without limitation the rights
+> to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+> copies of the Software, and to permit persons to whom the Software is
+> furnished to do so, subject to the following conditions:
+>
+> The above copyright notice and this permission notice shall be included in all
+> copies or substantial portions of the Software.
+>
+> THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+> IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+> FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+> AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+> LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+> OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+> SOFTWARE.
 
 "Ember" and the Ember icon are not covered by the AGPLv3 — the licence covers the
 code. If you distribute a modified version, please give it a different name so

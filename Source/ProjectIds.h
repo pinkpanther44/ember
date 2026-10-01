@@ -312,6 +312,7 @@ namespace IDs
 
     // サイドチェイン（仕様書5.7.2・設計書1.3のPluginInstance）
     extern const juce::Identifier sidechainSourceTrackId;
+    extern const juce::Identifier midiSourceTrackId;   // 8.336：インサートのMIDI入力（Phase 325）
 
     /** 8.63：**このインサートを通さない**（Phase 101／改善案㉘。仕様書5.7）。
 

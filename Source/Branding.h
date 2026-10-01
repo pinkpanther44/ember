@@ -158,6 +158,14 @@ namespace Branding
         ほかのエフェクトと同じく、Manta Studio側は`Manta ～`にしてあります（本人が選びました）。 */
     inline constexpr const char* limiterPluginName = isEmber ? "Af Elephant Limiter" : "Manta Limiter";
 
+    /** 8.336：12こめ＝ピッチ／フォルマントシフター（Phase 325／本人の仕様書・設計書）。
+
+        **Ember側はカイナンテナガザル**（Hainan gibbon。IUCNのCR＝近絶滅種、世界におよそ40頭）。
+        テナガザルは**つがいが歌を掛け合う「歌うサル」**で、声を扱うプラグインに合わせて本人が選びました。
+        「使う頻度が高い・欠かせないものは Ember ○○、それ以外は絶滅危惧種」（本人の方針。Phase 324）の後ろ側。
+        Manta Studio側は`Manta Shifter`（本人が選びました）。 */
+    inline constexpr const char* shifterPluginName = isEmber ? "Gibbon Voice" : "Manta Shifter";
+
     /** プリセットの置き場所（`%APPDATA%\<data>\Presets\<これ>\`）。
 
         **プラグイン名とは別に持ちます。** 名前を変えたときに
@@ -172,6 +180,7 @@ namespace Branding
     inline constexpr const char* drumsPresetFolder = "OrangutanDrums"; // 8.288（Phase 281）
     inline constexpr const char* scalePresetFolder = "Kakapo";         // 8.292（Phase 285）
     inline constexpr const char* limiterPresetFolder = "MantaLimiter"; // 8.333（Phase 322）
+    inline constexpr const char* shifterPresetFolder = "MantaShifter"; // 8.336（Phase 325）
 
     //==========================================================================
     // 既定値
