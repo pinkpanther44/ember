@@ -1630,7 +1630,7 @@ void PianoRollComponent::mouseMove (const juce::MouseEvent& e)
     // 8.345：**ノートの端では左右の矢印**（Phase 333／本人の要望「移動と伸縮の見分けがつかない」）。
     // 押したときと同じ判定（`grabModeForNote()`）を見るので、カーソルと動きは食い違いません。
     // 伸縮できるのは矢印とペン（ペンもノートの上では矢印と同じ。`mouseDown`）
-    auto cursor = juce::MouseCursor::NormalCursor;
+    auto hoverCursor = juce::MouseCursor::NormalCursor;
 
     if ((editTool == EditTool::arrow || editTool == EditTool::pencil)
          && e.x > keyboardWidth && e.y < getGridHeight())
@@ -1642,11 +1642,11 @@ void PianoRollComponent::mouseMove (const juce::MouseEvent& e)
             const auto mode = grabModeForNote (Note { juce::ValueTree (noteState) }, e.x);
 
             if (mode == DragMode::ResizeLeft || mode == DragMode::ResizeRight)
-                cursor = juce::MouseCursor::LeftRightResizeCursor;
+                hoverCursor = juce::MouseCursor::LeftRightResizeCursor;
         }
     }
 
-    setMouseCursor (cursor);
+    setMouseCursor (hoverCursor);   // `cursor`だと`juce::Component`のメンバーを隠す（GCC の -Wshadow。1.3.1）
 }
 
 int PianoRollComponent::getGridHeight() const
