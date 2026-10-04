@@ -818,7 +818,7 @@ void EQCurveComponent::drawHandles (juce::Graphics& g) const
             const juce::Rectangle<float> flagArea (flagX, centre.y - flagHeight * 0.5f, flagWidth, flagHeight);
 
             g.setColour (colour);
-            g.fillRoundedRectangle (flagArea, 2.0f);
+            g.fillRoundedRectangle (flagArea, AppColours::corner (2.0f));
 
             g.setColour (MantaTheme::graphBackground());
             g.setFont (juce::Font (juce::FontOptions (10.0f, juce::Font::bold)));

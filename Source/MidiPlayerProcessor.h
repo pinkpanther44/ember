@@ -172,6 +172,10 @@ private:
 
     std::vector<ScheduledNote> scheduledNotes;
 
+    /** 8.344：1ブロックぶんのノートオフとノートオン。**オフを先に**`midiMessages`へ混ぜる
+        （同じ時刻で逆になると、隣り合った同じ音程の次のノートが鳴らない）。 */
+    juce::MidiBuffer noteOffsThisBlock, noteOnsThisBlock;
+
     // 仕様書5.3.3：CCイベント（Phase 23）。時刻（サンプル）の昇順で並んでいる。
     // ノート一覧と同じロックで守る（同じタイミングで作り直すため）。
     std::vector<ScheduledCC> scheduledCCs;

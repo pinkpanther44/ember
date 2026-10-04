@@ -44,7 +44,7 @@ public:
         if (isMouseOver) colour = colour.brighter (0.35f);
 
         g.setColour (colour);
-        g.fillRoundedRectangle (bar, barWidth * 0.5f);
+        g.fillRoundedRectangle (bar, AppColours::corner (barWidth * 0.5f));
     }
 
 private:

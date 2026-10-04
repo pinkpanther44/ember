@@ -894,6 +894,34 @@ namespace LimiterSelfTest
                                              + (layoutProblems.isEmpty() ? juce::String() : ": " + layoutProblems.joinIntoString ("; ")));
             }
 
+            // 8.342：**下の帯の中の部品は、帯の端から 6 px 以上離す**（本人の指定「余白をとって見た目を整える」）。
+            // 前は帯を塗る位置と部品を置く位置を別々に計算していて、見出しやボタンが帯の上端に貼り付いていた。
+            // 帯の外の部品も、帯に 6 px より近づかない
+            {
+                juce::StringArray bandProblems;
+                const auto band = editor->getBandAreaForTesting();
+                const auto inner = band.reduced (6);
+
+                for (auto* child : editor->getChildren())
+                {
+                    const auto bounds = child->getBounds();
+
+                    if (! bounds.intersects (band.expanded (6)) || inner.contains (bounds))
+                        continue;
+
+                    const auto name = dynamic_cast<juce::Button*> (child) != nullptr ? static_cast<juce::Button*> (child)->getButtonText()
+                                    : dynamic_cast<juce::Label*> (child) != nullptr ? static_cast<juce::Label*> (child)->getText()
+                                    : juce::String (typeid (*child).name());
+
+                    bandProblems.add ("\"" + name + "\" " + bounds.toString());
+                }
+
+                check (! band.isEmpty() && bandProblems.isEmpty(),
+                       "every control in the bottom band keeps 6 px from its edges (band " + band.toString() + ")"
+                         + (bandProblems.isEmpty() ? juce::String() : ": too close: " + bandProblems.joinIntoString ("; ")));
+            }
+
+
             feedMusic (processor, editor, 6.0);
 
             juce::Image image (juce::Image::ARGB, editor->getWidth(), editor->getHeight(), true);

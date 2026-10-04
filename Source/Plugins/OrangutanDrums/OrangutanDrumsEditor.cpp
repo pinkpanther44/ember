@@ -205,14 +205,14 @@ void DrumPadButton::paint (juce::Graphics& g)
         fill = fill.brighter (0.15f);
 
     g.setColour (juce::Colours::black.withAlpha (0.16f));
-    g.fillRoundedRectangle (bounds.translated (0.0f, 1.5f), corner);
+    g.fillRoundedRectangle (bounds.translated (0.0f, 1.5f), AppColours::corner (corner));
 
     g.setColour (fill);
-    g.fillRoundedRectangle (bounds, corner);
+    g.fillRoundedRectangle (bounds, AppColours::corner (corner));
 
     g.setColour (selected ? OrangutanDrumsTheme::fieldHighlight()
                           : OrangutanDrumsTheme::fieldInk().withAlpha (0.35f));
-    g.drawRoundedRectangle (bounds.reduced (0.5f), corner, selected ? 2.0f : 1.0f);
+    g.drawRoundedRectangle (bounds.reduced (0.5f), AppColours::corner (corner), selected ? 2.0f : 1.0f);
 
     // 明るく光っているときは、文字を白へ寄せます（読めなくならないように）
     const auto ink = glow > 0.45f ? juce::Colours::white : OrangutanDrumsTheme::fieldInk();
@@ -290,10 +290,10 @@ void DrumEngineBadge::paint (juce::Graphics& g)
     // 8.290：**絵の上の色で**（Phase 283）。テーマの地（`graphBackground()`）だと、
     // ダークで**明るい絵の上に黒い箱**が浮きます
     g.setColour (OrangutanDrumsTheme::fieldKnobBody().withAlpha (0.88f));
-    g.fillRoundedRectangle (bounds, 5.0f);
+    g.fillRoundedRectangle (bounds, AppColours::corner (5.0f));
 
     g.setColour (OrangutanDrumsTheme::fieldInk().withAlpha (0.35f));
-    g.drawRoundedRectangle (bounds, 5.0f, 1.0f);
+    g.drawRoundedRectangle (bounds, AppColours::corner (5.0f), 1.0f);
 
     // **DSPの表をそのまま引くこと**（数字を2箇所に書かない。1.27）
     const auto range = orangutan::engineDecayRange (currentEngine);
@@ -946,10 +946,10 @@ void OrangutanDrumsEditor::drawTracked (juce::Graphics& g, const juce::String& t
 void OrangutanDrumsEditor::drawPanel (juce::Graphics& g, juce::Rectangle<int> area) const
 {
     g.setColour (MantaTheme::panelBackground());
-    g.fillRoundedRectangle (area.toFloat(), 8.0f);
+    g.fillRoundedRectangle (area.toFloat(), AppColours::corner (8.0f));
 
     g.setColour (MantaTheme::border());
-    g.drawRoundedRectangle (area.toFloat().reduced (0.5f), 8.0f, 1.0f);
+    g.drawRoundedRectangle (area.toFloat().reduced (0.5f), AppColours::corner (8.0f), 1.0f);
 }
 
 void OrangutanDrumsEditor::drawField (juce::Graphics& g) const
@@ -958,7 +958,7 @@ void OrangutanDrumsEditor::drawField (juce::Graphics& g) const
     const juce::Rectangle<int> area (contentX, imageY, contentW, imageH);
 
     juce::Path rounded;
-    rounded.addRoundedRectangle (area.toFloat(), 10.0f);
+    rounded.addRoundedRectangle (area.toFloat(), AppColours::corner (10.0f));
 
     {
         juce::Graphics::ScopedSaveState save (g);
@@ -982,7 +982,7 @@ void OrangutanDrumsEditor::drawField (juce::Graphics& g) const
     }
 
     g.setColour (juce::Colours::white.withAlpha (0.5f));
-    g.drawRoundedRectangle (area.toFloat().reduced (0.5f), 10.0f, 1.0f);
+    g.drawRoundedRectangle (area.toFloat().reduced (0.5f), AppColours::corner (10.0f), 1.0f);
 
     // 頁とマスターの区切り。**枠にはしません**——絵が切れて見えます
     g.setColour (OrangutanDrumsTheme::fieldInk().withAlpha (0.18f));
@@ -1036,10 +1036,10 @@ void OrangutanDrumsEditor::paint (juce::Graphics& g)
                                           contentW - hintInset * 2, 32);
 
         g.setColour (MantaTheme::graphBackground());
-        g.fillRoundedRectangle (area.toFloat(), 5.0f);
+        g.fillRoundedRectangle (area.toFloat(), AppColours::corner (5.0f));
 
         g.setColour (MantaTheme::border().withAlpha (0.6f));
-        g.drawRoundedRectangle (area.toFloat().reduced (0.5f), 5.0f, 1.0f);
+        g.drawRoundedRectangle (area.toFloat().reduced (0.5f), AppColours::corner (5.0f), 1.0f);
     }
 
     //--------------------------------------------------------------------------

@@ -1,5 +1,6 @@
 #include "MidiFileExporter.h"
 #include "MidiCCMessage.h" // 仕様書5.3.3：CC番号→MIDIメッセージの対応（再生側と共有）
+#include "NoteOverlap.h"   // 8.344：同じ音程の重なりを解く（再生側と共有）
 #include "Utf8.h"
 
 juce::String MidiFileExporter::exportToFile (const ProjectModel& project, const juce::File& file)
@@ -147,21 +148,31 @@ juce::String MidiFileExporter::exportToFile (const ProjectModel& project, const 
                 pendingNotes[chokeTargets[i]].endSeconds = chokeNotes[i].endTime;
         }
 
-        for (const auto& pending : pendingNotes)
+        // 8.344：**同じ音程の重なりを解く**（Phase 333）。再生側と同じ関数（`NoteOverlap.h`）
+        trimSamePitchOverlaps (pendingNotes, &PendingNote::pitch, &PendingNote::startSeconds, &PendingNote::endSeconds);
+
+        // 8.344：**オフを全部先に積み、オンをあとから積む**（Phase 333）。
+        // `MidiMessageSequence::addEvent()`は同じ時刻のものを**足した順**に並べるので、
+        // ノートごとにオン・オフを積むと、隣り合った同じ音程で「次のオン → 前のオフ」になることがあり、
+        // `updateMatchedPairs()`が次のノートを長さ 0 にしていた（再生側で鳴らなかったのと同じ形）
+        for (const bool noteOns : { false, true })
         {
-            if (pending.endSeconds <= pending.startSeconds)
-                continue; // チョークで潰れたノートは書き出さない
+            for (const auto& pending : pendingNotes)
+            {
+                if (pending.endSeconds <= pending.startSeconds)
+                    continue; // チョークで潰れたノートは書き出さない
 
-            // 8.138：**ノートは秒を通ります**（Phase 176）。チョークグループが
-            // 「後の音が前の音を止める」を**秒で**計算するため（再生側と同じ`applyChokeGroups()`
-            // を使う決まり。1.14）。**往復しても値は変わりません**——
-            // `getTimeForBeat()`と`getBeatAtTime()`は同じ表の逆関数どうしです（8.101）
-            const double startTicks = beatsToTicks (project.getBeatPositionAt (pending.startSeconds));
-            const double endTicks = beatsToTicks (project.getBeatPositionAt (pending.endSeconds));
-
-            sequence.addEvent (juce::MidiMessage::noteOn (1, pending.pitch,
-                                                           (juce::uint8) pending.velocity), startTicks);
-            sequence.addEvent (juce::MidiMessage::noteOff (1, pending.pitch), endTicks);
+                // 8.138：**ノートは秒を通ります**（Phase 176）。チョークグループが
+                // 「後の音が前の音を止める」を**秒で**計算するため（再生側と同じ`applyChokeGroups()`
+                // を使う決まり。1.14）。**往復しても値は変わりません**——
+                // `getTimeForBeat()`と`getBeatAtTime()`は同じ表の逆関数どうしです（8.101）
+                if (noteOns)
+                    sequence.addEvent (juce::MidiMessage::noteOn (1, pending.pitch, (juce::uint8) pending.velocity),
+                                       beatsToTicks (project.getBeatPositionAt (pending.startSeconds)));
+                else
+                    sequence.addEvent (juce::MidiMessage::noteOff (1, pending.pitch),
+                                       beatsToTicks (project.getBeatPositionAt (pending.endSeconds)));
+            }
         }
 
         sequence.updateMatchedPairs();

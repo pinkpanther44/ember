@@ -157,9 +157,16 @@ public:
     static constexpr int comboColumnWidth = 236;
     static constexpr int meterWidth = 200;
 
+    /** 8.342：下の帯の高さ（地と中身で同じ矩形を使う）と、帯の内側の余白。
+        中身の高さ 176 = ボタンの列 28 ＋ 8 ＋ 選択欄 5 行 × 28。 */
+    static constexpr int bandHeight = 192;
+    static constexpr int bandPaddingX = 10;
+    static constexpr int bandPaddingY = 8;
+
     /** プレビューと自己検査のため。 */
     void tickForTesting() { timerCallback(); }
     LimiterScrollDisplay& getScrollDisplayForTesting() noexcept { return scroll; }
+    juce::Rectangle<int> getBandAreaForTesting() const noexcept { return bandArea; }
 
 private:
     void timerCallback() override;
@@ -213,6 +220,8 @@ private:
     AppColours::Theme lastDawTheme = AppColours::Theme::Dark;
 
     LimiterMeters::Frame latestFrame;
+
+    juce::Rectangle<int> bandArea;   ///< 8.342：下の帯（`resized()`で決め、`paint()`も同じものを塗る）
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MantaLimiterEditor)
 };

@@ -60,9 +60,9 @@ public:
         auto bounds = getLocalBounds().toFloat().reduced (2.0f);
 
         g.setColour (MantaTheme::graphBackground());
-        g.fillRoundedRectangle (bounds, 4.0f);
+        g.fillRoundedRectangle (bounds, AppColours::corner (4.0f));
         g.setColour (MantaTheme::border());
-        g.drawRoundedRectangle (bounds, 4.0f, 1.0f);
+        g.drawRoundedRectangle (bounds, AppColours::corner (4.0f), 1.0f);
 
         const float a = apvts.getRawParameterValue (attackID)->load();
         const float d = apvts.getRawParameterValue (decayID)->load();
@@ -183,9 +183,9 @@ public:
 
         auto box = full.toFloat().reduced (1.0f);
         g.setColour (MantaTheme::graphBackground());
-        g.fillRoundedRectangle (box, 4.0f);
+        g.fillRoundedRectangle (box, AppColours::corner (4.0f));
         g.setColour (MantaTheme::border());
-        g.drawRoundedRectangle (box, 4.0f, 1.0f);
+        g.drawRoundedRectangle (box, AppColours::corner (4.0f), 1.0f);
 
         const float midY = box.getCentreY();
         g.setColour (MantaTheme::grid());
@@ -308,7 +308,7 @@ private:
     void drawBar (juce::Graphics& g, juce::Rectangle<int> row, float db) const
     {
         g.setColour (MantaTheme::graphBackground());
-        g.fillRoundedRectangle (row.toFloat(), 3.0f);
+        g.fillRoundedRectangle (row.toFloat(), AppColours::corner (3.0f));
 
         const float lit = dbToNormalised (db) * numSegments;
         const float segmentWidth = (float) row.getWidth() / numSegments;
@@ -326,7 +326,7 @@ private:
             else                           on = MantaTheme::accent();         // パープル（普段）
 
             g.setColour ((float) i < lit ? on : MantaTheme::grid());
-            g.fillRoundedRectangle (segment, 1.0f);
+            g.fillRoundedRectangle (segment, AppColours::corner (1.0f));
         }
     }
 
@@ -379,9 +379,9 @@ public:
         auto box = getLocalBounds().toFloat().reduced (1.0f);
 
         g.setColour (MantaTheme::graphBackground());
-        g.fillRoundedRectangle (box, 4.0f);
+        g.fillRoundedRectangle (box, AppColours::corner (4.0f));
         g.setColour (MantaTheme::border());
-        g.drawRoundedRectangle (box, 4.0f, 1.0f);
+        g.drawRoundedRectangle (box, AppColours::corner (4.0f), 1.0f);
 
         const float midY = box.getCentreY();
         g.setColour (MantaTheme::grid());

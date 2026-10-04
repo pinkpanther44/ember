@@ -1017,6 +1017,11 @@ private:
     /** その座標がレーンの上端（掴みしろの中）かどうか。 */
     bool isOnLaneResizeEdge (juce::Point<int> position) const;
 
+    /** 8.345：**ノートを掴んだらどうなるか**（移動／右端で伸縮／左端で伸縮。Phase 333）。
+        `mouseDown()`（実際の動き）と`mouseMove()`（カーソル）の両方がこれを見る——
+        片方だけ変えると、伸縮のカーソルなのに動く、が起きる。 */
+    DragMode grabModeForNote (const Note& note, int x) const;
+
     //==========================================================================
     // 仕様書5.9：ズーム（Phase 67／8.1のG3）
     //

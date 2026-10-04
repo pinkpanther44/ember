@@ -157,10 +157,10 @@ void RaccoArticulationChip::paintButton (juce::Graphics& g, bool isMouseOver, bo
         fill = on ? fill.brighter (0.12f) : fill.brighter (0.25f);
 
     g.setColour (fill);
-    g.fillRoundedRectangle (bounds, corner);
+    g.fillRoundedRectangle (bounds, AppColours::corner (corner));
 
     g.setColour (on ? onColour.darker (0.25f) : MantaTheme::border());
-    g.drawRoundedRectangle (bounds, corner, 1.0f);
+    g.drawRoundedRectangle (bounds, AppColours::corner (corner), 1.0f);
 
     // 上＝キースイッチのノート（小さく）／下＝奏法の名前
     const auto textColour = on ? juce::Colours::white : MantaTheme::text();
@@ -193,10 +193,10 @@ void RaccoArticulationBadge::paint (juce::Graphics& g)
     auto bounds = getLocalBounds().toFloat().reduced (0.5f);
 
     g.setColour (MantaTheme::graphBackground());
-    g.fillRoundedRectangle (bounds, 5.0f);
+    g.fillRoundedRectangle (bounds, AppColours::corner (5.0f));
 
     g.setColour (MantaTheme::border());
-    g.drawRoundedRectangle (bounds, 5.0f, 1.0f);
+    g.drawRoundedRectangle (bounds, AppColours::corner (5.0f), 1.0f);
 
     // 奏法によって実際に掛かるT60（`RaccoGuitarVoice::applyEffectiveTone()`と同じ考え）。
     // **ベロシティは1.0として描いています**——押す前に見るものなので
@@ -672,20 +672,20 @@ void RaccoGuitarEditor::drawTracked (juce::Graphics& g, const juce::String& text
 void RaccoGuitarEditor::drawPanel (juce::Graphics& g, juce::Rectangle<int> area) const
 {
     g.setColour (MantaTheme::panelBackground());
-    g.fillRoundedRectangle (area.toFloat(), 8.0f);
+    g.fillRoundedRectangle (area.toFloat(), AppColours::corner (8.0f));
 
     g.setColour (MantaTheme::border());
-    g.drawRoundedRectangle (area.toFloat().reduced (0.5f), 8.0f, 1.0f);
+    g.drawRoundedRectangle (area.toFloat().reduced (0.5f), AppColours::corner (8.0f), 1.0f);
 }
 
 void RaccoGuitarEditor::drawBox (juce::Graphics& g, juce::Rectangle<int> area,
                                   const juce::String& title) const
 {
     g.setColour (MantaTheme::graphBackground());
-    g.fillRoundedRectangle (area.toFloat(), 6.0f);
+    g.fillRoundedRectangle (area.toFloat(), AppColours::corner (6.0f));
 
     g.setColour (MantaTheme::border().withAlpha (0.6f));
-    g.drawRoundedRectangle (area.toFloat().reduced (0.5f), 6.0f, 1.0f);
+    g.drawRoundedRectangle (area.toFloat().reduced (0.5f), AppColours::corner (6.0f), 1.0f);
 
     g.setColour (MantaTheme::textDim());
     drawTracked (g, title, { (float) area.getX() + 10.0f, (float) area.getY() + 17.0f },
@@ -697,7 +697,7 @@ void RaccoGuitarEditor::drawField (juce::Graphics& g) const
     const juce::Rectangle<int> area (contentX, fieldY, contentW, fieldH);
 
     juce::Path rounded;
-    rounded.addRoundedRectangle (area.toFloat(), 10.0f);
+    rounded.addRoundedRectangle (area.toFloat(), AppColours::corner (10.0f));
 
     {
         // **`ScopedSaveState`が要ります**——`reduceClipRegion()`は戻らないので、
@@ -731,7 +731,7 @@ void RaccoGuitarEditor::drawField (juce::Graphics& g) const
     }
 
     g.setColour (juce::Colours::white.withAlpha (0.5f));
-    g.drawRoundedRectangle (area.toFloat().reduced (0.5f), 10.0f, 1.0f);
+    g.drawRoundedRectangle (area.toFloat().reduced (0.5f), AppColours::corner (10.0f), 1.0f);
 
     g.setColour (RaccoGuitarTheme::fieldInkDim());
     drawTracked (g, "RACCO / STRING FIELD",
@@ -763,10 +763,10 @@ void RaccoGuitarEditor::paint (juce::Graphics& g)
     const juce::Rectangle<int> hintArea (hintX, headerY + 14, hintW, headerH - 28);
 
     g.setColour (MantaTheme::graphBackground());
-    g.fillRoundedRectangle (hintArea.toFloat(), 6.0f);
+    g.fillRoundedRectangle (hintArea.toFloat(), AppColours::corner (6.0f));
 
     g.setColour (MantaTheme::border().withAlpha (0.6f));
-    g.drawRoundedRectangle (hintArea.toFloat().reduced (0.5f), 6.0f, 1.0f);
+    g.drawRoundedRectangle (hintArea.toFloat().reduced (0.5f), AppColours::corner (6.0f), 1.0f);
 
     g.setColour (RaccoGuitarTheme::highlight());
     g.fillEllipse ((float) hintArea.getX() + 11.0f, (float) hintArea.getCentreY() - 2.5f, 5.0f, 5.0f);

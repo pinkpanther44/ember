@@ -150,6 +150,12 @@ namespace StorageLocations
         return folder;
     }
 
+    void createExportFolders (const juce::File& projectFile)
+    {
+        getProjectFolder (projectFile, ProjectFolder::stems, true);
+        getProjectFolder (projectFile, ProjectFolder::mixdown, true);
+    }
+
     juce::File makeProjectFileInOwnFolder (const juce::File& chosenFile)
     {
         return makeProjectFileInOwnFolder (chosenFile, getFolder (Kind::projects));

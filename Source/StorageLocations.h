@@ -129,6 +129,13 @@ namespace StorageLocations
     juce::File getProjectFolder (const juce::File& projectFile, ProjectFolder kind,
                                   bool createIfNeeded);
 
+    /** 8.346：**書き出し先のフォルダ（`Stems`・`Mixdown`）を、プロジェクトの隣に作る**（Phase 333／本人の要望）。
+
+        保存したときに呼びます。前は書き出すときまで作らなかったので、ステムの保存先を選ぶ画面が
+        **まだ無い`Stems`を開こうとして「フォルダが見つかりません」と注意**していました。
+        **既にあれば何もしません**。`projectFile`が空なら何もしません。 */
+    void createExportFolders (const juce::File& projectFile);
+
     /** 8.286：**保存先を「そのプロジェクトのフォルダの中」へ直す**（Phase 279）。
 
         `chosenFile`が**`Kind::projects`の直下**なら、`<根>/<名前>/<名前>.em1`へ直します。

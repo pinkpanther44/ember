@@ -1647,6 +1647,95 @@ namespace ShifterSelfTest
                                                    + (layoutProblems.isEmpty() ? juce::String() : ": " + layoutProblems.joinIntoString ("; ")));
             }
 
+            // 8.342：**下の帯の中の部品は、帯の端から 6 px 以上離す**（本人の指定「余白をとって見た目を整える」）。
+            // 前は帯を塗る位置と部品を置く位置を別々に計算していて、見出しやボタンが帯の上端に貼り付いていた。
+            // 帯の外の部品も、帯に 6 px より近づかない
+            {
+                juce::StringArray bandProblems;
+                const auto band = editor->getBandAreaForTesting();
+                const auto inner = band.reduced (6);
+
+                for (auto* child : editor->getChildren())
+                {
+                    const auto bounds = child->getBounds();
+
+                    if (! bounds.intersects (band.expanded (6)) || inner.contains (bounds))
+                        continue;
+
+                    const auto name = dynamic_cast<juce::Button*> (child) != nullptr ? static_cast<juce::Button*> (child)->getButtonText()
+                                    : dynamic_cast<juce::Label*> (child) != nullptr ? static_cast<juce::Label*> (child)->getText()
+                                    : juce::String (typeid (*child).name());
+
+                    bandProblems.add ("\"" + name + "\" " + bounds.toString());
+                }
+
+                check (! band.isEmpty() && bandProblems.isEmpty(),
+                       "every control in the bottom band keeps 6 px from its edges (band " + band.toString() + ")"
+                         + (bandProblems.isEmpty() ? juce::String() : ": too close: " + bandProblems.joinIntoString ("; ")));
+            }
+
+
+            // 8.343：右の表示と左の列の**縦幅を揃える**（本人の指定）。表示の上端は左の列の上端（Pitch の見出しより上）、
+            // 下端はモードのボタンの下端と同じ
+            {
+                auto& view = editor->getPitchViewForTesting();
+                int modesTop = -1, modesBottom = -1;
+
+                for (auto* child : editor->getChildren())
+                    if (auto* button = dynamic_cast<juce::TextButton*> (child))
+                        if (ShifterParams::modeNames().contains (button->getButtonText()))
+                        {
+                            modesTop = button->getY();
+                            modesBottom = button->getBottom();
+                        }
+
+                const auto pitchKnobTop = editor->getPitchSliderForTesting().getY();
+
+                check (modesBottom > 0 && view.getBottom() == modesBottom && view.getY() < pitchKnobTop && view.getY() < modesTop,
+                       "the pitch display " + view.getBounds().toString() + " ends level with the mode buttons (bottom "
+                         + juce::String (modesBottom) + ") and starts above the Pitch knob (" + juce::String (pitchKnobTop) + ")");
+            }
+
+            // 8.342：エンジンの切り替えは**ツールバーの中、プリセットの右横**（本人の指定）。
+            // どのボタン（Undo〜◀▶）よりも右にあり、ツールバーの部品と重ならず、帯から出ない
+            {
+                auto& engineSwitch = editor->getEngineSwitchForTesting();
+                auto& engineCaption = editor->getEngineCaptionForTesting();
+                auto* toolbar = dynamic_cast<MantaPluginToolbar*> (engineSwitch.getParentComponent());
+                juce::StringArray placementProblems;
+
+                if (toolbar == nullptr || engineCaption.getParentComponent() != toolbar)
+                {
+                    placementProblems.add ("the switch and its caption are not in the toolbar");
+                }
+                else
+                {
+                    if (! toolbar->getLocalBounds().contains (engineSwitch.getBounds().getUnion (engineCaption.getBounds())))
+                        placementProblems.add ("outside the toolbar");
+
+                    if (engineCaption.getRight() > engineSwitch.getX())
+                        placementProblems.add ("the caption runs into the switch");
+
+                    for (auto* child : toolbar->getChildren())
+                    {
+                        if (child == &engineSwitch || child == &engineCaption || ! child->isVisible())
+                            continue;
+
+                        if (auto* button = dynamic_cast<juce::Button*> (child))
+                            if (button->getRight() > engineCaption.getX())
+                                placementProblems.add ("\"" + button->getButtonText() + "\" is to the right of the engine");
+
+                        if (child->getBounds().intersects (engineSwitch.getBounds().getUnion (engineCaption.getBounds())))
+                            placementProblems.add (juce::String (typeid (*child).name()) + " overlaps the engine");
+                    }
+                }
+
+                check (placementProblems.isEmpty(),
+                       "the engine switch sits in the toolbar, right of the preset box "
+                         + engineCaption.getBounds().getUnion (engineSwitch.getBounds()).toString()
+                         + (placementProblems.isEmpty() ? juce::String() : ": " + placementProblems.joinIntoString ("; ")));
+            }
+
             // 8.339：トグルスイッチ（1 PSOLA ⇔ 2 Spectral）。最初は PSOLA、押すと Spectral、もう一度で PSOLA
             {
                 auto& engineSwitch = editor->getEngineSwitchForTesting();

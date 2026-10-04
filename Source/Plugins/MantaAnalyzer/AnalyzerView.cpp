@@ -1,5 +1,7 @@
 #include "AnalyzerView.h"
 
+#include "../../AppColours.h"
+
 #include <cmath>
 
 namespace
@@ -488,9 +490,9 @@ void AnalyzerView::paintReadout (juce::Graphics& g, juce::Rectangle<int> plot)
     const juce::Rectangle<int> box (boxX, plot.getY() + 8, boxW, boxH);
 
     g.setColour (colours.background.withAlpha (0.85f));
-    g.fillRoundedRectangle (box.toFloat(), 4.0f);
+    g.fillRoundedRectangle (box.toFloat(), AppColours::corner (4.0f));
     g.setColour (colours.text.withAlpha (0.25f));
-    g.drawRoundedRectangle (box.toFloat(), 4.0f, 1.0f);
+    g.drawRoundedRectangle (box.toFloat(), AppColours::corner (4.0f), 1.0f);
 
     g.setColour (colours.text);
 

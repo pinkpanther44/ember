@@ -62,7 +62,7 @@ public:
         const float radius = area.getHeight() * 0.5f;
 
         g.setColour (MantaTheme::graphBackground());
-        g.fillRoundedRectangle (area, radius);
+        g.fillRoundedRectangle (area, AppColours::corner (radius));
 
         if (isActive && value > 0.0f)
         {
@@ -70,11 +70,11 @@ public:
 
             // **副の色**（Mix・Wow・Flutterと同じ「原音との関わり」の側。8.204の表）
             g.setColour (MantaDelayTheme::highlight());
-            g.fillRoundedRectangle (filled, radius);
+            g.fillRoundedRectangle (filled, AppColours::corner (radius));
         }
 
         g.setColour (MantaTheme::border());
-        g.drawRoundedRectangle (area.reduced (0.5f), radius, 1.0f);
+        g.drawRoundedRectangle (area.reduced (0.5f), AppColours::corner (radius), 1.0f);
     }
 
 private:

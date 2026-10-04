@@ -82,7 +82,7 @@ public:
             const bool isSelected = tap == selected;
 
             g.setColour (MantaTheme::graphBackground().withAlpha (isActive ? 1.0f : 0.45f));
-            g.fillRoundedRectangle (cell.toFloat(), 3.0f);
+            g.fillRoundedRectangle (cell.toFloat(), AppColours::corner (3.0f));
 
             //------------------------------------------------------------------
             // 下の行：step（「Timeつまみの何個ぶん後ろか」）
@@ -117,7 +117,7 @@ public:
                                              4.0f, height);
 
                 g.setColour (MantaDelayTheme::accent().withAlpha (level > 0.0f ? 1.0f : 0.35f));
-                g.fillRoundedRectangle (bar, 1.5f);
+                g.fillRoundedRectangle (bar, AppColours::corner (1.5f));
 
                 // 真ん中の目印（Panが振れているかが一目で分かる）
                 g.setColour (MantaTheme::grid());
@@ -133,7 +133,7 @@ public:
                 g.setColour (MantaDelayTheme::highlight());
                 g.drawRoundedRectangle (juce::Rectangle<int> (area.getX() + tap * cellWidth, area.getY(),
                                                                cellWidth, area.getHeight())
-                                            .reduced (2, 0).toFloat().reduced (0.5f), 3.0f, 1.5f);
+                                            .reduced (2, 0).toFloat().reduced (0.5f), AppColours::corner (3.0f), 1.5f);
             }
         }
     }

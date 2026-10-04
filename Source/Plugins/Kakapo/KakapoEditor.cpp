@@ -173,10 +173,10 @@ void KakapoPitchClassPanel::paint (juce::Graphics& g)
     auto bounds = getLocalBounds().toFloat().reduced (0.5f);
 
     g.setColour (KakapoTheme::fieldPanel());
-    g.fillRoundedRectangle (bounds, 8.0f);
+    g.fillRoundedRectangle (bounds, AppColours::corner (8.0f));
 
     g.setColour (KakapoTheme::fieldPanelEdge());
-    g.drawRoundedRectangle (bounds, 8.0f, 1.0f);
+    g.drawRoundedRectangle (bounds, AppColours::corner (8.0f), 1.0f);
 
     g.setColour (KakapoTheme::fieldInkDim());
     g.setFont (juce::Font (juce::FontOptions (9.5f, juce::Font::bold)));
@@ -207,7 +207,7 @@ void KakapoPitchClassPanel::paint (juce::Graphics& g)
         // 地（どこまで伸びるか）。**薄くすること**——濃いと、鳴っていない音まで
         // 「いっぱいまで鳴っている」ように見えます
         g.setColour (KakapoTheme::fieldInk().withAlpha (0.05f));
-        g.fillRoundedRectangle (x, (float) barsArea.getY(), barWidth, (float) barsArea.getHeight(), 3.0f);
+        g.fillRoundedRectangle (x, (float) barsArea.getY(), barWidth, (float) barsArea.getHeight(), AppColours::corner (3.0f));
 
         if (loudest > 0.0f)
         {
@@ -222,7 +222,7 @@ void KakapoPitchClassPanel::paint (juce::Graphics& g)
 
                 g.setColour (colour);
                 g.fillRoundedRectangle (x, (float) barsArea.getBottom() - height,
-                                         barWidth, height, 3.0f);
+                                         barWidth, height, AppColours::corner (3.0f));
             }
         }
 
@@ -263,10 +263,10 @@ void KakapoCandidatePanel::drawCandidate (juce::Graphics& g, juce::Rectangle<int
     if (favoured)
     {
         g.setColour (KakapoTheme::fieldAccent().withAlpha (0.12f));
-        g.fillRoundedRectangle (bounds, 6.0f);
+        g.fillRoundedRectangle (bounds, AppColours::corner (6.0f));
 
         g.setColour (KakapoTheme::fieldAccent().withAlpha (0.55f));
-        g.drawRoundedRectangle (bounds.reduced (0.5f), 6.0f, 1.0f);
+        g.drawRoundedRectangle (bounds.reduced (0.5f), AppColours::corner (6.0f), 1.0f);
     }
 
     auto inner = area.reduced (14, 10);
@@ -303,14 +303,14 @@ void KakapoCandidatePanel::drawCandidate (juce::Graphics& g, juce::Rectangle<int
     auto barArea = inner.removeFromTop (12).toFloat();
 
     g.setColour (KakapoTheme::fieldInk().withAlpha (0.10f));
-    g.fillRoundedRectangle (barArea, 3.0f);
+    g.fillRoundedRectangle (barArea, AppColours::corner (3.0f));
 
     if (hasEnoughNotes && scaleCandidate.matchRatio > 0.0f)
     {
         g.setColour (favoured ? KakapoTheme::fieldAccent()
                               : KakapoTheme::fieldAccent().withAlpha (0.55f));
         g.fillRoundedRectangle (barArea.withWidth (barArea.getWidth() * scaleCandidate.matchRatio),
-                                 3.0f);
+                                 AppColours::corner (3.0f));
     }
 
     // 構成音（**どの音が入っているのか**）
@@ -328,10 +328,10 @@ void KakapoCandidatePanel::paint (juce::Graphics& g)
     auto bounds = getLocalBounds().toFloat().reduced (0.5f);
 
     g.setColour (KakapoTheme::fieldPanel());
-    g.fillRoundedRectangle (bounds, 8.0f);
+    g.fillRoundedRectangle (bounds, AppColours::corner (8.0f));
 
     g.setColour (KakapoTheme::fieldPanelEdge());
-    g.drawRoundedRectangle (bounds, 8.0f, 1.0f);
+    g.drawRoundedRectangle (bounds, AppColours::corner (8.0f), 1.0f);
 
     auto area = getLocalBounds().reduced (14, 10);
 
@@ -381,10 +381,10 @@ void KakapoCentreBadge::paint (juce::Graphics& g)
     auto bounds = getLocalBounds().toFloat().reduced (0.5f);
 
     g.setColour (MantaTheme::graphBackground());
-    g.fillRoundedRectangle (bounds, 5.0f);
+    g.fillRoundedRectangle (bounds, AppColours::corner (5.0f));
 
     g.setColour (MantaTheme::border());
-    g.drawRoundedRectangle (bounds, 5.0f, 1.0f);
+    g.drawRoundedRectangle (bounds, AppColours::corner (5.0f), 1.0f);
 
     auto area = bounds.reduced (8.0f, 5.0f);
 
@@ -812,20 +812,20 @@ void KakapoEditor::drawTracked (juce::Graphics& g, const juce::String& text,
 void KakapoEditor::drawPanel (juce::Graphics& g, juce::Rectangle<int> area) const
 {
     g.setColour (MantaTheme::panelBackground());
-    g.fillRoundedRectangle (area.toFloat(), 8.0f);
+    g.fillRoundedRectangle (area.toFloat(), AppColours::corner (8.0f));
 
     g.setColour (MantaTheme::border());
-    g.drawRoundedRectangle (area.toFloat().reduced (0.5f), 8.0f, 1.0f);
+    g.drawRoundedRectangle (area.toFloat().reduced (0.5f), AppColours::corner (8.0f), 1.0f);
 }
 
 void KakapoEditor::drawBox (juce::Graphics& g, juce::Rectangle<int> area,
                              const juce::String& title) const
 {
     g.setColour (MantaTheme::graphBackground());
-    g.fillRoundedRectangle (area.toFloat(), 6.0f);
+    g.fillRoundedRectangle (area.toFloat(), AppColours::corner (6.0f));
 
     g.setColour (MantaTheme::border().withAlpha (0.6f));
-    g.drawRoundedRectangle (area.toFloat().reduced (0.5f), 6.0f, 1.0f);
+    g.drawRoundedRectangle (area.toFloat().reduced (0.5f), AppColours::corner (6.0f), 1.0f);
 
     g.setColour (MantaTheme::textDim());
     drawTracked (g, title, { (float) area.getX() + 10.0f, (float) area.getY() + 17.0f },
@@ -837,7 +837,7 @@ void KakapoEditor::drawField (juce::Graphics& g) const
     const juce::Rectangle<int> area (contentX, fieldY, contentW, fieldH);
 
     juce::Path rounded;
-    rounded.addRoundedRectangle (area.toFloat(), 10.0f);
+    rounded.addRoundedRectangle (area.toFloat(), AppColours::corner (10.0f));
 
     {
         juce::Graphics::ScopedSaveState save (g);
@@ -859,7 +859,7 @@ void KakapoEditor::drawField (juce::Graphics& g) const
     }
 
     g.setColour (juce::Colours::white.withAlpha (0.35f));
-    g.drawRoundedRectangle (area.toFloat().reduced (0.5f), 10.0f, 1.0f);
+    g.drawRoundedRectangle (area.toFloat().reduced (0.5f), AppColours::corner (10.0f), 1.0f);
 
     // **影を先に置くこと。** 苔の絵は場所で明るさが変わるので、白い字だけでは
     // 明るいところで消えます（1度そう写りました）
@@ -897,10 +897,10 @@ void KakapoEditor::paint (juce::Graphics& g)
     const juce::Rectangle<int> hintArea (hintX, headerY + 14, hintW, headerH - 28);
 
     g.setColour (MantaTheme::graphBackground());
-    g.fillRoundedRectangle (hintArea.toFloat(), 6.0f);
+    g.fillRoundedRectangle (hintArea.toFloat(), AppColours::corner (6.0f));
 
     g.setColour (MantaTheme::border().withAlpha (0.6f));
-    g.drawRoundedRectangle (hintArea.toFloat().reduced (0.5f), 6.0f, 1.0f);
+    g.drawRoundedRectangle (hintArea.toFloat().reduced (0.5f), AppColours::corner (6.0f), 1.0f);
 
     g.setColour (KakapoTheme::highlight());
     g.fillEllipse ((float) hintArea.getX() + 11.0f, (float) hintArea.getCentreY() - 2.5f, 5.0f, 5.0f);

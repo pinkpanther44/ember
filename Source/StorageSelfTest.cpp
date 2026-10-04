@@ -2,6 +2,7 @@
 
 #include "ProjectModel.h"
 #include "MidiPlayerProcessor.h"   // 8.307：ずらした量が鳴る位置に出ること（Phase 300）
+#include "MidiFileExporter.h"     // 8.344：同じ音程が続くノートの書き出し（Phase 333）
 #include "StorageLocations.h"
 #include "ExportOptions.h"   // 8.319：書き出したファイルの中身（Phase 312）
 #include "CrashLog.h"        // 8.320：起動時に知らせる記録（Phase 312）
@@ -10,6 +11,7 @@
 #include <juce_events/juce_events.h>
 
 #include <iostream>
+#include <map>
 
 namespace StorageSelfTest
 {
@@ -117,6 +119,18 @@ namespace StorageSelfTest
             // **読むだけでは作らないこと**（書き出しをやめただけで空のフォルダが増えない）
             check (! StorageLocations::getProjectFolder (projectFile, PF::stems, false).isDirectory(),
                     "asking where Stems would go does not create it");
+
+            // 8.346：**保存したら、書き出し先（Stems・Mixdown）も作る**（Phase 333／本人の要望）。
+            // 無いフォルダを選ぶ画面に渡すと、Windows が「フォルダが見つかりません」と注意していた
+            projectFile.getParentDirectory().createDirectory();
+            StorageLocations::createExportFolders (projectFile);
+            StorageLocations::createExportFolders (projectFile);   // 2回呼んでも困らない
+
+            check (StorageLocations::getProjectFolder (projectFile, PF::stems, false).isDirectory()
+                     && StorageLocations::getProjectFolder (projectFile, PF::mixdown, false).isDirectory(),
+                    "after a save, Stems and Mixdown are there next to the project file");
+
+            StorageLocations::createExportFolders (juce::File());   // 未保存：何もしない（落ちない）
         }
 
         //----------------------------------------------------------------------
@@ -258,6 +272,151 @@ namespace StorageSelfTest
 
             check (player.getEndPositionSamples() > 0,
                     "a note near the start is not thrown away by a big negative delay");
+        }
+
+        //----------------------------------------------------------------------
+        // 8.344：**同じ音程を続けて打つと、たまに鳴らない**（Phase 333／本人の報告。ベースでよく出た）。
+        //
+        // 同じ時刻に「前のノートのオフ」と「次のノートのオン」が来ると、**足した順**で並びます。
+        // 一覧の順（＝打ち込んだ順）で足していたので、**後ろのノートを先に打つと**「オン → オフ」になり、
+        // 鳴らした瞬間に止まっていました。ここでは**わざと後ろから打って**、その形を作ります。
+        // 単音の音源と同じ見方（オフはその音程を止める）で、鳴った区間を数えます
+
+        say ("--- the same pitch played back to back");
+
+        {
+            ProjectModel project;
+            project.createNewProject();
+
+            auto track = project.addTrack ("Bass", TrackType::Midi);
+
+            // 隣り合う 2 つ（後ろを先に打つ）：A [0.5, 1.0) と B [1.0, 1.5)
+            track.addNote (40, 100, 1.0, 0.5, nullptr);
+            track.addNote (40, 100, 0.5, 0.5, nullptr);
+            // 重なる 2 つ（後ろを先に打つ）：C [2.0, 2.8) と D [2.5, 3.0) → C は 2.5 で切れる
+            track.addNote (45, 100, 2.5, 0.5, nullptr);
+            track.addNote (45, 100, 2.0, 0.8, nullptr);
+            // 頭が同じ 2 つ：長いほう [3.5, 3.9) だけ残る
+            track.addNote (47, 90, 3.5, 0.2, nullptr);
+            track.addNote (47, 100, 3.5, 0.4, nullptr);
+
+            constexpr double sampleRate = 48000.0;
+            constexpr int blockSize = 512;
+
+            auto at = [] (double seconds) { return (juce::int64) (seconds * sampleRate); };
+
+            struct Segment { int pitch; juce::int64 from, to; };
+
+            const std::vector<Segment> expected { { 40, at (0.5), at (1.0) }, { 40, at (1.0), at (1.5) },
+                                                  { 45, at (2.0), at (2.5) }, { 45, at (2.5), at (3.0) },
+                                                  { 47, at (3.5), at (3.9) } };
+
+            Transport transport;
+            transport.prepare (sampleRate);
+
+            MidiPlayerProcessor player { project, transport, track.getId() };
+            player.prepareToPlay (sampleRate, blockSize);
+            player.prepareNotesForPlayback();
+            transport.start (at (4.5));
+
+            juce::AudioBuffer<float> buffer (2, blockSize);
+            juce::MidiBuffer midi;
+            std::map<int, juce::int64> soundingSince;
+            std::vector<Segment> heard;
+
+            while (transport.isPlaying() && transport.getPositionSamples() < at (4.5))
+            {
+                const auto blockStart = transport.getPositionSamples();
+                midi.clear();
+                player.processBlock (buffer, midi);
+
+                for (const auto metadata : midi)
+                {
+                    const auto message = metadata.getMessage();
+                    const auto time = blockStart + metadata.samplePosition;
+
+                    if (message.isNoteOn())
+                    {
+                        soundingSince[message.getNoteNumber()] = time;
+                    }
+                    else if (message.isNoteOff())
+                    {
+                        auto it = soundingSince.find (message.getNoteNumber());
+
+                        if (it != soundingSince.end())
+                        {
+                            heard.push_back ({ it->first, it->second, time });
+                            soundingSince.erase (it);
+                        }
+                    }
+                }
+
+                transport.advance (blockSize);
+            }
+
+            auto describe = [] (const std::vector<Segment>& segments)
+            {
+                juce::StringArray parts;
+
+                for (const auto& s : segments)
+                    parts.add (juce::String (s.pitch) + " " + juce::String ((double) s.from / sampleRate, 3)
+                                 + "-" + juce::String ((double) s.to / sampleRate, 3));
+
+                return parts.joinIntoString (", ");
+            };
+
+            std::sort (heard.begin(), heard.end(), [] (const Segment& a, const Segment& b)
+                       { return a.pitch != b.pitch ? a.pitch < b.pitch : a.from < b.from; });
+
+            bool same = heard.size() == expected.size();
+
+            for (size_t i = 0; same && i < heard.size(); ++i)
+                same = heard[i].pitch == expected[i].pitch && heard[i].from == expected[i].from && heard[i].to == expected[i].to;
+
+            check (same && soundingSince.empty(),
+                   "playback: each note sounds for its whole length, even when the later one was entered first  ("
+                     + describe (heard) + ")");
+
+            // **MIDI ファイルの書き出しも同じ**（同じ時刻で「オン → オフ」だと、読み込んだ側で次のノートが長さ 0 になる）
+            const auto midiFile = root.getChildFile ("SamePitch").getChildFile ("SamePitch.mid");
+            midiFile.getParentDirectory().createDirectory();
+
+            const auto error = MidiFileExporter::exportToFile (project, midiFile);
+
+            juce::MidiFile read;
+            bool readOk = false;
+
+            if (error.isEmpty())
+                if (auto stream = midiFile.createInputStream())
+                    readOk = read.readFrom (*stream);
+
+            std::map<int, int> notesPerPitch;
+            int zeroLength = 0;
+
+            for (int t = 0; readOk && t < read.getNumTracks(); ++t)
+            {
+                juce::MidiMessageSequence sequence (*read.getTrack (t));
+                sequence.updateMatchedPairs();
+
+                for (int e = 0; e < sequence.getNumEvents(); ++e)
+                {
+                    const auto* event = sequence.getEventPointer (e);
+
+                    if (! event->message.isNoteOn())
+                        continue;
+
+                    ++notesPerPitch[event->message.getNoteNumber()];
+
+                    if (event->noteOffObject == nullptr
+                         || event->noteOffObject->message.getTimeStamp() <= event->message.getTimeStamp())
+                        ++zeroLength;
+                }
+            }
+
+            check (readOk && zeroLength == 0 && notesPerPitch[40] == 2 && notesPerPitch[45] == 2 && notesPerPitch[47] == 1,
+                   "MIDI export: no note comes out zero-length  (" + juce::String (zeroLength) + " zero-length; notes "
+                     + juce::String (notesPerPitch[40]) + "/" + juce::String (notesPerPitch[45]) + "/"
+                     + juce::String (notesPerPitch[47]) + ", expected 2/2/1)" + (error.isEmpty() ? juce::String() : ": " + error));
         }
 
         //----------------------------------------------------------------------

@@ -1,6 +1,7 @@
 #include "MidiPlayerProcessor.h"
 #include <cmath>   // std::ceil／std::round（CCの補間。Phase 76）
 #include "MidiCCMessage.h" // 仕様書5.3.3：CC番号→MIDIメッセージの対応（書き出し側と共有）
+#include "NoteOverlap.h"   // 8.344：同じ音程の重なりを解く（書き出し側と共有）
 
 #include <algorithm>
 #include <map>
@@ -23,6 +24,10 @@ void MidiPlayerProcessor::prepareToPlay (double sampleRate, int)
     // 開始直後に不要なノートオフを送ってしまう。
     wasPlaying = false;
     allNotesOffPending.store (false);
+
+    // 8.344：ブロックの中のオフ・オンを分けて集める箱（ここで確保して、`processBlock()`では確保しない）
+    noteOffsThisBlock.ensureSize (2048);
+    noteOnsThisBlock.ensureSize (2048);
 }
 
 void MidiPlayerProcessor::releaseResources()
@@ -194,6 +199,10 @@ void MidiPlayerProcessor::rebuildNoteList()
             }
         }
     }
+
+    // 8.344：**同じ音程のノートが重なっていたら、前のノートを次のノートの頭で切る**（Phase 333／本人の報告）。
+    // 重なったまま送ると、前のノートのオフが後のノートを途中で止める。書き出しと同じ関数を通す（`NoteOverlap.h`）
+    trimSamePitchOverlaps (newNotes, &ScheduledNote::pitch, &ScheduledNote::startSample, &ScheduledNote::endSample);
 
     // 追いかけ（sendCCChase）は「位置以前の最後の値」を探すので、時刻順に並んでいる必要がある。
     // クリップが複数ある場合、上のループの出来上がり順は時刻順とは限らない。
@@ -572,6 +581,17 @@ void MidiPlayerProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
     const juce::int64 noteSearchStart = (loopCatchUpFromSample >= 0) ? loopCatchUpFromSample
                                                                     : blockStart;
 
+    // 8.344：**ノートオフを、同じ時刻のノートオンより先に送る**（Phase 333／本人の報告）。
+    //
+    // `MidiBuffer`は同じ時刻のものを**足した順**に並べます。前は一覧の順（＝打ち込んだ順）で
+    // オン・オフを足していたので、同じ音程が隣り合っていると、後から打ったノートが一覧の先にあるとき
+    // **「次のノートのオン → 前のノートのオフ」**になり、鳴らした瞬間に止まっていました
+    // （消して打ち直すと順番が変わって直る／鳴らないノートが隣へ移る、の正体）。
+    // オフとオンを別々に集め、**オフを先に**混ぜます。同じノートのオフがオンより前に来ることはありません
+    // （`endSample > startSample`。頭を 0 に寄せたノートも、`endSample > blockStart`なのでオフは 1 以上）
+    noteOffsThisBlock.clear();
+    noteOnsThisBlock.clear();
+
     for (auto& note : scheduledNotes)
     {
         // このブロック内でノートオンのタイミングが来るか。
@@ -582,7 +602,7 @@ void MidiPlayerProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
              && note.endSample > blockStart)
         {
             const int offset = juce::jmax (0, (int) (note.startSample - blockStart));
-            midiMessages.addEvent (juce::MidiMessage::noteOn (1, note.pitch, (juce::uint8) note.velocity), offset);
+            noteOnsThisBlock.addEvent (juce::MidiMessage::noteOn (1, note.pitch, (juce::uint8) note.velocity), offset);
             note.isSounding = true;
         }
 
@@ -590,10 +610,13 @@ void MidiPlayerProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
         if (note.isSounding && note.endSample >= blockStart && note.endSample < blockEnd)
         {
             const int offset = (int) (note.endSample - blockStart);
-            midiMessages.addEvent (juce::MidiMessage::noteOff (1, note.pitch), offset);
+            noteOffsThisBlock.addEvent (juce::MidiMessage::noteOff (1, note.pitch), offset);
             note.isSounding = false;
         }
     }
+
+    midiMessages.addEvents (noteOffsThisBlock, 0, -1, 0);
+    midiMessages.addEvents (noteOnsThisBlock, 0, -1, 0);
 
     // 8.114：**1ブロックぶんだけの効き目**（Phase 150）。使ったらすぐ下ろすこと——
     // 下ろし忘れると、以後ずっとループ先頭まで遡って探し続けます

@@ -1584,13 +1584,69 @@ bool PianoRollComponent::isOnLaneResizeEdge (juce::Point<int> position) const
             && position.y <= edgeY + laneResizeGrabMargin;
 }
 
+PianoRollComponent::DragMode PianoRollComponent::grabModeForNote (const Note& note, int x) const
+{
+    // 8.161：**ドラムでは伸縮しない**（Phase 199）。
+    //
+    // Phase 156で▶の尾を落としてから、ドラム画面に**長さは描かれていません**。
+    // それでも両端5pxは伸縮の掴みしろのままだったので、
+    // ▶の先端あたり——ドラムでいちばん自然に掴む場所——を押すと
+    // `ResizeLeft`に落ちていました。
+    //
+    // 掴んだ本人には長さが見えないので、
+    // 「動かしたはずのノートが動かない」（始まりが`終わり-最短長`で止まる）
+    // としか見えません。**Ctrl＋ドラッグの複製も`Move`のときだけ**なので、
+    // まとめて複製したつもりが1つも増えない、という形でも出ます。
+    //
+    // **見えないものは掴ませない。** ドラムは常に移動にします
+    // （長さはモデルに残っていて、ピアノロール表示で変えられます）
+    if (drumMode)
+        return DragMode::Move;
+
+    // 8.29の表：**左端でも伸縮できる**（Phase 69）。
+    // **右端を先に見ること。** 短いノートでは両端の掴みしろが重なるので、
+    // 先に見たほうが勝つ。右端（終わりを決める）のほうが使用頻度が高い
+    const auto bounds = getNoteBounds (note);
+
+    if (x >= bounds.getRight() - resizeGrabMargin)
+        return DragMode::ResizeRight;
+
+    if (x <= bounds.getX() + resizeGrabMargin)
+        return DragMode::ResizeLeft;
+
+    return DragMode::Move;
+}
+
 void PianoRollComponent::mouseMove (const juce::MouseEvent& e)
 {
     // 8.122：**掴めることをカーソルで見せる**（Phase 157／改善案36）。
     // 4pxの帯は狙って当てるには細いので、手がかりが要る
-    setMouseCursor (isOnLaneResizeEdge (e.getPosition())
-                        ? juce::MouseCursor::UpDownResizeCursor
-                        : juce::MouseCursor::NormalCursor);
+    if (isOnLaneResizeEdge (e.getPosition()))
+    {
+        setMouseCursor (juce::MouseCursor::UpDownResizeCursor);
+        return;
+    }
+
+    // 8.345：**ノートの端では左右の矢印**（Phase 333／本人の要望「移動と伸縮の見分けがつかない」）。
+    // 押したときと同じ判定（`grabModeForNote()`）を見るので、カーソルと動きは食い違いません。
+    // 伸縮できるのは矢印とペン（ペンもノートの上では矢印と同じ。`mouseDown`）
+    auto cursor = juce::MouseCursor::NormalCursor;
+
+    if ((editTool == EditTool::arrow || editTool == EditTool::pencil)
+         && e.x > keyboardWidth && e.y < getGridHeight())
+    {
+        const auto noteState = findNoteAt (e.getPosition());
+
+        if (noteState.isValid())
+        {
+            const auto mode = grabModeForNote (Note { juce::ValueTree (noteState) }, e.x);
+
+            if (mode == DragMode::ResizeLeft || mode == DragMode::ResizeRight)
+                cursor = juce::MouseCursor::LeftRightResizeCursor;
+        }
+    }
+
+    setMouseCursor (cursor);
 }
 
 int PianoRollComponent::getGridHeight() const
@@ -3795,33 +3851,8 @@ void PianoRollComponent::mouseDown (const juce::MouseEvent& e)
         // Ctrlを押しながらのドラッグは複製（Phase 52）。離すときに置く
         dragIsCopy = e.mods.isCommandDown();
 
-        // 8.29の表：**左端でも伸縮できる**（Phase 69）。
-        // **右端を先に見ること。** 短いノートでは両端の掴みしろが重なるので、
-        // 先に見たほうが勝つ。右端（終わりを決める）のほうが使用頻度が高い
-        auto bounds = getNoteBounds (note);
-
-        // 8.161：**ドラムでは伸縮しない**（Phase 199）。
-        //
-        // Phase 156で▶の尾を落としてから、ドラム画面に**長さは描かれていません**。
-        // それでも両端5pxは伸縮の掴みしろのままだったので、
-        // ▶の先端あたり——ドラムでいちばん自然に掴む場所——を押すと
-        // `ResizeLeft`に落ちていました。
-        //
-        // 掴んだ本人には長さが見えないので、
-        // 「動かしたはずのノートが動かない」（始まりが`終わり-最短長`で止まる）
-        // としか見えません。**Ctrl＋ドラッグの複製も`Move`のときだけ**なので、
-        // まとめて複製したつもりが1つも増えない、という形でも出ます。
-        //
-        // **見えないものは掴ませない。** ドラムは常に移動にします
-        // （長さはモデルに残っていて、ピアノロール表示で変えられます）
-        if (drumMode)
-            dragMode = DragMode::Move;
-        else if (e.x >= bounds.getRight() - resizeGrabMargin)
-            dragMode = DragMode::ResizeRight;
-        else if (e.x <= bounds.getX() + resizeGrabMargin)
-            dragMode = DragMode::ResizeLeft;
-        else
-            dragMode = DragMode::Move;
+        // 8.345：どこを掴んだかの判定は`grabModeForNote()`へ（カーソルと同じものを見る。Phase 333）
+        dragMode = grabModeForNote (note, e.x);
 
         // **Phase 126：ドラッグ中の時刻はタイムライン基準で持つ。**
         // 画面（`getNoteBoundsFor()`）も寄せ先（`snapTime()`）もタイムライン基準なので、

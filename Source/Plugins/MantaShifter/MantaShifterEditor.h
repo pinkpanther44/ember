@@ -50,6 +50,9 @@ public:
 
     static constexpr int historyLength = 940;   ///< 約5秒（5.3 ms ごと）
 
+    /** 8.343：MIDI モードのとき表示の下端に出す案内。 */
+    static constexpr const char* midiSourceHint = "MIDI source: right-click this insert slot > MIDI Input";
+
 private:
     ShifterTheme theme;
     std::vector<ShifterEngine::DisplayFrame> history = std::vector<ShifterEngine::DisplayFrame> ((size_t) historyLength);
@@ -124,12 +127,26 @@ public:
     static constexpr int fixedWidth = 780;
     static constexpr int fixedHeight = 470;
 
+    /** 8.342：ツールバーの右に置く組（エンジン＝見出し＋スイッチ、レイテンシー）の幅。 */
+    static constexpr int engineCaptionWidth = 46;
+    static constexpr int engineSwitchWidth = 86;
+    static constexpr int engineGroupWidth = engineCaptionWidth + engineSwitchWidth;
+    static constexpr int statusWidth = 124;
+
+    /** 8.342：下の帯の高さ（地と中身で同じ矩形を使う）と、帯の内側の余白。 */
+    static constexpr int bandHeight = 120;
+    static constexpr int bandPaddingX = 10;
+    static constexpr int bandPaddingY = 8;
+
     /** プレビューと自己検査のため。 */
     void tickForTesting() { timerCallback(); }
     ShifterEngineSwitch& getEngineSwitchForTesting() noexcept { return engineSwitch; }
     ValueEntrySlider& getPitchSliderForTesting() noexcept { return pitchSlider; }
     ValueEntrySlider& getFormantSliderForTesting() noexcept { return formantSlider; }
     juce::TextButton& getLinkButtonForTesting() noexcept { return linkButton; }
+    juce::Label& getEngineCaptionForTesting() noexcept { return engineCaption; }
+    ShifterPitchView& getPitchViewForTesting() noexcept { return pitchView; }
+    juce::Rectangle<int> getBandAreaForTesting() const noexcept { return bandArea; }
 
 private:
     void timerCallback() override;
@@ -149,7 +166,6 @@ private:
     juce::Label statusLabel;
 
     ShifterPitchView pitchView;
-    juce::Label midiHint;
 
     ValueEntrySlider pitchSlider   { juce::Slider::RotaryHorizontalVerticalDrag, juce::Slider::TextBoxBelow };
     ValueEntrySlider formantSlider { juce::Slider::RotaryHorizontalVerticalDrag, juce::Slider::TextBoxBelow };
@@ -173,6 +189,8 @@ private:
 
     LinkState pitchLink, formantLink;
     bool coupling = false;   ///< 連動で動かしている最中（もう片方から跳ね返らないように）
+
+    juce::Rectangle<int> bandArea;   ///< 8.342：下の帯（`resized()`で決め、`paint()`も同じものを塗る）
 
     juce::ComboBox keyBox, scaleBox;
     juce::Label keyCaption, scaleCaption;

@@ -111,7 +111,7 @@ void LimiterScrollDisplay::paint (juce::Graphics& g)
 {
     const auto bounds = getLocalBounds().toFloat();
     g.setColour (theme.background);
-    g.fillRoundedRectangle (bounds, 4.0f);
+    g.fillRoundedRectangle (bounds, AppColours::corner (4.0f));
 
     const int width = (int) ring.size();
     const float h = bounds.getHeight();
@@ -229,7 +229,7 @@ void LimiterMeterView::paint (juce::Graphics& g)
 {
     auto area = getLocalBounds();
     g.setColour (theme.background);
-    g.fillRoundedRectangle (area.toFloat(), 4.0f);
+    g.fillRoundedRectangle (area.toFloat(), AppColours::corner (4.0f));
 
     area.reduce (8, 8);
     readoutArea = area.removeFromBottom (92);
@@ -632,9 +632,9 @@ void MantaLimiterEditor::paint (juce::Graphics& g)
 {
     g.fillAll (MantaTheme::windowBackground());
 
-    // 下の帯の地
+    // 下の帯の地（8.342：配置と同じ矩形。前は別々に計算していて、ボタンの列が帯の上端に貼り付いていた）
     g.setColour (theme.panel);
-    g.fillRoundedRectangle (getLocalBounds().withTrimmedTop (360).reduced (8, 6).toFloat(), 6.0f);
+    g.fillRoundedRectangle (bandArea.toFloat(), AppColours::corner (6.0f));
 }
 
 void MantaLimiterEditor::resized()
@@ -646,8 +646,12 @@ void MantaLimiterEditor::resized()
 
     area.reduce (10, 6);
 
+    // 下の帯は先に取る（左右は窓の端から 8 px）
+    bandArea = getLocalBounds().withTrimmedBottom (6).removeFromBottom (bandHeight).reduced (8, 0);
+    area.setBottom (bandArea.getY() - 10);
+
     // 上：スクロール表示＋メーター
-    auto top = area.removeFromTop (310);
+    auto top = area;
     auto meterArea = top.removeFromRight (meterWidth);
     top.removeFromRight (10);
 
@@ -662,9 +666,8 @@ void MantaLimiterEditor::resized()
 
     meterView.setBounds (meterArea);
 
-    // 下の帯
-    area.removeFromTop (12);
-    auto bottom = area.reduced (8, 4);
+    // 下の帯（8.342：帯の内側に余白）
+    auto bottom = bandArea.reduced (bandPaddingX, bandPaddingY);
 
     // スタイルとスイッチの列。8.334：**ボタンは文字に合わせた幅**（同じ幅に揃えると、
     // いちばん長い「Transparent」に引っぱられて横に余りが出ていた）

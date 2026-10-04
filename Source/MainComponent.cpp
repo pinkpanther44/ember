@@ -3287,6 +3287,10 @@ void MainComponent::saveProject (std::function<void (bool)> onComplete)
     if (saved)
         autoSave.clearAutoSave();
 
+    // 8.346：**書き出し先のフォルダもプロジェクトと一緒に作る**（Phase 333／本人の要望）
+    if (saved)
+        StorageLocations::createExportFolders (file);
+
     updateWindowTitle();
 
     if (onComplete != nullptr)
@@ -3356,6 +3360,9 @@ void MainComponent::saveProjectAs (std::function<void (bool)> onComplete)
             {
                 autoSave.clearAutoSave(); // saveProject()と同じ理由
 
+                // 8.346：書き出し先のフォルダ（Stems・Mixdown）も一緒に作る（Phase 333）
+                StorageLocations::createExportFolders (file);
+
                 // 8.151：**保存でも履歴へ足す**（Phase 189／⑰）。
                 // 開いたときだけだと、作ったばかりのプロジェクトが
                 // 起動時の一覧に出ません（`RecentProjects.h`）
@@ -3373,10 +3380,11 @@ juce::File MainComponent::getExportFolder (StorageLocations::ProjectFolder kind)
 {
     // 8.286：書き出し先は**プロジェクトのフォルダの中**（Phase 279／本人の要望）。
     //
-    // **ここでは作りません**（`createIfNeeded`はfalse）。書き出しをやめたときに
-    // 空のフォルダが増えるのは、押した覚えのない結果です——
-    // 実際に作るのは、選び終わって書き出すとき（ファイル選択の中でOSが作ります）。
-    auto inProject = StorageLocations::getProjectFolder (project.getCurrentFile(), kind, false);
+    // 8.346：**無ければここで作ります**（Phase 333／本人の要望）。前は「書き出しをやめたときに空のフォルダが
+    // 増えないよう」作らずにいましたが、**まだ無いフォルダを選ぶ画面に渡すと、Windows が
+    // 「フォルダが見つかりません」と注意**していました（ステム）。いまは保存のときに
+    // `createExportFolders()`で作るので、ここで作るのは**その前に保存したプロジェクト**のぶんだけです
+    auto inProject = StorageLocations::getProjectFolder (project.getCurrentFile(), kind, true);
 
     if (inProject != juce::File())
         return inProject;

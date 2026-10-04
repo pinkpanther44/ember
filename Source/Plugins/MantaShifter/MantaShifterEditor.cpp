@@ -122,7 +122,7 @@ void ShifterPitchView::paint (juce::Graphics& g)
 {
     auto area = getLocalBounds().toFloat();
     g.setColour (theme.background);
-    g.fillRoundedRectangle (area, 5.0f);
+    g.fillRoundedRectangle (area, AppColours::corner (5.0f));
 
     auto inner = getLocalBounds().reduced (10, 8);
 
@@ -165,6 +165,18 @@ void ShifterPitchView::paint (juce::Graphics& g)
     //--------------------------------------------------------------------------
     // 軌跡。縦は中心の上下1オクターブ
     inner.removeFromTop (4);
+
+    // 8.343：MIDI モードの案内は表示の下端に（**送り元はプラグインの中では選べない**——本体のインサートの右クリック。8.336）。
+    // 前は表示の外に行を取っていて、表示が左の列より短かった
+    if (mode == 3)
+    {
+        auto hint = inner.removeFromBottom (16);
+        inner.removeFromBottom (4);
+        g.setColour (theme.sub);
+        g.setFont (juce::Font (juce::FontOptions (11.0f)));
+        g.drawText (midiSourceHint, hint, juce::Justification::centredLeft);
+    }
+
     const auto graph = inner.toFloat();
     const float lowNote = centre - halfRange, highNote = centre + halfRange;
 
@@ -282,7 +294,8 @@ MantaShifterEditor::MantaShifterEditor (MantaShifterProcessor& processorToUse)
 
     toolbar.setFactoryPresets (MantaFactoryPresets::makeToolbarPresets (processor.getValueTreeState(),
                                                                         MantaShifterPresets::all()));
-    toolbar.setShowsCurrentPreset (true);
+    // 8.342：右にエンジンとレイテンシーを置くので、そのぶんを残してもらう
+    toolbar.setShowsCurrentPreset (true, 200, engineGroupWidth + 12 + statusWidth);
     toolbar.onStateRestored = [this] { refreshControls(); };
 
     statusLabel.setFont (juce::Font (juce::FontOptions (11.0f)));
@@ -290,12 +303,6 @@ MantaShifterEditor::MantaShifterEditor (MantaShifterProcessor& processorToUse)
     toolbar.addAndMakeVisible (statusLabel);
 
     addAndMakeVisible (pitchView);
-
-    // MIDIモードの案内（**送り元はプラグインの中では選べない**——本体のインサートの右クリック。8.336）
-    midiHint.setText ("MIDI source: right-click this insert slot > MIDI Input", juce::dontSendNotification);
-    midiHint.setFont (juce::Font (juce::FontOptions (11.0f)));
-    midiHint.setJustificationType (juce::Justification::centredLeft);
-    addChildComponent (midiHint);
 
     setupKnob (pitchSlider, pitchCaption, "Pitch", ShifterParams::pitch);
     setupKnob (formantSlider, formantCaption, "Formant", ShifterParams::formant);
@@ -339,8 +346,8 @@ MantaShifterEditor::MantaShifterEditor (MantaShifterProcessor& processorToUse)
     engineCaption.setText ("Engine", juce::dontSendNotification);
     engineCaption.setFont (juce::Font (juce::FontOptions (10.0f)));
     engineCaption.setJustificationType (juce::Justification::centredLeft);
-    engineCaption.setBorderSize ({ 0, 0, 0, 0 });   // 8.341：文字の左端を、下のモードのボタンの左端に揃える
-    addAndMakeVisible (engineCaption);
+    engineCaption.setBorderSize ({ 0, 0, 0, 0 });
+    toolbar.addAndMakeVisible (engineCaption);   // 8.342：プリセットの右横へ（本人の指定）。ツールバーの子にする
 
     // 8.339：トグルスイッチ（1 PSOLA ⇔ 2 Spectral。本人の指定）
     engineSwitch.setEngineType (processor.getEngineType());
@@ -351,7 +358,7 @@ MantaShifterEditor::MantaShifterEditor (MantaShifterProcessor& processorToUse)
     };
     engineSwitch.setTooltip ("1 PSOLA: exact pitch, best on clean single voices\n"
                              "2 Spectral (Signalsmith Stretch): smooth on chords, breathy or rough voices");
-    addAndMakeVisible (engineSwitch);
+    toolbar.addAndMakeVisible (engineSwitch);
 
     setupSwitch (linkButton, "Link", ShifterParams::link);
     setupSwitch (driveOnButton, "Drive", ShifterParams::driveOn);
@@ -472,7 +479,6 @@ void MantaShifterEditor::applyTheme()
         label->setColour (juce::Label::textColourId, theme.text);
 
     statusLabel.setColour (juce::Label::textColourId, theme.textDim);
-    midiHint.setColour (juce::Label::textColourId, theme.sub);
 
     // 選んでいるモードとエンジンはメイン、オンのスイッチは副（リミッターと同じ割り当て）
     engineCaption.setColour (juce::Label::textColourId, theme.textDim);
@@ -516,7 +522,6 @@ void MantaShifterEditor::refreshControls()
     retuneSlider.setEnabled (corrects);
     retuneCaption.setEnabled (corrects);
     midiHoldButton.setEnabled (midi);
-    midiHint.setVisible (midi);
 
     driveSlider.setEnabled (p.driveOn);
     driveCaption.setEnabled (p.driveOn);
@@ -538,9 +543,10 @@ void MantaShifterEditor::paint (juce::Graphics& g)
 {
     g.fillAll (MantaTheme::windowBackground());
 
-    // 下の帯の地
+    // 下の帯の地（8.342：配置と同じ矩形。前は塗る位置と置く位置を別々に計算していて、
+    // 見出しが帯の上端に貼り付いていた）
     g.setColour (theme.panel);
-    g.fillRoundedRectangle (getLocalBounds().withTrimmedTop (fixedHeight - 118).reduced (8, 6).toFloat(), 6.0f);
+    g.fillRoundedRectangle (bandArea.toFloat(), AppColours::corner (6.0f));
 }
 
 void MantaShifterEditor::resized()
@@ -548,35 +554,39 @@ void MantaShifterEditor::resized()
     auto area = getLocalBounds();
 
     toolbar.setBounds (area.removeFromTop (MantaPluginToolbar::preferredHeight));
-    statusLabel.setBounds (toolbar.getLocalBounds().removeFromRight (140).reduced (8, 0));
+
+    // 8.342：エンジンは**プリセットの右横**へ（本人の指定）。右端にはレイテンシー
+    {
+        auto trailing = toolbar.getTrailingArea();
+        statusLabel.setBounds (trailing.removeFromRight (statusWidth).withTrimmedRight (2));
+
+        auto engineRow = trailing.withWidth (juce::jmin (engineGroupWidth, trailing.getWidth()));
+        engineCaption.setBounds (engineRow.removeFromLeft (engineCaptionWidth));
+        engineSwitch.setBounds (engineRow);   // 8.339：「1」＋つまみ＋「2」はスイッチが自分で描く
+    }
 
     area.reduce (10, 6);
 
+    // 下の帯は先に取る（地を塗る矩形もこれ。左右は窓の端から 8 px）
+    bandArea = getLocalBounds().withTrimmedBottom (6).removeFromBottom (bandHeight).reduced (8, 0);
+    area.setBottom (bandArea.getY() - 10);
+
     //--------------------------------------------------------------------------
     // 上：つまみ2つとモード（左）、ピッチの表示（右）
-    auto top = area.removeFromTop (fixedHeight - MantaPluginToolbar::preferredHeight - 12 - 124);
+    auto top = area;
     auto left = top.removeFromLeft (380);
     top.removeFromLeft (10);
 
-    auto hintArea = top.removeFromBottom (18);
+    // 8.343：表示は左の列と同じ高さ（下端＝モードのボタンの下端。本人の指定「縦幅を統一」）。
+    // 前は下に MIDI の案内の行（18 px）を取っていて、そのぶん短かった。案内は表示の中に描く
     pitchView.setBounds (top.withTrimmedBottom (2));
-    midiHint.setBounds (hintArea);
 
     auto modes = left.removeFromBottom (32);
     left.removeFromBottom (6);
 
-    // エンジン（8.337）：モードの上に。8.341 で**左寄せ**（本人の指定。下のモードのボタンの左端に揃える）
-    {
-        // 8.339：見出し＋トグルスイッチ（「1」＋つまみ＋「2」はスイッチが自分で描く。8.340 で数字だけに）
-        auto engineRow = left.removeFromBottom (26).withTrimmedLeft (2).withWidth (46 + 86);
-        engineCaption.setBounds (engineRow.removeFromLeft (46));
-        engineSwitch.setBounds (engineRow);
-    }
+    // Pitch ─ Link ─ Formant。エンジンの行が抜けたぶん（8.342）は、上下に等しく分けて真ん中に
+    auto knobs = left.withSizeKeepingCentre (left.getWidth(), juce::jmin (left.getHeight(), 232));
 
-    left.removeFromBottom (6);
-
-    // Pitch ─ Link ─ Formant
-    auto knobs = left;
     const int bigWidth = 150;
     auto pitchColumn = knobs.removeFromLeft (bigWidth);
     auto formantColumn = knobs.removeFromRight (bigWidth);
@@ -594,9 +604,8 @@ void MantaShifterEditor::resized()
         button.setBounds (modes.removeFromLeft (modeWidth).reduced (2, 2));
 
     //--------------------------------------------------------------------------
-    // 下の帯
-    area.removeFromTop (12);
-    auto bottom = area.reduced (8, 4);
+    // 下の帯（8.342：帯の内側に余白。前は見出しが帯の上端に貼り付いていた）
+    auto bottom = bandArea.reduced (bandPaddingX, bandPaddingY);
 
     auto knobColumn = [&bottom] (ValueEntrySlider& slider, juce::Label& caption)
     {
@@ -679,16 +688,16 @@ void ShifterEngineSwitch::paintButton (juce::Graphics& g, bool highlighted, bool
 
     // 溝はどちらの側でもメインの色（どちらを選んでも「効いている」ので、オン／オフの色分けはしない）
     g.setColour (highlighted ? theme.mainStrong : theme.main);
-    g.fillRoundedRectangle (track, track.getHeight() * 0.5f);
+    g.fillRoundedRectangle (track, AppColours::corner (track.getHeight() * 0.5f));
 
     const float diameter = track.getHeight() - 4.0f;
     const float x = spectral ? track.getRight() - 2.0f - diameter : track.getX() + 2.0f;
     g.setColour (juce::Colours::white);   // つまみは白（ふつうのトグルと同じ。`onMain`だと紫の上で黒になり、沈んで見えた）
-    g.fillEllipse (x, track.getY() + 2.0f, diameter, diameter);
+    g.fillRoundedRectangle (x, track.getY() + 2.0f, diameter, diameter, AppColours::corner (diameter * 0.5f));   // 8.342：角ばらせているときは四角いつまみ（溝と揃える）
 
     if (hasKeyboardFocus (false))
     {
         g.setColour (theme.mainStrong);
-        g.drawRoundedRectangle (track.expanded (2.0f), track.getHeight() * 0.5f + 2.0f, 1.0f);
+        g.drawRoundedRectangle (track.expanded (2.0f), AppColours::corner (track.getHeight() * 0.5f + 2.0f), 1.0f);
     }
 }

@@ -749,10 +749,10 @@ void MantaDelayEditor::paint (juce::Graphics& g)
     const auto drawPanel = [&g] (juce::Rectangle<int> box)
     {
         g.setColour (MantaTheme::panelBackground());
-        g.fillRoundedRectangle (box.toFloat(), 4.0f);
+        g.fillRoundedRectangle (box.toFloat(), AppColours::corner (4.0f));
 
         g.setColour (MantaTheme::border());
-        g.drawRoundedRectangle (box.toFloat().reduced (0.5f), 4.0f, 1.0f);
+        g.drawRoundedRectangle (box.toFloat().reduced (0.5f), AppColours::corner (4.0f), 1.0f);
     };
 
     for (auto& column : getPhase3Columns (area.removeFromBottom (phase3AreaHeight)))

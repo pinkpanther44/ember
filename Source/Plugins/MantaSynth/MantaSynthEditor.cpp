@@ -301,7 +301,7 @@ void MantaSynthEditor::drawSection (juce::Graphics& g, juce::Rectangle<int> area
                                      const juce::String& title) const
 {
     g.setColour (MantaTheme::panelBackground());
-    g.fillRoundedRectangle (area.toFloat(), 6.0f);
+    g.fillRoundedRectangle (area.toFloat(), AppColours::corner (6.0f));
 
     g.setColour (MantaTheme::text());
     g.setFont (juce::Font (juce::FontOptions (12.5f, juce::Font::bold)));
@@ -312,7 +312,7 @@ void MantaSynthEditor::drawSection (juce::Graphics& g, juce::Rectangle<int> area
 void MantaSynthEditor::drawStaticBar (juce::Graphics& g, int x, int y) const
 {
     g.setColour (MantaTheme::border());
-    g.fillRoundedRectangle ((float) x + 10.25f, (float) y + 9.0f, 3.5f, 14.0f, 1.75f);
+    g.fillRoundedRectangle ((float) x + 10.25f, (float) y + 9.0f, 3.5f, 14.0f, AppColours::corner (1.75f));
 }
 
 void MantaSynthEditor::paint (juce::Graphics& g)
