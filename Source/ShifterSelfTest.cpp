@@ -1515,11 +1515,11 @@ namespace ShifterSelfTest
                 MantaShifterProcessor fresh;
                 juce::MemoryBlock saved;
                 fresh.getStateInformation (saved);
-                auto xml = juce::AudioProcessor::getXmlFromBinary (saved.getData(), (int) saved.getSize());
+                auto savedXml = juce::AudioProcessor::getXmlFromBinary (saved.getData(), (int) saved.getSize());   // 1.3.1：`xml`だと外の変数を隠す（GCC の -Wshadow）
 
                 check (fresh.getEngineType() == (int) PitchEngineType::psola
                          && fresh.getShifterParameters().engine == (int) PitchEngineType::psola
-                         && xml != nullptr && xml->hasAttribute ("engine"),
+                         && savedXml != nullptr && savedXml->hasAttribute ("engine"),
                        "a freshly inserted shifter uses PSOLA, and the engine is always written when saving");
             }
 

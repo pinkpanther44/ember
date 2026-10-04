@@ -6,6 +6,33 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.3.1] - 2026-10-04
+
+### Fixed
+
+- **Back-to-back notes of the same pitch could stay silent.** When one note
+  ended exactly where the next note of the same pitch began, the second note
+  was sometimes cut off the moment it started (most noticeable on Java Rhino
+  Bass). The note-off is now always sent first, and overlapping notes of the
+  same pitch are trimmed so the earlier one ends where the later one starts.
+  MIDI file export gets the same treatment, so no note is written with zero
+  length
+- **Exporting stems no longer warns that the folder is missing.** Saving a
+  project now creates its `Stems` and `Mixdown` folders next to the project
+  file (and they are created on first export for projects saved earlier)
+
+### Changed
+
+- **Piano roll:** the cursor turns into a left-right arrow over the edges of a
+  note, so resizing and moving are easy to tell apart
+- **Built-in plug-ins:** panels, frames and displays now have square corners,
+  matching the rest of Ember; controls keep clear of panel edges
+- **Gibbon Voice:** the engine switch moved next to the preset box, and the
+  pitch display now matches the height of the knob column
+- **Af Elephant Limiter:** the bottom panel was re-laid out with padding inside it
+
+---
+
 ## [1.3.0] - 2026-10-01
 
 ### Added
