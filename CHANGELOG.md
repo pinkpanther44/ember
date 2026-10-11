@@ -6,6 +6,32 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.3.2] - 2026-10-11
+
+### Added
+
+- **Two editors at once.** The bottom panel and the pop-out window can now
+  show different editors at the same time, for example Chord Pad below and
+  the piano roll in its own window, or the piano roll below and the Console
+  in the window
+  - **Pop Out** sends what the bottom panel shows to the window; if the
+    window already shows something, the two swap places
+  - A footer button for whatever is in the window brings the window to the
+    front
+  - Closing the window brings its content back to the bottom panel when the
+    panel is free
+  - The project remembers what the window was showing
+- **A separate snap grid for the piano roll.** The arrange window can stay on
+  1/4 while the piano roll uses 1/8 or 1/16. Each is saved with the project;
+  projects from earlier versions start with the piano roll on the arrange
+  window's grid
+
+### Changed
+
+- Scroll bars have square corners, like the rest of Ember
+
+---
+
 ## [1.3.1] - 2026-10-04
 
 ### Fixed
