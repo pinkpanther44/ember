@@ -917,6 +917,41 @@ namespace TrackHeaderLayoutSelfTest
         }
 
         //----------------------------------------------------------------------
+        // 8.348：**スクロールバーのつまみも角ばっている**（Phase 336／本人の要望）。
+        //
+        // アプリの LookAndFeel で縦のスクロールバーを描き、**つまみの角の1画素**を見ます。
+        // 丸めていると（4px）、角は透けて地のまま。角ばっていれば、つまみの色で埋まります
+
+        say ("--- scroll bar corners (8.348)");
+
+        {
+            auto lookAndFeel = AppColours::createLookAndFeel();
+
+            juce::ScrollBar scrollbar (true);
+            scrollbar.setLookAndFeel (lookAndFeel.get());
+            scrollbar.setAutoHide (false);
+            scrollbar.setRangeLimits (0.0, 1000.0);
+            scrollbar.setCurrentRange (0.0, 250.0);
+            scrollbar.setBounds (0, 0, 14, 200);
+
+            juce::Image shot (juce::Image::ARGB, 14, 200, true);
+            {
+                juce::Graphics g (shot);
+                scrollbar.paintEntireComponent (g, true);
+            }
+
+            scrollbar.setLookAndFeel (nullptr);
+
+            // つまみは`reduced (1)`の内側。左上の角の画素と、真ん中の画素を比べる
+            const auto cornerPixel = shot.getPixelAt (1, 1);
+            const auto middlePixel = shot.getPixelAt (7, 20);
+
+            check (middlePixel.getAlpha() > 200 && cornerPixel == middlePixel,
+                   "the scroll bar thumb has square corners (corner pixel " + cornerPixel.toDisplayString (true)
+                     + ", middle " + middlePixel.toDisplayString (true) + ")");
+        }
+
+        //----------------------------------------------------------------------
         say ("--- " + juce::String (problems) + " problem(s) ---");
 
         // **`JUCEApplicationBase`のほうを使うこと**（`JUCEApplication`は`juce_gui_basics`）

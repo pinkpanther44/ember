@@ -34,6 +34,9 @@ public:
     /** 表示する中身を差し替える（nullptrで空にする）。所有権は呼び出し側のまま。 */
     void setContent (juce::Component* newContent);
 
+    /** 8.347：いま持っている中身（無ければ nullptr。Phase 335）。 */
+    juce::Component* getContent() const noexcept   { return content; }
+
     /** ヘッダーに出す名前。将来オーディオエディタ／コードパッドを載せるときに使う。 */
     void setTitle (const juce::String& newTitle);
 

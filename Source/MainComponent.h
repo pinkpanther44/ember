@@ -24,6 +24,7 @@
 #include "ProjectTemplates.h"     // 8.151：プロジェクトテンプレート（Phase 189／D8）
 #include "MidiFileExporter.h"
 #include "EditorWindow.h"       // 8.328：Pop outの窓（Phase 318）
+#include "EditorSlots.h"        // 8.347：下段と窓の中身（Phase 335）
 
 //==============================================================================
 /**
@@ -112,15 +113,19 @@ private:
 
     //==========================================================================
     // 設計書2.2・仕様書4.2：画面下部のエディタパネル（Phase 16）
+    //
+    // 8.347：**下段と Pop out の窓に、別々の中身を出せる**（Phase 335／本人の要望）。
+    // どこに何を出すかは`editorSlots`（`EditorSlots.h`）が決め、
+    // `applyEditorSlots()`がそのとおりに部品を付け替える。**判断を呼ぶ側に書かないこと**（1.26）
 
-    /** エディタパネルを開く／閉じる。開くとピアノロールが画面下部に現れる。 */
-    void setEditorPanelOpen (bool shouldBeOpen);
+    /** 下段を閉じる（パネルの「×」）。 */
+    void closeEditorPanel();
 
     /** パネルの高さを変える（上端のドラッグから呼ばれる）。
         ウィンドウからはみ出さない範囲に収める。 */
     void setEditorPanelHeight (int newHeight);
 
-    /** 仕様書4.2：エディタを別ウィンドウへ出す（マルチモニター対応）。 */
+    /** 下段の「Pop Out」。下段のものを窓へ送る（窓に別のものがあれば入れ替える）。 */
     void popOutEditor();
 
     /** 8.311：開いている窓をプロジェクトへ控える（保存の直前。Phase 304）。 */
@@ -129,61 +134,45 @@ private:
     /** 8.311：控えてあった窓を開き直す（プロジェクトを開いた直後。Phase 304）。 */
     void restoreOpenWindowsFromProject();
 
-    /** 別ウィンドウのエディタを、メインウィンドウ下部へ戻す（設計書2.5）。 */
+    /** 窓が閉じられた（設計書2.5）。下段が空いていれば、窓の中身を下段へ戻す。 */
     void dockEditor();
 
     /** ポップアウトウィンドウの位置・サイズをアプリ設定へ控える（設計書2.5）。 */
     void saveEditorWindowBounds() const;
 
-    /** 設計書2.3.5：下部パネルの中身（Phase 43／Phase 66でConsoleを足した。8.27）。
+    /** 8.347：`editorSlots`のとおりに、下段・窓・フッターのボタンを合わせる。
+        `bringWindowToFront`なら、最後に窓を前面に出す。 */
+    void applyEditorSlots (bool bringWindowToFront = false);
 
-        **同時に出せるのは1つだけ。** Editorのポップアウトの仕組み（中身の所有権を
-        移さず親だけ付け替える）をそのまま使うため、器は1つに保っている。 */
-    enum class EditorContent { pianoRoll, audioEditor, chordPad, console };
+    /** 8.347：Pop out の窓を作る（中身はまだ入れない）。 */
+    void createEditorWindow();
 
-    /** 設計書2.3.5：エディタパネルの中身を切り替える（ピアノロール⇔コードパッド）。
-
-        **どちらを出しているかを1箇所で持つ。** パネル・ポップアウトウィンドウ・
-        タイトル・「開いたときの読み直し」の4箇所が同じ答えを見る必要があり、
-        `setContent()`を呼ぶ場所ごとに判断すると必ずずれる（HANDOVER 1.26と同じ話）。 */
-    void setEditorContent (EditorContent newContent);
+    /** 「これを見せて」（ダブルクリック・右クリックの「エディタで開く」など）。
+        窓に出ていれば窓を前面に、そうでなければ下段に出して開く。 */
+    void showEditorContent (EditorContent content);
 
     /** フッターのボタンから、その中身へ切り替える／閉じる（Phase 66／8.27）。
-
-        **同じ中身が出ているときに押したら閉じる。** Editor と Console は
-        同じ枠を取り合うので、「押すたびに開く」だけだと閉じる手が無くなる。 */
+        **窓に出ているものは、窓を前面に出す**（8.347。本人と決めた）。 */
     void toggleEditorContent (EditorContent content);
 
-    /** フッターのEditor／Consoleボタンの見た目を、いまの中身に合わせる（Phase 66）。
-        **開閉と中身の両方で変わる**ので、どちらを触ったところからも呼ぶこと。 */
+    /** フッターのEditor／Console／Chord Padボタンの見た目を、いまの中身に合わせる（Phase 66）。 */
     void updateEditorToggleButtons();
-
-    /** Editorボタンで戻る先（Phase 66）。**ピアノロールかオーディオエディタのどちらか**で、
-        Console と Chord Pad は入りません（自分のボタンを持っているため。8.75）。 */
-    EditorContent lastEditorContent = EditorContent::pianoRoll;
-
-    /** 8.75：`lastEditorContent`へ覚える（Phase 115）。**判断はここ1箇所**（1.26）。 */
-    void rememberEditorContent (EditorContent content);
 
     //==========================================================================
     // 8.74：**コードパッドも下部パネルの中身**（Phase 114／改善案⑭の作り直し）。
-    //
-    // Phase 111では**独立した窓**にしていました（ピアノロールと同時に見たかったため）。
-    // 使ってみて、**他のパネルと開け方が違う**のが分かりにくいという判断になり、
-    // Editor・Consoleと同じ「フッターのボタンで下部パネルへ」に戻しています。
-    //
-    // **別ウィンドウにしたいときはパネルの「Pop Out」**——
-    // Editorのポップアウトの仕組み（`popOutEditor()`）にそのまま乗るので、
-    // コードパッド専用の窓は持ちません（同じ話を2箇所に書かない。8.2）。
+    // **別ウィンドウにしたいときはパネルの「Pop Out」**（コードパッド専用の窓は持たない。8.2）
 
-    /** いま出している中身のコンポーネント。 */
-    juce::Component* getEditorContentComponent();
+    /** その中身の部品（`none`なら nullptr）。 */
+    juce::Component* getComponentFor (EditorContent content);
 
-    /** いま出している中身の名前（パネルのヘッダーとポップアウトウィンドウの題）。 */
-    juce::String getEditorContentTitle() const;
+    /** その中身の名前（パネルのヘッダーとポップアウトウィンドウの題）。 */
+    static juce::String getTitleFor (EditorContent content);
 
-    /** 中身を「今の状態」に合わせて読み直す（開くとき・プロジェクトが変わったとき）。 */
+    /** 出ている中身を「今の状態」に合わせて読み直す（開くとき・プロジェクトが変わったとき）。 */
     void refreshEditorContent();
+
+    /** 1つの中身を読み直す。 */
+    void refreshContent (EditorContent content);
 
     /** 8.39：いま出すべきオーディオクリップ（Phase 79）。
 
@@ -193,9 +182,8 @@ private:
 
     /** 8.39：選んでいるトラックの種別に合った中身へ切り替える（Phase 79／D1）。
 
-        **Consoleを出しているときは取り上げない。** 同じ枠を取り合うので（8.27）、
-        トラックを選ぶたびにミキサーが消えると使い物にならない。
-        次にEditorボタンを押したときに正しい中身が出るよう、行き先だけ覚えておく。 */
+        **Consoleを出しているところは取り上げない**（8.27）。どちらに付いていくかは
+        `EditorSlots::followSelection()`が決める。 */
     void updateEditorContentForSelectedTrack();
 
     /** ズームのショートカットをピアノロールへ渡すか（Phase 67／8.1のG3）。
@@ -267,12 +255,14 @@ private:
         通さないと「画面ではループしているのに音は繰り返さない」状態になる。 */
     void applyLoopSettings();
 
-    /** 仕様書5.5・5.9：編集の刻みを決めて、**両方の入口へ配る**（Phase 55）。
+    /** 仕様書5.5・5.9：**アレンジ画面の**編集の刻みを決める（Phase 55）。
 
-        アレンジ画面とピアノロールに同じコンボボックスが出ているため、
-        片方で選んだらもう片方も追従させる必要がある（1.27）。
-        ツールの配り方（`setEditTool`）と同じ形。 */
+        8.349：**ピアノロールは別の値**（`applyPianoRollSnapGrid()`。Phase 337／本人の要望）。
+        ピアノロールは「まだ選んでいなければアレンジ画面と同じ」なので、表示だけ引き直す。 */
     void applySnapGrid (SnapGrid newGrid);
+
+    /** 8.349：**ピアノロールの**編集の刻みを決める（Phase 337）。アレンジ画面には配らない。 */
+    void applyPianoRollSnapGrid (SnapGrid newGrid);
 
     /** 8.278：自動スクロールを決めて、両方の画面へ配る（Phase 275／本人の要望）。
         **アプリ設定へ覚えます**（曲の内容ではなく、作業のしかたなので）。 */
@@ -530,7 +520,8 @@ private:
 
     EditorPanel editorPanel;
 
-    EditorContent editorContent = EditorContent::pianoRoll;
+    // 8.347：下段と窓に何を出しているか（Phase 335）。**変えたら`applyEditorSlots()`を呼ぶこと**
+    EditorSlots editorSlots;
 
     // パネルの高さ（ピクセル）。ドラッグで変えられ、アプリ設定へ保存される。
     // 既定値はピアノロールの操作行（トラック選択・クオンタイズ等で約140px）を引いても

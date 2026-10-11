@@ -5164,11 +5164,32 @@ void ProjectModel::setSnapGrid (SnapGrid newGrid)
     state.setProperty (IDs::snapGrid, snapGridToString (newGrid), nullptr);
 }
 
+SnapGrid ProjectModel::getPianoRollSnapGrid() const
+{
+    // 8.349：**無ければアレンジ画面と同じ**（Phase 337）。前のプロジェクトは1つしか持っていないので、
+    // 開いた直後のピアノロールは今までと同じ刻みで始まる
+    if (! state.hasProperty (IDs::pianoRollSnapGrid))
+        return getSnapGrid();
+
+    return snapGridFromString (state.getProperty (IDs::pianoRollSnapGrid).toString());
+}
+
+void ProjectModel::setPianoRollSnapGrid (SnapGrid newGrid)
+{
+    // アレンジ画面の刻みと同じく**Undoには積まない**
+    state.setProperty (IDs::pianoRollSnapGrid, snapGridToString (newGrid), nullptr);
+}
+
 double ProjectModel::getSnapSecondsAt (double atTime) const
+{
+    return getSnapSecondsAt (getSnapGrid(), atTime);
+}
+
+double ProjectModel::getSnapSecondsAt (SnapGrid grid, double atTime) const
 {
     // 「マス1つの大きさ」を秒で欲しいとき用（ノートの既定の長さ、ループの最短）。
     // **寄せるのには使いません**（`snapTime()`は拍の座標で決める。8.98／Phase 139）
-    return snapSecondsFor (getSnapGrid(), getTempoAt (atTime), getBeatsPerBarAt (atTime));
+    return snapSecondsFor (grid, getTempoAt (atTime), getBeatsPerBarAt (atTime));
 }
 
 //==============================================================================
@@ -5183,10 +5204,9 @@ double ProjectModel::getSnapSecondsAt (double atTime) const
 //==============================================================================
 
 /** 寄せる実体。`roundDown`がtrueなら手前の目盛りへ（切り捨て）。 */
-static double snapToGridPosition (const ProjectModel& project, double seconds, bool roundDown)
+static double snapToGridPosition (const ProjectModel& project, SnapGrid grid, double seconds, bool roundDown)
 {
     const double time = juce::jmax (0.0, seconds);
-    const auto grid = project.getSnapGrid();
 
     if (grid == SnapGrid::off)
         return time;
@@ -5225,29 +5245,44 @@ static double snapToGridPosition (const ProjectModel& project, double seconds, b
 
 double ProjectModel::snapTime (double seconds) const
 {
-    return snapToGridPosition (*this, seconds, false);
+    return snapTime (getSnapGrid(), seconds);
+}
+
+double ProjectModel::snapTime (SnapGrid grid, double seconds) const
+{
+    return snapToGridPosition (*this, grid, seconds, false);
 }
 
 double ProjectModel::snapTimeDown (double seconds) const
 {
-    return snapToGridPosition (*this, seconds, true);
+    return snapTimeDown (getSnapGrid(), seconds);
+}
+
+double ProjectModel::snapTimeDown (SnapGrid grid, double seconds) const
+{
+    return snapToGridPosition (*this, grid, seconds, true);
 }
 
 double ProjectModel::snapTimeRelativeTo (double seconds, double referenceSeconds) const
 {
+    return snapTimeRelativeTo (getSnapGrid(), seconds, referenceSeconds);
+}
+
+double ProjectModel::snapTimeRelativeTo (SnapGrid grid, double seconds, double referenceSeconds) const
+{
     // 8.305：止まり先は**目盛り**と**ずれを保った位置**の2つ（Phase 298／宣言の説明）
     const double time = juce::jmax (0.0, seconds);
 
-    if (getSnapGrid() == SnapGrid::off)
+    if (grid == SnapGrid::off)
         return time;
 
-    const double onGrid = snapTime (time);
+    const double onGrid = snapTime (grid, time);
 
     // **ずれは拍で測る**（宣言の説明）。`snapTimeDown()`が返すのは
     // 基準の「手前の目盛り」なので、差がそのまま「目盛りからのずれ」になります
     const double reference = juce::jmax (0.0, referenceSeconds);
     const double offsetBeats = getBeatPositionAt (reference)
-                                 - getBeatPositionAt (snapTimeDown (reference));
+                                 - getBeatPositionAt (snapTimeDown (grid, reference));
 
     // **ずれが無ければ、目盛りと同じ。** 目盛りの上に置いたノートでは
     // ここから先を通っても同じ値になりますが、**通さずに返しておくこと**——
@@ -5259,7 +5294,7 @@ double ProjectModel::snapTimeRelativeTo (double seconds, double referenceSeconds
     // どの刻みでも同じ式で済みます（`snapTime()`が刻みごとの違いを知っている）
     const double shifted = getTimeForBeatPosition (juce::jmax (0.0, getBeatPositionAt (time) - offsetBeats));
     const double relative = juce::jmax (0.0,
-        getTimeForBeatPosition (getBeatPositionAt (snapTime (shifted)) + offsetBeats));
+        getTimeForBeatPosition (getBeatPositionAt (snapTime (grid, shifted)) + offsetBeats));
 
     // **近いほうへ。** 同じ距離なら目盛り（迷ったときは、揃っているほうが読みやすい）
     return (std::abs (time - onGrid) <= std::abs (time - relative)) ? onGrid : relative;

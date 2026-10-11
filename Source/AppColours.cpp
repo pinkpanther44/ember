@@ -312,6 +312,15 @@ namespace AppColours
             }
         }
 
+        // 8.348：スクロールバーのつまみ（Phase 336／本人の要望）。中身は`AppColours::drawScrollbarThumb()`
+        void drawScrollbar (juce::Graphics& g, juce::ScrollBar& scrollbar, int x, int y, int width, int height,
+                            bool isScrollbarVertical, int thumbStartPosition, int thumbSize,
+                            bool isMouseOver, bool) override
+        {
+            drawScrollbarThumb (g, scrollbar, x, y, width, height, isScrollbarVertical,
+                                thumbStartPosition, thumbSize, isMouseOver);
+        }
+
         void drawComboBox (juce::Graphics& g, int width, int height, bool,
                             int, int, int, int, juce::ComboBox& box) override
         {

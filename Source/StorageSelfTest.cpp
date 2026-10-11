@@ -3,6 +3,7 @@
 #include "ProjectModel.h"
 #include "MidiPlayerProcessor.h"   // 8.307：ずらした量が鳴る位置に出ること（Phase 300）
 #include "MidiFileExporter.h"     // 8.344：同じ音程が続くノートの書き出し（Phase 333）
+#include "EditorSlots.h"          // 8.347：下段と窓の中身（Phase 335）
 #include "StorageLocations.h"
 #include "ExportOptions.h"   // 8.319：書き出したファイルの中身（Phase 312）
 #include "CrashLog.h"        // 8.320：起動時に知らせる記録（Phase 312）
@@ -12,6 +13,7 @@
 
 #include <iostream>
 #include <map>
+#include <random>
 
 namespace StorageSelfTest
 {
@@ -417,6 +419,153 @@ namespace StorageSelfTest
                    "MIDI export: no note comes out zero-length  (" + juce::String (zeroLength) + " zero-length; notes "
                      + juce::String (notesPerPitch[40]) + "/" + juce::String (notesPerPitch[45]) + "/"
                      + juce::String (notesPerPitch[47]) + ", expected 2/2/1)" + (error.isEmpty() ? juce::String() : ": " + error));
+        }
+
+        //----------------------------------------------------------------------
+        // 8.347：**下段と Pop out の窓に、別々の中身**（Phase 335／本人の要望）。
+        //
+        // どこに何を出すかは`EditorSlots`だけが決める（`MainComponent`はそのとおりに付け替えるだけ）。
+        // 窓を出さずに、決まりそのものを数えます
+
+        say ("--- two places for the editors (the bottom panel and the pop-out window)");
+
+        {
+            using EC = EditorContent;
+
+            auto describe = [] (const EditorSlots& s)
+            {
+                return "dock " + EditorSlots::toString (s.dock) + (s.dockOpen ? " (open)" : " (closed)")
+                     + ", window " + (s.windowOpen ? EditorSlots::toString (s.window) : juce::String ("-"));
+            };
+
+            // 本人の例1：下段にコードパッド、Pop out にピアノロール
+            {
+                EditorSlots s;
+                s.toggle (EC::pianoRoll);
+                s.popOut();
+                const bool closedAfterPopOut = ! s.dockOpen && s.windowOpen && s.window == EC::pianoRoll;
+                s.toggle (EC::chordPad);
+
+                check (closedAfterPopOut && s.dockOpen && s.dock == EC::chordPad && s.windowOpen && s.window == EC::pianoRoll
+                         && s.isButtonLit (EC::pianoRoll) && s.isButtonLit (EC::chordPad) && ! s.isButtonLit (EC::console),
+                       "example 1: Chord Pad below and the piano roll popped out, both buttons lit  (" + describe (s) + ")");
+
+                // フッターの Editor を押すと、窓を前面に出すだけ（動かさない）
+                const bool front = s.toggle (EC::pianoRoll);
+                check (front && s.dock == EC::chordPad && s.dockOpen && s.window == EC::pianoRoll,
+                       "pressing Editor while the piano roll is in the window brings the window forward and moves nothing");
+
+                // Pop Out を押すと入れ替わる
+                s.popOut();
+                check (s.dockOpen && s.dock == EC::pianoRoll && s.windowOpen && s.window == EC::chordPad,
+                       "Pop Out with something already in the window swaps the two  (" + describe (s) + ")");
+            }
+
+            // 本人の例2：下段にピアノロール、Pop out に Console
+            {
+                EditorSlots s;
+                s.toggle (EC::console);
+                s.popOut();
+                s.toggle (EC::pianoRoll);
+
+                check (s.dockOpen && s.dock == EC::pianoRoll && s.windowOpen && s.window == EC::console,
+                       "example 2: the piano roll below and the Console popped out  (" + describe (s) + ")");
+
+                // トラックを選ぶと、エディタの側（下段）が付いていく。Console は取り上げない
+                s.followSelection (EC::audioEditor);
+                const bool audioBelow = s.dock == EC::audioEditor && s.window == EC::console;
+                s.followSelection (EC::chordPad);
+
+                check (audioBelow && s.dock == EC::chordPad && s.window == EC::console,
+                       "selecting tracks changes the editor below and never takes the Console  (" + describe (s) + ")");
+
+                // 下段を閉じてから窓を閉じると、窓の中身が下段へ戻る
+                s.closeDock();
+                s.closeWindow();
+                check (! s.windowOpen && s.dockOpen && s.dock == EC::console,
+                       "closing the window when the bottom panel is closed brings its content back below  (" + describe (s) + ")");
+            }
+
+            // 下段に別のものがあるときに窓を閉じると、窓だけ閉じる
+            {
+                EditorSlots s;
+                s.toggle (EC::pianoRoll);
+                s.popOut();
+                s.toggle (EC::console);
+                s.closeWindow();
+
+                check (! s.windowOpen && s.dockOpen && s.dock == EC::console,
+                       "closing the window while something else is below just closes the window  (" + describe (s) + ")");
+            }
+
+            // 窓に出ているエディタは、トラックを選ぶと窓の中で付いていく
+            {
+                EditorSlots s;
+                s.toggle (EC::pianoRoll);
+                s.popOut();
+                s.toggle (EC::console);
+                s.followSelection (EC::audioEditor);
+
+                check (s.window == EC::audioEditor && s.dock == EC::console && s.lastEditor == EC::audioEditor,
+                       "the editor in the window follows the selected track there  (" + describe (s) + ")");
+            }
+
+            // 保存したプロジェクトを開いたとき：下段が同じものを持っていれば、下段から外す
+            {
+                EditorSlots s;
+                s.toggle (EC::console);
+                s.openWindowWith (EditorSlots::fromString (EditorSlots::toString (EC::console)));
+
+                check (s.windowOpen && s.window == EC::console && s.dock == EC::none && ! s.dockOpen,
+                       "reopening a project puts the saved content back in the window, never in both places");
+
+                bool namesRoundTrip = EditorSlots::fromString ("") == EC::none && EditorSlots::fromString ("bogus") == EC::none;
+
+                for (auto c : { EC::pianoRoll, EC::audioEditor, EC::chordPad, EC::console })
+                    namesRoundTrip = namesRoundTrip && EditorSlots::fromString (EditorSlots::toString (c)) == c;
+
+                check (namesRoundTrip, "the saved names read back (and an unknown name reads as nothing)");
+            }
+
+            // **何をどの順で押しても、同じ中身が2か所に出ない**（部品は1つずつしか無い）。
+            // 窓は空にならず、下段が開いているなら中身を持っている
+            {
+                EditorSlots s;
+                std::mt19937 random (12345);
+                const EC contents[] { EC::pianoRoll, EC::audioEditor, EC::chordPad, EC::console };
+                juce::String broken;
+
+                for (int step = 0; step < 4000 && broken.isEmpty(); ++step)
+                {
+                    const auto c = contents[random() % 4];
+
+                    switch (random() % 7)
+                    {
+                        case 0: s.toggle (c); break;
+                        case 1: s.show (c); break;
+                        case 2: s.popOut(); break;
+                        case 3: s.closeWindow(); break;
+                        case 4: s.closeDock(); break;
+                        case 5: s.followSelection (c); break;
+                        case 6: s.openWindowWith (c); break;
+                    }
+
+                    if (s.windowOpen && s.window == EC::none)
+                        broken = "an empty window";
+                    else if (s.windowOpen && s.window == s.dock)
+                        broken = "the same content in both places";
+                    else if (s.dockOpen && s.dock == EC::none)
+                        broken = "an open bottom panel with nothing in it";
+                    else if (s.lastEditor != EC::pianoRoll && s.lastEditor != EC::audioEditor)
+                        broken = "the Editor button pointing at something else";
+
+                    if (broken.isNotEmpty())
+                        broken << " at step " << step << " (" << describe (s) << ")";
+                }
+
+                check (broken.isEmpty(), "4000 random presses never show one content twice, an empty window or an empty open panel"
+                                           + (broken.isEmpty() ? juce::String() : ": " + broken));
+            }
         }
 
         //----------------------------------------------------------------------

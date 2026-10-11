@@ -149,21 +149,21 @@ PianoRollView::PianoRollView (ProjectModel& projectToUse, AudioEngine& engineToU
 
     };
 
-    // 仕様書5.5・5.9：編集の刻み（Phase 55）。**アレンジ画面にも同じものがある**ので、
-    // 自分で決めずMainComponentへ返して、両方へ配ってもらう（1.27・8.15）
+    // 仕様書5.5・5.9：編集の刻み（Phase 55）。自分で決めずMainComponentへ返す（1.27・8.15）。
+    // 8.349：**アレンジ画面とは別の値**（`ProjectModel::getPianoRollSnapGrid()`。Phase 337）
     snapSelector.onSnapGridChanged = [this] (SnapGrid grid)
     {
         if (onSnapGridSelected != nullptr)
             onSnapGridSelected (grid);
         else
-            project.setSnapGrid (grid);   // 繋がっていない場合の保険
+            project.setPianoRollSnapGrid (grid);   // 繋がっていない場合の保険（8.349：ピアノロールの刻み）
 
         // 縦のグリッド線は刻みで引いている（8.14）。ポップアウトしている場合、
         // ここを描き直すのはこちらの仕事になる
         pianoRoll.repaint();
     };
 
-    snapSelector.setSnapGrid (project.getSnapGrid());
+    snapSelector.setSnapGrid (project.getPianoRollSnapGrid());   // 8.349：アレンジ画面とは別（Phase 337）
     addAndMakeVisible (snapSelector);
 
     //--------------------------------------------------------------------------

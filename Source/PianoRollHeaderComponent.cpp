@@ -456,7 +456,7 @@ void PianoRollHeaderComponent::mouseDown (const juce::MouseEvent& e)
             dragTarget = DragTarget::loopCreate;
 
             // **掴んだ側の端も寄せること**（8.14）
-            loopDragAnchorTime = project.snapTime (xToTime (e.x));
+            loopDragAnchorTime = project.snapTime (project.getPianoRollSnapGrid(), xToTime (e.x));
             loopPreviewStart = loopDragAnchorTime;
             loopPreviewEnd = loopDragAnchorTime;
         }
@@ -534,13 +534,13 @@ void PianoRollHeaderComponent::mouseDown (const juce::MouseEvent& e)
         dragTarget = DragTarget::seek;
 
         if (onSeek != nullptr)
-            onSeek (project.snapTime (xToTime (e.x)));
+            onSeek (project.snapTime (project.getPianoRollSnapGrid(), xToTime (e.x)));
     }
 }
 
 void PianoRollHeaderComponent::mouseDrag (const juce::MouseEvent& e)
 {
-    const double snapped = project.snapTime (xToTime (e.x));
+    const double snapped = project.snapTime (project.getPianoRollSnapGrid(), xToTime (e.x));
 
     switch (dragTarget)
     {
@@ -559,7 +559,7 @@ void PianoRollHeaderComponent::mouseDrag (const juce::MouseEvent& e)
         case DragTarget::loopEnd:
         {
             // **最短の長さは目盛り1つぶん**（0にすると範囲が消える。8.14）
-            const double snapSeconds = project.getSnapSecondsAt (snapped);
+            const double snapSeconds = project.getSnapSecondsAt (project.getPianoRollSnapGrid(), snapped);
             const double minimumLength = (snapSeconds > 0.0) ? snapSeconds
                                                              : project.getBeatSecondsAt (snapped);
 
@@ -587,18 +587,18 @@ void PianoRollHeaderComponent::mouseDrag (const juce::MouseEvent& e)
 
             if (dragTarget == DragTarget::chordMove)
             {
-                chordPreviewStart = juce::jmax (0.0, project.snapTime (chordDragOriginalStart + deltaSeconds));
+                chordPreviewStart = juce::jmax (0.0, project.snapTime (project.getPianoRollSnapGrid(), chordDragOriginalStart + deltaSeconds));
             }
             else if (dragTarget == DragTarget::chordTrimLeft)
             {
                 const double end = chordDragOriginalStart + chordDragOriginalLength;
                 chordPreviewStart = juce::jlimit (0.0, end - minimumLength,
-                                                   project.snapTime (chordDragOriginalStart + deltaSeconds));
+                                                   project.snapTime (project.getPianoRollSnapGrid(), chordDragOriginalStart + deltaSeconds));
                 chordPreviewLength = end - chordPreviewStart;
             }
             else
             {
-                const double end = project.snapTime (chordDragOriginalStart + chordDragOriginalLength + deltaSeconds);
+                const double end = project.snapTime (project.getPianoRollSnapGrid(), chordDragOriginalStart + chordDragOriginalLength + deltaSeconds);
                 chordPreviewLength = juce::jmax (minimumLength, end - chordPreviewStart);
             }
 
@@ -729,7 +729,7 @@ void PianoRollHeaderComponent::mouseDoubleClick (const juce::MouseEvent& e)
 
         // 空いている場所には1小節ぶんのコード区間を足す（アレンジ画面と同じ。8.5）。
         // **既にある区間と重ねない**：判定はモデル側の1箇所（Track）にある
-        const double startTime = project.snapTimeDown (xToTime (e.x));
+        const double startTime = project.snapTimeDown (project.getPianoRollSnapGrid(), xToTime (e.x));
         const double barSeconds = project.getBarSecondsAt (startTime);
 
         if (chordTrack.hasOverlappingChordRegion (startTime, startTime + barSeconds))
@@ -753,7 +753,7 @@ void PianoRollHeaderComponent::mouseDoubleClick (const juce::MouseEvent& e)
 
 void PianoRollHeaderComponent::showRulerMenu (const juce::MouseEvent& e)
 {
-    const double snappedTime = project.snapTime (xToTime (e.x));
+    const double snappedTime = project.snapTime (project.getPianoRollSnapGrid(), xToTime (e.x));
 
     // **アレンジ画面のルーラーと同じ中身**（8.29）。片方だけ項目が違うと、
     // どちらで何ができるかを覚え直すことになる

@@ -189,6 +189,23 @@ namespace AppColours
         return useSquareCorners ? 0.0f : radiusWhenRounded;
     }
 
+    /** 8.348：**スクロールバーのつまみも角ばらせる**（Phase 336／本人の要望）。
+
+        `LookAndFeel_V4::drawScrollbar()`をなぞって、丸み（4px）だけ`corner()`に通したもの。
+        **スクロールバーを描く LookAndFeel は全部これを呼ぶこと**——アプリ全体の`AppLookAndFeel`と、
+        ブラウザのファイル一覧の`FileRowLookAndFeel`（`LookAndFeel_V4`から直に作っているので、
+        呼ばないとそこだけ丸いまま残る）。 */
+    inline void drawScrollbarThumb (juce::Graphics& g, juce::ScrollBar& scrollbar, int x, int y, int width, int height,
+                                    bool isScrollbarVertical, int thumbStartPosition, int thumbSize, bool isMouseOver)
+    {
+        const auto thumbBounds = isScrollbarVertical ? juce::Rectangle<int> (x, thumbStartPosition, width, thumbSize)
+                                                     : juce::Rectangle<int> (thumbStartPosition, y, thumbSize, height);
+
+        const auto colour = scrollbar.findColour (juce::ScrollBar::ColourIds::thumbColourId);
+        g.setColour (isMouseOver ? colour.brighter (0.25f) : colour);
+        g.fillRoundedRectangle (thumbBounds.reduced (1).toFloat(), corner (4.0f));
+    }
+
 
     std::unique_ptr<juce::LookAndFeel_V4> createLookAndFeel();
 }

@@ -1,6 +1,7 @@
 #include "SnapGridSelfTest.h"
 
 #include "ProjectModel.h"
+#include "Branding.h"      // 8.349：保存して開き直す（拡張子。Phase 337）
 #include "MusicalTime.h"   // 8.277：位置の比べ方（Phase 274）
 #include "SnapGrid.h"
 #include "SnapGridSelector.h"   // 8.307：入切ボタン（Phase 300）
@@ -589,6 +590,57 @@ namespace SnapGridSelfTest
 
                 checkNear (midi.getNote (1).getStartBeats(), 8.0, "...and nothing moved");
             }
+        }
+
+        //----------------------------------------------------------------------
+        // 8.349：**アレンジ画面とピアノロールで別の刻み**（Phase 337／本人の要望）。
+        //
+        // > 「Arrange画面では1/4で操作したいけど、ピアノロール画面では1/8や1/16などで操作したい場面が多々ある」
+        //
+        // ピアノロールは`getPianoRollSnapGrid()`を「刻みを渡すほう」の関数へ渡す。
+        // **まだ選んでいなければアレンジ画面と同じ**（前のプロジェクトは1つしか持っていない）
+
+        say ("--- a separate grid for the piano roll");
+
+        {
+            ProjectModel song;
+            song.setTempo (120.0, nullptr);        // 1拍 = 0.5秒
+            song.setTimeSignature ("4/4", nullptr);
+
+            song.setSnapGrid (SnapGrid::eighth);
+            check (song.getPianoRollSnapGrid() == SnapGrid::eighth,
+                   "before the piano roll has its own grid, it follows the arrange window's (as older projects did)");
+
+            song.setSnapGrid (SnapGrid::quarter);
+            song.setPianoRollSnapGrid (SnapGrid::sixteenth);
+            song.setSnapGrid (SnapGrid::bar);   // アレンジ画面だけ変える
+            song.setSnapGrid (SnapGrid::quarter);
+
+            check (song.getSnapGrid() == SnapGrid::quarter && song.getPianoRollSnapGrid() == SnapGrid::sixteenth,
+                   "once chosen, the piano roll keeps 1/16 while the arrange window changes");
+
+            // 0.2秒：1/4（0.5秒刻み）なら 0.0、1/16（0.125秒刻み）なら 0.25
+            checkNear (song.snapTime (0.2), 0.0, "the arrange window snaps 0.2 s to the beat (1/4)");
+            checkNear (song.snapTime (song.getPianoRollSnapGrid(), 0.2), 0.25, "the piano roll snaps 0.2 s to 1/16");
+            checkNear (song.snapTimeDown (song.getPianoRollSnapGrid(), 0.2), 0.125, "...and rounds down to 1/16");
+            checkNear (song.getSnapSecondsAt (song.getPianoRollSnapGrid(), 0.0), 0.125, "one 1/16 cell is 0.125 s");
+            checkNear (song.snapTimeRelativeTo (song.getPianoRollSnapGrid(), 0.27, 0.0), 0.25,
+                       "relative snapping in the piano roll uses 1/16 too");
+
+            // 保存して開き直しても、両方とも戻る
+            const auto file = juce::File::getSpecialLocation (juce::File::tempDirectory)
+                                  .getChildFile ("SnapGridSelfTest_" + juce::String (juce::Time::currentTimeMillis()))
+                                  .getChildFile ("Grids" + juce::String (Branding::projectExtension));
+            file.getParentDirectory().createDirectory();
+
+            const bool saved = song.saveToFile (file);
+            ProjectModel reopened;
+            const bool opened = saved && reopened.loadFromFile (file);
+
+            check (opened && reopened.getSnapGrid() == SnapGrid::quarter && reopened.getPianoRollSnapGrid() == SnapGrid::sixteenth,
+                   "both grids survive saving and opening again");
+
+            file.getParentDirectory().deleteRecursively();
         }
 
         //----------------------------------------------------------------------

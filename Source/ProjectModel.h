@@ -1518,22 +1518,34 @@ public:
         ただしプロジェクトファイルには入るので、未保存の変更としては数えます。 */
     void setSnapGrid (SnapGrid newGrid);
 
+    /** 8.349：**ピアノロールの刻み**（Phase 337／本人の要望「アレンジ画面は1/4、ピアノロールは1/8や1/16」）。
+        アレンジ画面の刻み（`getSnapGrid()`）とは別に保存する。**無ければアレンジ画面と同じ値**を返す
+        （前のプロジェクトは1つしか持っていない）。Undoには積まない（`setSnapGrid()`と同じ）。
+
+        **ピアノロール（目盛りの帯も含む）は、下の関数の「刻みを渡す」ほうにこれを渡すこと。**
+        渡し忘れると、その操作だけアレンジ画面の刻みで寄る。 */
+    SnapGrid getPianoRollSnapGrid() const;
+    void setPianoRollSnapGrid (SnapGrid newGrid);
+
     /** その時刻での刻み1つぶんの長さ（秒）。**フリーなら0**。
 
         **「マス1つの大きさ」が欲しいときだけ使うこと**（ノートの既定の長さ、
         ループ範囲の最短）。**寄せるのに使ってはいけません**——寄せ先は
         `snapTime()`が拍の座標で決めます（8.98／Phase 139）。 */
     double getSnapSecondsAt (double atTime) const;
+    double getSnapSecondsAt (SnapGrid grid, double atTime) const;   ///< 8.349：刻みを渡すほう
 
     /** いちばん近い目盛りへ寄せる。**動かす操作（ドラッグ）はこれ。**
         フリーのときは値をそのまま返すので、呼び出し側に分岐は要りません。
         0秒より手前へは行きません。 */
     double snapTime (double seconds) const;
+    double snapTime (SnapGrid grid, double seconds) const;           ///< 8.349：刻みを渡すほう
 
     /** 手前の目盛りへ寄せる（切り捨て）。**作る操作はこれ。**
         クリックしたマスの頭から作りたいので、丸めると
         「マスの後ろ半分をクリックすると次のマスにできる」ことになります。 */
     double snapTimeDown (double seconds) const;
+    double snapTimeDown (SnapGrid grid, double seconds) const;       ///< 8.349：刻みを渡すほう
 
     /** 8.305：**目盛りに加えて、`referenceSeconds`のずれを保った位置にも寄せる**
         （Phase 298／本人の指定）。
@@ -1560,6 +1572,7 @@ public:
         ずれは**拍で測ります**。秒で覚えると、テンポの変化点をまたいだときに
         ずれの大きさが変わります（8.98）。 */
     double snapTimeRelativeTo (double seconds, double referenceSeconds) const;
+    double snapTimeRelativeTo (SnapGrid grid, double seconds, double referenceSeconds) const;   ///< 8.349
 
     // **`snapLength()`はPhase 139で消しました。** どこからも呼ばれていない上に、
     // 「長さを秒の目盛りで丸める」形はテンポが途中で変わると成り立ちません

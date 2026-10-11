@@ -988,7 +988,7 @@ void PianoRollComponent::cutNoteAt (const juce::ValueTree& noteState, int x)
     // Phase 54：割る位置もスナップに従う（8.14）。
     // 寄せた結果が端に寄りすぎたときは、下の判定でそのまま「割らない」に落ちる。
     // 8.91：**寄せた値がそのまま曲の時刻**（Phase 131で換算が消えた）
-    const double cutTime = juce::jmax (0.0, project.snapTime (xToTimelineTime (x)));
+    const double cutTime = juce::jmax (0.0, project.snapTime (project.getPianoRollSnapGrid(), xToTimelineTime (x)));
     const double startTime = note.getStartTime();
     const double length = note.getLength();
 
@@ -2313,11 +2313,11 @@ void PianoRollComponent::addNoteAt (int x, int y)
     const int pitch = yToPitch (y);
 
     // 寄せるのはタイムライン上。**8.91：これがそのまま置く時刻**（Phase 131）
-    const double startTime = project.snapTimeDown (xToTimelineTime (x));
+    const double startTime = project.snapTimeDown (project.getPianoRollSnapGrid(), xToTimelineTime (x));
 
     // **長さも目盛り1つぶんにする**（Phase 54）。コード区間と違い、
     // ノートは「マス1つを埋める」のが打ち込みの単位。フリーのときは既定値。
-    const double snapSeconds = project.getSnapSecondsAt (startTime);
+    const double snapSeconds = project.getSnapSecondsAt (project.getPianoRollSnapGrid(), startTime);
     double noteLength = (snapSeconds > 0.0) ? snapSeconds : defaultNoteLength;
 
     // 8.276：**ドラムは短く置く**（Phase 274／本人の指摘）。
@@ -2875,7 +2875,7 @@ bool PianoRollComponent::pasteNotesAt (double timelineSeconds)
 
     // **Phase 126：受け取るのはタイムライン上の時刻。**
     // 8.91：**そのままトラックへ置く**（Phase 131）
-    const double startTime = project.snapTime (juce::jmax (0.0, timelineSeconds));
+    const double startTime = project.snapTime (project.getPianoRollSnapGrid(), juce::jmax (0.0, timelineSeconds));
 
     project.beginAction (utf8 ("ノートの貼り付け"));
 
@@ -3052,7 +3052,7 @@ bool PianoRollComponent::pasteCCEventsAt (double timelineSeconds)
         return false;
 
     // **Phase 126：受け取るのはタイムライン上の時刻**（ノートと揃えた）
-    const double startTime = project.snapTime (juce::jmax (0.0, timelineSeconds));   // 8.91
+    const double startTime = project.snapTime (project.getPianoRollSnapGrid(), juce::jmax (0.0, timelineSeconds));   // 8.91
 
     project.beginAction (utf8 ("CCイベントの貼り付け"));
 
@@ -4203,7 +4203,7 @@ void PianoRollComponent::mouseDrag (const juce::MouseEvent& e)
         // **目盛りの上にあるノートでは、今までと1ビットも変わりません**
         // （ずれが0なら候補が1つに重なる。`snapTimeRelativeTo()`）
         dragPreviewStartTime = juce::jmax (0.0,
-            project.snapTimeRelativeTo (dragOriginalStartTime + deltaSeconds, dragOriginalStartTime));
+            project.snapTimeRelativeTo (project.getPianoRollSnapGrid(), dragOriginalStartTime + deltaSeconds, dragOriginalStartTime));
         dragPreviewPitch = yToPitch (e.getPosition().y);
 
         // 8.121：**動かしている最中も鳴らす**（Phase 156／改善案23）。
@@ -4228,7 +4228,7 @@ void PianoRollComponent::mouseDrag (const juce::MouseEvent& e)
     {
         // 伸縮も「終端の位置」を寄せる（クリップのトリムと同じ考え方）。
         // 8.305：**基準は元の終端**——長さを変えずに戻せるようにするため
-        const double end = project.snapTimeRelativeTo (dragOriginalStartTime + dragOriginalLength + deltaSeconds,
+        const double end = project.snapTimeRelativeTo (project.getPianoRollSnapGrid(), dragOriginalStartTime + dragOriginalLength + deltaSeconds,
                                                         dragOriginalStartTime + dragOriginalLength);
         dragPreviewLength = juce::jmax (minNoteLength, end - dragOriginalStartTime);
 
@@ -4277,7 +4277,7 @@ void PianoRollComponent::mouseDrag (const juce::MouseEvent& e)
         // 8.29の表：**左端の伸縮**（Phase 69）。**終わりは動かさない。**
         // 始まりだけを寄せて、そのぶん長さを増減させる（クリップのTrimLeftと同じ形）
         const double end = dragOriginalStartTime + dragOriginalLength;
-        const double start = juce::jmin (project.snapTimeRelativeTo (dragOriginalStartTime + deltaSeconds,
+        const double start = juce::jmin (project.snapTimeRelativeTo (project.getPianoRollSnapGrid(), dragOriginalStartTime + deltaSeconds,
                                                                       dragOriginalStartTime),
                                           end - minNoteLength);
 
@@ -4469,7 +4469,7 @@ void PianoRollComponent::mouseUp (const juce::MouseEvent& e)
             // 再生位置は曲の時刻。**Phase 126でX座標もタイムライン基準になった**ので、
             // 寄せてそのまま返せる
             if (onSeek != nullptr && e.x > keyboardWidth && e.y < getGridHeight())
-                onSeek (project.snapTime (xToTimelineTime (e.x)));
+                onSeek (project.snapTime (project.getPianoRollSnapGrid(), xToTimelineTime (e.x)));
         }
 
         repaint();
@@ -4881,7 +4881,7 @@ void PianoRollComponent::paint (juce::Graphics& g)
         // 8.98／Phase 139：**目盛りは拍の座標で刻む。**
         // 秒で刻むと、テンポが曲の途中で変わった先で拍から外れます。
         // **小節（bar）だけは別扱い**——拍で表せないため（`snapGridBeats()`）
-        const auto snapGrid = project.getSnapGrid();
+        const auto snapGrid = project.getPianoRollSnapGrid();   // 8.349：ピアノロールの刻み（Phase 337）
         const bool barGrid = (snapGrid == SnapGrid::bar);
 
         // フリーのときは拍で引く（線が消えると、どこに何があるか分からなくなる）

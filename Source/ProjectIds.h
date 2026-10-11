@@ -38,6 +38,7 @@ namespace IDs
 
     // 仕様書5.5・5.9：編集の刻み（スナップ、Phase 54）
     extern const juce::Identifier snapGrid;
+    extern const juce::Identifier pianoRollSnapGrid;   // 8.349：ピアノロールの刻み（Phase 337）
 
     // 仕様書5.9：ループ再生（Phase 48）
     extern const juce::Identifier loopEnabled;
@@ -151,6 +152,7 @@ namespace IDs
 
     /** 8.311：エディタパネルが別窓になっていたか（Phase 304）。`<PROJECT>`に付きます。 */
     extern const juce::Identifier editorPoppedOut;
+    extern const juce::Identifier editorWindowContent;   // 8.347：窓に何を出していたか（Phase 335）
 
     /** 8.307：**このトラックのMIDIを、鳴らすときだけ前後へずらす量**（ミリ秒。Phase 300）。
 

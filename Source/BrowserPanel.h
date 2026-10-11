@@ -269,6 +269,15 @@ private:
                                           juce::Colour (Branding::browserFileColour (dark)));
         }
 
+        // 8.348：**ここも角ばらせる**（ファイル一覧のスクロールバー。`AppColours::drawScrollbarThumb()`。Phase 336）
+        void drawScrollbar (juce::Graphics& g, juce::ScrollBar& scrollbar, int x, int y, int width, int height,
+                            bool isScrollbarVertical, int thumbStartPosition, int thumbSize,
+                            bool isMouseOver, bool) override
+        {
+            AppColours::drawScrollbarThumb (g, scrollbar, x, y, width, height, isScrollbarVertical,
+                                            thumbStartPosition, thumbSize, isMouseOver);
+        }
+
         void drawFileBrowserRow (juce::Graphics& g, int width, int height,
                                   const juce::File&, const juce::String& filename,
                                   juce::Image* icon, const juce::String& fileSizeDescription,

@@ -25,6 +25,7 @@ namespace IDs
     const juce::Identifier timeSignature{ "timeSignature" };
 
     const juce::Identifier snapGrid     { "snapGrid" };
+    const juce::Identifier pianoRollSnapGrid { "pianoRollSnapGrid" };
 
     const juce::Identifier loopEnabled   { "loopEnabled" };
     const juce::Identifier loopStartTime { "loopStart" };
@@ -74,6 +75,7 @@ namespace IDs
     const juce::Identifier instrumentEditorOpen { "instrumentEditorOpen" };
     const juce::Identifier insertEditorOpen { "insertEditorOpen" };
     const juce::Identifier editorPoppedOut { "editorPoppedOut" };
+    const juce::Identifier editorWindowContent { "editorWindowContent" };
     const juce::Identifier volume     { "volume" };
     const juce::Identifier pan        { "pan" };
 

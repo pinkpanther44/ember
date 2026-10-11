@@ -52,6 +52,15 @@ public:
     /** 借りていた中身を返す。**窓を壊す前に呼ぶこと**（呼ばなくても入れ物が外しますが、順番を読みやすく）。 */
     void clearBorrowedContent() { setBorrowedContent (nullptr); }
 
+    /** 8.347：いま借りている中身（無ければ nullptr。Phase 335）。 */
+    juce::Component* getBorrowedContent() const
+    {
+        if (auto* holder = dynamic_cast<Holder*> (getContentComponent()))
+            return holder->borrowed.getComponent();
+
+        return nullptr;
+    }
+
     std::function<void()> onCloseRequested;
 
     void closeButtonPressed() override

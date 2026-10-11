@@ -72,9 +72,9 @@ MainComponent::MainComponent()
     arrangeView.onMidiClipDoubleClicked = [this] (int trackIndex, double timelineSeconds)
     {
         // コードパッドを出している最中でも、MIDIを開いたらピアノロールへ戻す
-        setEditorContent (EditorContent::pianoRoll);
+        // 8.347：ピアノロールが窓に出ていれば窓のほうで見せる（`showEditorContent()`。Phase 335）
         pianoRollView.showTrack (trackIndex, timelineSeconds);
-        setEditorPanelOpen (true);
+        showEditorContent (EditorContent::pianoRoll);
     };
 
 
@@ -89,8 +89,7 @@ MainComponent::MainComponent()
         // 出す作りなので（8.39）、ここで選び直せば中身は勝手に決まる
         selection.selectClip (project.getTrack (trackIndex).getId(), clipIndex, false);
 
-        setEditorContent (EditorContent::audioEditor);
-        setEditorPanelOpen (true);
+        showEditorContent (EditorContent::audioEditor);
     };
     // 設計書2.3.5：コード区間をダブルクリックしたらコードパッドを開く（Phase 43）。
     // MIDIクリップ→ピアノロールと同じ操作感にしてある。
@@ -100,9 +99,8 @@ MainComponent::MainComponent()
         setPlayheadDisplay (startTimeSeconds);
         updateTransportForPlayhead (startTimeSeconds);
 
-        setEditorContent (EditorContent::chordPad);
+        showEditorContent (EditorContent::chordPad);
         chordPadPanel.setInsertPosition (startTimeSeconds);
-        setEditorPanelOpen (true);
     };
 
 
@@ -177,7 +175,7 @@ MainComponent::MainComponent()
     // 中身側のvisibilityChanged()が飛ばない（値が変わらないため）。
     addChildComponent (editorPanel); // 既定は閉じた状態
     editorPanel.setContent (&pianoRollView);
-    editorPanel.onCloseClicked = [this] { setEditorPanelOpen (false); };
+    editorPanel.onCloseClicked = [this] { closeEditorPanel(); };
     editorPanel.onPopOutClicked = [this] { popOutEditor(); };
     editorPanel.onHeightChangeRequested = [this] (int newHeight) { setEditorPanelHeight (newHeight); };
 
@@ -229,7 +227,7 @@ MainComponent::MainComponent()
     // 設計書2.2：下部パネルの中身を選ぶ（Phase 66／8.27）。
     // **EditorとConsoleは同じ枠を取り合う。** どちらのボタンも「その中身にする／
     // 既にそれなら閉じる」という同じ形にしてあるので、処理は1箇所（`toggleEditorContent`）
-    transportBar.onEditorToggled  = [this] { toggleEditorContent (lastEditorContent); };
+    transportBar.onEditorToggled  = [this] { toggleEditorContent (editorSlots.lastEditor); };
     transportBar.onConsoleToggled = [this] { toggleEditorContent (EditorContent::console); };
 
     // 8.71：コードパッドは**別の窓**（Phase 111／改善案⑭）。
@@ -341,9 +339,8 @@ MainComponent::MainComponent()
     pianoRollView.onChordRegionDoubleClicked = [this] (double startTimeSeconds)
     {
         seekTo (startTimeSeconds);
-        setEditorContent (EditorContent::chordPad);
+        showEditorContent (EditorContent::chordPad);
         chordPadPanel.setInsertPosition (startTimeSeconds);
-        setEditorPanelOpen (true);
     };
 
     // 仕様書5.9：先頭へ戻す（Phase 30）。停止中でも時間表示を合わせる必要があるため、
@@ -444,7 +441,7 @@ MainComponent::MainComponent()
     arrangeView.onBarEditRequested = [this] (bool inserting) { showBarEditDialog (inserting); };
 
     arrangeView.onSnapGridSelected  = [this] (SnapGrid newGrid) { applySnapGrid (newGrid); };
-    pianoRollView.onSnapGridSelected = [this] (SnapGrid newGrid) { applySnapGrid (newGrid); };
+    pianoRollView.onSnapGridSelected = [this] (SnapGrid newGrid) { applyPianoRollSnapGrid (newGrid); };   // 8.349：別の値（Phase 337）
 
     // 8.278：自動スクロール（Phase 275／本人の要望）。**刻みとまったく同じ形**。
     //
@@ -665,22 +662,10 @@ void MainComponent::resized()
 // 設計書2.2・仕様書4.2：エディタパネル（Phase 16）
 //==============================================================================
 
-void MainComponent::setEditorPanelOpen (bool shouldBeOpen)
+void MainComponent::closeEditorPanel()
 {
-    // 既に目的の状態なら何もしない。ここで中身を更新し直すと、
-    // 直前にshowClip()で選んだクリップを選び直してしまう（ダブルクリック経路）。
-    if (editorPanel.isVisible() == shouldBeOpen)
-        return;
-
-    editorPanel.setVisible (shouldBeOpen);
-    updateEditorToggleButtons();   // Phase 66：Editor／Consoleのどちらが灯るかは中身で決まる
-
-    // 開くときは明示的に読み直す。visibilityChanged()頼みにすると、
-    // 表示状態が既に一致している場合に通知が飛ばず、古い内容が残る
-    if (shouldBeOpen)
-        refreshEditorContent();
-
-    resized(); // パネルのぶんだけ、中央エリアの高さが変わる
+    editorSlots.closeDock();
+    applyEditorSlots();
 }
 
 //==============================================================================
@@ -731,7 +716,7 @@ void MainComponent::updateEditorContentForSelectedTrack()
     //
     // **センド・フォルダ・VCAには出すものがない。** 何も持たないトラックを選んだときは
     // **いま出しているものをそのままにする**（勝手に入れ替わるほうが困る）
-    EditorContent wanted = editorContent;
+    EditorContent wanted = EditorContent::none;
 
     switch (track.getType())
     {
@@ -746,14 +731,6 @@ void MainComponent::updateEditorContentForSelectedTrack()
         default:               return;
     }
 
-    // **Consoleを出しているときは取り上げない**（8.27。同じ枠を取り合うため）。
-    // Editorボタンで戻る先だけ覚えておけば、次に押したときに正しい中身が出る
-    if (editorContent == EditorContent::console)
-    {
-        rememberEditorContent (wanted);
-        return;
-    }
-
     // 8.39：**MIDIクリップを選んだら、ピアノロールもそのクリップへ寄せる**（Phase 79）。
     //
     // オーディオエディタは選んだクリップを出すので、揃えておかないと
@@ -763,7 +740,7 @@ void MainComponent::updateEditorContentForSelectedTrack()
     // ピアノロール自身のトラック一覧（G4）で選び直したものが、
     // パネルを開き直すたびにアレンジ画面の選択へ引き戻される。
     //
-    // **中身を切り替える前に呼ぶこと**：`setEditorContent()`は最後に
+    // **中身を切り替える前に呼ぶこと**：`applyEditorSlots()`は最後に
     // `refreshEditorContent()`を通すので、先に対象を決めておけば1回で済む
     // 8.71：**トラックヘッダーを選んだときも寄せます**（Phase 110／改善案②）。
     //
@@ -791,44 +768,52 @@ void MainComponent::updateEditorContentForSelectedTrack()
         }
     }
 
-    // 既にその中身なら、対象が変わっただけなので読み直すだけ。
-    // **`setEditorContent()`は同じ値だと何もしない**ので、ここで呼んでおく
-    if (editorContent == wanted)
-    {
-        refreshEditorContent();
-        return;
-    }
-
-    setEditorContent (wanted);
+    // 8.347：**どちら（下段・窓）が付いていくかは`EditorSlots::followSelection()`**（Phase 335）。
+    // Console を出しているところは取り上げない（8.27）。どちらも付いていけなければ、
+    // Editor ボタンの戻り先だけ覚える。もう出ていれば、対象が変わっただけなので読み直すだけ
+    editorSlots.followSelection (wanted);
+    applyEditorSlots();
 }
 
-juce::Component* MainComponent::getEditorContentComponent()
+juce::Component* MainComponent::getComponentFor (EditorContent content)
 {
-    switch (editorContent)
+    switch (content)
     {
         case EditorContent::chordPad:    return &chordPadPanel;
         case EditorContent::console:     return &consoleView;
         case EditorContent::audioEditor: return &audioEditorView;   // Phase 79
-        case EditorContent::pianoRoll:
-        default:                      return &pianoRollView;
+        case EditorContent::pianoRoll:   return &pianoRollView;
+        case EditorContent::none:
+        default:                         return nullptr;
     }
 }
 
-juce::String MainComponent::getEditorContentTitle() const
+juce::String MainComponent::getTitleFor (EditorContent content)
 {
-    switch (editorContent)
+    switch (content)
     {
         case EditorContent::chordPad:    return "Chord Pad";
         case EditorContent::console:     return "Console";
         case EditorContent::audioEditor: return "Audio Editor";   // Phase 79
-        case EditorContent::pianoRoll:
-        default:                      return "Piano Roll";
+        case EditorContent::pianoRoll:   return "Piano Roll";
+        case EditorContent::none:
+        default:                         return {};
     }
 }
 
 void MainComponent::refreshEditorContent()
 {
-    if (editorContent == EditorContent::chordPad)
+    // 8.347：**見えているものを両方**読み直す（下段と窓。Phase 335）
+    if (editorSlots.dockOpen)
+        refreshContent (editorSlots.dock);
+
+    if (editorSlots.windowOpen)
+        refreshContent (editorSlots.window);
+}
+
+void MainComponent::refreshContent (EditorContent content)
+{
+    if (content == EditorContent::chordPad)
     {
         // コードを挿す位置は再生位置に合わせる（仕様書5.11.2の「カーソル位置」）
         chordPadPanel.setInsertPosition (audioEngine.getPlayheadSeconds());
@@ -838,7 +823,7 @@ void MainComponent::refreshEditorContent()
 
     // 8.39：オーディオエディタは**選択に合わせて対象クリップを選び直す**（Phase 79）。
     // クリップを選んでいればそれを、選んでいなければそのトラックの最初のクリップを出す
-    if (editorContent == EditorContent::audioEditor)
+    if (content == EditorContent::audioEditor)
     {
         audioEditorView.setClip (getSelectedAudioClip());
         audioEditorView.refreshFromModel();
@@ -847,17 +832,14 @@ void MainComponent::refreshEditorContent()
 
     // Consoleは自分の`visibilityChanged()`でストリップを組み直し、
     // メーターのタイマーも回し始める。ここから触ると更新の経路が2本になる（1.15）
-    if (editorContent == EditorContent::console)
-        return;
-
-    pianoRollView.refreshFromModel();
+    if (content == EditorContent::pianoRoll)
+        pianoRollView.refreshFromModel();
 }
 
 bool MainComponent::isPianoRollFocused() const
 {
-    // ピアノロールが出ていない（コードパッド／Consoleを出している、または
-    // エディタパネルを閉じている）なら、いつもどおりアレンジ画面へ渡す
-    if (editorContent != EditorContent::pianoRoll || ! pianoRollView.isVisible())
+    // ピアノロールが出ていない（下段にも窓にも無い）なら、いつもどおりアレンジ画面へ渡す
+    if (! editorSlots.isShown (EditorContent::pianoRoll) || ! pianoRollView.isVisible())
         return false;
 
     // 子（ノートグリッド・コンボボックス等）が持っている場合も「ピアノロールを
@@ -867,107 +849,89 @@ bool MainComponent::isPianoRollFocused() const
 
 void MainComponent::toggleEditorContent (EditorContent content)
 {
-    // ポップアウト中はドック側のパネルが空。**閉じずに中身だけ入れ替える**
-    // （別ウィンドウを勝手に閉じると、置いた場所へ戻す手間が増える）
-    if (editorWindow != nullptr)
-    {
-        setEditorContent (content);
-        editorWindow->toFront (true);
-        return;
-    }
-
-    // 同じ中身が既に出ていれば閉じる。**これが無いと閉じる手が無くなる**
-    // （EditorとConsoleが同じ枠を取り合うため、押しても入れ替わるだけになる）
-    if (editorPanel.isVisible() && editorContent == content)
-    {
-        setEditorPanelOpen (false);
-        return;
-    }
-
-    setEditorContent (content);
-    setEditorPanelOpen (true);
+    // 8.347：**窓に出ているものは、窓を前面に出す**（本人と決めた。Phase 335）。
+    // 下段に出ていれば閉じる（**これが無いと閉じる手が無くなる**。EditorとConsoleが同じ枠を取り合うため）
+    const bool front = editorSlots.toggle (content);
+    applyEditorSlots (front);
 }
 
-void MainComponent::rememberEditorContent (EditorContent content)
+void MainComponent::showEditorContent (EditorContent content)
 {
-    // 8.75：**「Editorボタンで戻る先」に覚えてよいのは、Editorボタンのものだけ**
-    // （Phase 115）。
-    //
-    // Phase 114でChord Padがフッターのボタンになったので、
-    // Console と同じく**自分のボタンを持つ中身**になりました。
-    // ここで覚えてしまうと、**一度Chord Padを開いた後はEditorを押してもChord Padが出ます**
-    // （実際にそうなっていた）。
-    //
-    // 判断はこの関数1箇所。呼ぶ側で書くと、片方だけ直し忘れます（1.26）——
-    // 現に、`setEditorContent()`と`updateEditorContentForSelectedTrack()`の
-    // 2箇所に同じ判断が書いてありました。
-    if (content == EditorContent::console || content == EditorContent::chordPad)
-        return;
-
-    lastEditorContent = content;
-}
-
-void MainComponent::setEditorContent (EditorContent newContent)
-{
-    if (editorContent == newContent)
-        return;
-
-    editorContent = newContent;
-
-    rememberEditorContent (newContent);
-
-    // ポップアウト中は別ウィンドウが中身を握っているので、そちらを付け替える。
-    // 両方へ付けると、同じコンポーネントを2つの親が握ることになる。
-    if (editorWindow != nullptr)
-    {
-        editorWindow->clearBorrowedContent();
-        editorWindow->setName (getEditorContentTitle());
-        editorWindow->setBorrowedContent (getEditorContentComponent());
-    }
-    else
-    {
-        editorPanel.setContent (getEditorContentComponent());
-    }
-
-    editorPanel.setTitle (getEditorContentTitle());
-
-    // フッターのボタンの見た目も、どちらが出ているかに合わせる（Phase 66）
-    updateEditorToggleButtons();
-
-    refreshEditorContent();
+    const bool front = editorSlots.show (content);
+    applyEditorSlots (front);
 }
 
 void MainComponent::updateEditorToggleButtons()
 {
-    // ポップアウト中も「出ている」扱いにする。別ウィンドウで見えているのに
-    // ボタンが消灯していると、閉じたように見える
-    const bool isShowing = editorPanel.isVisible() || editorWindow != nullptr;
+    // 8.347：**下段か窓のどちらかに見えていれば灯す**（Phase 335）。
+    // ポップアウト中に消灯していると、閉じたように見える
+    transportBar.setEditorPanelOpen (editorSlots.isButtonLit (EditorContent::pianoRoll));
+    transportBar.setConsolePanelOpen (editorSlots.isButtonLit (EditorContent::console));
+    transportBar.setChordPadPanelOpen (editorSlots.isButtonLit (EditorContent::chordPad));
+}
 
-    // 8.74：**Chord Padも下部パネルの中身**（Phase 114/改善案⑭の作り直し）。
-    // Editorボタンは「ピアノロールかオーディオエディタ」を指すようになった
-    const bool isChordPad = (editorContent == EditorContent::chordPad);
-    const bool isConsole  = (editorContent == EditorContent::console);
+void MainComponent::applyEditorSlots (bool bringWindowToFront)
+{
+    const auto& slots = editorSlots;
 
-    transportBar.setEditorPanelOpen (isShowing && ! isConsole && ! isChordPad);
-    transportBar.setConsolePanelOpen (isShowing && isConsole);
-    transportBar.setChordPadPanelOpen (isShowing && isChordPad);
+    // ① 窓。**閉じるなら先に中身を返してから壊す**（借りているだけなので、付けたまま壊すと親が宙に浮く）
+    if (! slots.windowOpen && editorWindow != nullptr)
+    {
+        saveEditorWindowBounds();
+        editorWindow->clearBorrowedContent();
+        editorWindow.reset();
+    }
+
+    if (slots.windowOpen && editorWindow == nullptr)
+        createEditorWindow();
+
+    // ② 付け替え。**先に両方から外してから付ける**——入れ替え（下段⇔窓）のとき、
+    // 片方へ付けた部品をもう片方がまだ握っていると、同じ部品を2つの親が持つことになる
+    auto* dockComponent = getComponentFor (slots.dock);
+    auto* windowComponent = slots.windowOpen ? getComponentFor (slots.window) : nullptr;
+
+    if (editorPanel.getContent() != dockComponent)
+        editorPanel.setContent (nullptr);
+
+    if (editorWindow != nullptr && editorWindow->getBorrowedContent() != windowComponent)
+        editorWindow->clearBorrowedContent();
+
+    editorPanel.setContent (dockComponent);
+    editorPanel.setTitle (getTitleFor (slots.dock));
+
+    if (editorWindow != nullptr)
+    {
+        editorWindow->setBorrowedContent (windowComponent);
+        editorWindow->setName (getTitleFor (slots.window));
+    }
+
+    // ③ 下段の開閉。**開くときは明示的に読み直す**（`visibilityChanged()`頼みにすると、
+    // 表示状態が既に一致している場合に通知が飛ばず、古い内容が残る）
+    const bool dockVisible = slots.dockOpen && dockComponent != nullptr;
+
+    if (editorPanel.isVisible() != dockVisible)
+    {
+        editorPanel.setVisible (dockVisible);
+        resized();   // パネルのぶんだけ、中央エリアの高さが変わる
+    }
+
+    updateEditorToggleButtons();
+    refreshEditorContent();
+
+    if (bringWindowToFront && editorWindow != nullptr)
+        editorWindow->toFront (true);
 }
 
 void MainComponent::popOutEditor()
 {
-    if (editorWindow != nullptr)
-    {
-        editorWindow->toFront (true); // 既に出ているなら前面に出すだけ
-        return;
-    }
+    // 8.347：**下段のものを窓へ送る。窓に別のものがあれば入れ替える**（本人と決めた。Phase 335）
+    editorSlots.popOut();
+    applyEditorSlots (true);
+}
 
-    // ドック側から中身を外してから移す。外し忘れると、同じコンポーネントを
-    // 2箇所の親が握ることになる。
-    setEditorPanelOpen (false);
-    editorPanel.setContent (nullptr);
-
-    auto window = std::make_unique<EditorWindow> (getEditorContentTitle(), AppColours::background);
-    window->setBorrowedContent (getEditorContentComponent());
+void MainComponent::createEditorWindow()
+{
+    auto window = std::make_unique<EditorWindow> (getTitleFor (editorSlots.window), AppColours::background);
 
     // 設計書2.5：前回の位置・サイズを復元する（毎回置き直さずに済むように）。
     // モニター構成が変わって画面外になっている場合に備え、必ず画面内へ寄せる。
@@ -980,7 +944,7 @@ void MainComponent::popOutEditor()
 
     window->setBoundsConstrained (window->getBounds());
 
-    // 閉じたら自動的にドッキングし直す（設計書2.5「状態を失わない」）。
+    // 閉じたら`dockEditor()`（設計書2.5「状態を失わない」）。
     // SafePointerで包むのは、非同期で戻ってくる前にMainComponentが
     // 消えている可能性（アプリ終了）を考慮するため。
     juce::Component::SafePointer<MainComponent> safeThis (this);
@@ -1001,9 +965,6 @@ void MainComponent::popOutEditor()
 
     window->setVisible (true);
     editorWindow = std::move (window);
-
-    transportBar.setEditorPanelOpen (true); // ポップアウト中も「エディタは開いている」
-    refreshEditorContent();
 }
 
 
@@ -1015,44 +976,51 @@ void MainComponent::captureOpenWindowsIntoProject()
 {
     audioEngine.captureOpenEditorWindowsIntoProject();
 
-    // **エディタパネルが別窓になっていたか。** 位置と大きさは今までどおり
-    // `AppSettings`が覚えています（`editorWindowBoundsKey`）——
+    // **エディタパネルが別窓になっていたか**と、8.347 から**窓に何を出していたか**（Phase 335）。
+    // 位置と大きさは今までどおり`AppSettings`が覚えています（`editorWindowBoundsKey`）——
     // **どこに置いたかは人ごとの好みで、プロジェクトの中身ではない**ためです。
     //
     // 「別窓にしていたか」のほうはプロジェクトごとに違います
     // （打ち込み中の曲では出しっぱなし、ミックス中の曲では畳んだまま、など）
-    if (editorWindow != nullptr)
-        project.getState().setProperty (IDs::editorPoppedOut, true, nullptr);
+    auto state = project.getState();
+
+    if (editorSlots.windowOpen)
+    {
+        state.setProperty (IDs::editorPoppedOut, true, nullptr);
+        state.setProperty (IDs::editorWindowContent, EditorSlots::toString (editorSlots.window), nullptr);
+    }
     else
-        project.getState().removeProperty (IDs::editorPoppedOut, nullptr);
+    {
+        state.removeProperty (IDs::editorPoppedOut, nullptr);
+        state.removeProperty (IDs::editorWindowContent, nullptr);
+    }
 }
 
 void MainComponent::restoreOpenWindowsFromProject()
 {
     audioEngine.restoreOpenEditorWindowsFromProject();
 
-    if (! (bool) project.getState().getProperty (IDs::editorPoppedOut, false))
+    const auto state = project.getState();
+
+    if (! (bool) state.getProperty (IDs::editorPoppedOut, false))
         return;
 
-    // **既に別窓なら何もしない**（`popOutEditor()`が前面に出すだけで済ませます）。
-    // 出す中身は`refreshEditorContent()`が決めるので、ここでは窓を作るだけ
-    popOutEditor();
+    // 8.347：**窓に出していたものを出す**（Phase 335）。それより前のプロジェクトには中身の控えが無いので、
+    // 下段が持っているもの（無ければ Editor ボタンの戻り先）を出す——前の「下段のものを別窓へ」と同じ
+    auto content = EditorSlots::fromString (state.getProperty (IDs::editorWindowContent).toString());
+
+    if (content == EditorContent::none)
+        content = (editorSlots.dock != EditorContent::none) ? editorSlots.dock : editorSlots.lastEditor;
+
+    editorSlots.openWindowWith (content);
+    applyEditorSlots();
 }
 
 void MainComponent::dockEditor()
 {
-    if (editorWindow == nullptr)
-        return;
-
-    saveEditorWindowBounds();
-
-    // ウィンドウを壊す前に中身を外す。付けたまま破棄すると、
-    // 借りているだけのピアノロールの親が宙に浮く。
-    editorWindow->clearBorrowedContent();
-    editorWindow.reset();
-
-    editorPanel.setContent (getEditorContentComponent());
-    setEditorPanelOpen (true);
+    // 8.347：**下段が空いていれば窓の中身を下段へ戻す。下段に別のものがあれば窓だけ閉じる**（Phase 335）
+    editorSlots.closeWindow();
+    applyEditorSlots();
 }
 
 void MainComponent::saveEditorWindowBounds() const
@@ -2147,7 +2115,7 @@ bool MainComponent::perform (const InvocationInfo& info)
 
         case CommandIds::toggleEditorPanel:
             // フッターのボタンと同じ経路を通す（Phase 66）
-            toggleEditorContent (lastEditorContent);
+            toggleEditorContent (editorSlots.lastEditor);
             return true;
 
         // Phase 66：ページの切り替えから「Consoleパネルの開閉」に変わった（8.27）。
@@ -2459,6 +2427,16 @@ void MainComponent::applySnapGrid (SnapGrid newGrid)
     // 「決めるのは1箇所」を崩さないため（選んだ側だけ自分で更新する形にすると、
     // 次に入口が増えたときに必ず配り忘れる。1.27）
     arrangeView.setSnapGrid (newGrid);
+
+    // 8.349：**ピアノロールは別の値**（Phase 337）。ただし**まだ選んでいなければアレンジ画面と同じ**なので、
+    // 表示だけは引き直す（選んでいれば何も変わらない）
+    pianoRollView.setSnapGrid (project.getPianoRollSnapGrid());
+}
+
+void MainComponent::applyPianoRollSnapGrid (SnapGrid newGrid)
+{
+    // 8.349：ピアノロールの刻み（Phase 337／本人の要望）。アレンジ画面には配らない
+    project.setPianoRollSnapGrid (newGrid);
     pianoRollView.setSnapGrid (newGrid);
 }
 
@@ -3786,7 +3764,7 @@ void MainComponent::refreshAllViews (bool keepSelection)
 
     // 仕様書5.5・5.9：読み込んだプロジェクトの刻みを、**両方の入口へ**配る（Phase 55）
     arrangeView.setSnapGrid (project.getSnapGrid());
-    pianoRollView.setSnapGrid (project.getSnapGrid());
+    pianoRollView.setSnapGrid (project.getPianoRollSnapGrid());   // 8.349：別の値（Phase 337）
 
     // 仕様書5.11.1：キー（Phase 63）。**コードトラックの有無ごと変わる**ので、
     // プロジェクトが差し替わったら必ず引き直す
