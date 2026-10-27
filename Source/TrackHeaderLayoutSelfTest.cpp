@@ -11,6 +11,7 @@
 #include "AppColours.h"
 #include "ExportOptions.h"    // 8.307：ステム一覧の見切れ（Phase 300）
 #include "EditorWindow.h"     // 8.328：Pop outの窓でもドラッグできるか（Phase 318）
+#include "IconAssets.h"       // 8.358：アイコンの見比べ（Phase 347）
 
 #include <juce_events/juce_events.h>
 #include <juce_graphics/juce_graphics.h>
@@ -949,6 +950,78 @@ namespace TrackHeaderLayoutSelfTest
             check (middlePixel.getAlpha() > 200 && cornerPixel == middlePixel,
                    "the scroll bar thumb has square corners (corner pixel " + cornerPixel.toDisplayString (true)
                      + ", middle " + middlePixel.toDisplayString (true) + ")");
+        }
+
+        //----------------------------------------------------------------------
+        // 8.358：**ツール・メトロノーム・ループ・追従のアイコンを、オーバービューと同じ雰囲気で作り直した**
+        //（Phase 347／本人の要望「オーバービュー以外のものを制作してほしい。雰囲気は、オーバービューのアイコンに近いもので」）。
+        // 太い線（1500 の格子で 100）・角ばった形・1色。**アプリと同じ読み方（`IconAssets::loadTinted()`）で描いて**数える。
+        // 見た目は絵（`icons_selftest.png`）で見る
+        say ("--- toolbar icons (8.358)");
+        {
+            const char* names[] = { "tool_select_svg", "tool_pen_svg", "tool_cut_svg", "tool_eraser_svg",
+                                    "transport_loop_svg", "transport_metronome_svg", "auto_scroll_svg", "overview_svg",
+                                    "transport_punch_svg",
+                                    // 8.363：トラックの種類・オートメーション・ブラウザ・プラグイン（Phase 352）
+                                    "track_audio_svg", "track_midi_svg", "track_send_svg", "track_vca_svg", "header_automation_svg",
+                                    "browser_folder_svg", "browser_file_svg", "plugin_bypass_svg", "plugin_pin_svg",
+                                    "tool_bend_svg" };   // 8.365
+            const int sizes[] = { 20, 28, 64 };
+            const int cell = 76;
+
+            juce::Image sheet (juce::Image::RGB, cell * 6, cell * (int) std::size (names), true);
+            auto sg = std::make_unique<juce::Graphics> (sheet);   // 書き出す前に手放す（手放すまで画像へ書き戻されない）
+            sg->setColour (juce::Colour (0xfff4f4f6));
+            sg->fillRect (0, 0, cell * 3, sheet.getHeight());
+            sg->setColour (juce::Colour (0xff1e1e22));
+            sg->fillRect (cell * 3, 0, cell * 3, sheet.getHeight());
+
+            for (int row = 0; row < (int) std::size (names); ++row)
+            {
+                // 64px で、インクの割合を数える（`drawWithin()`は絵の外形を四角いっぱいに合わせるので、端の余白はボタンの側が持つ）
+                juce::Image probe (juce::Image::ARGB, 64, 64, true);
+                {
+                    juce::Graphics g (probe);
+
+                    if (auto d = IconAssets::loadTinted (names[row], juce::Colours::black))
+                        d->drawWithin (g, { 0.0f, 0.0f, 64.0f, 64.0f }, juce::RectanglePlacement::centred, 1.0f);
+                }
+
+                int ink = 0;
+
+                for (int y = 0; y < 64; ++y)
+                    for (int x = 0; x < 64; ++x)
+                        if (probe.getPixelAt (x, y).getAlpha() > 128)
+                            ++ink;
+
+                const double coverage = ink / (64.0 * 64.0);
+                check (coverage > 0.06 && coverage < 0.45,
+                       juce::String (names[row]) + " draws with a sensible amount of ink (" + juce::String (coverage * 100.0, 1) + " % of its square)");
+
+                for (int column = 0; column < 6; ++column)
+                {
+                    const int size = sizes[column % 3];
+                    const auto colour = column < 3 ? juce::Colour (0xff222226) : juce::Colour (0xffdddde2);
+                    const auto box = juce::Rectangle<float> ((float) size, (float) size)
+                                         .withCentre ({ (float) (column * cell + cell / 2), (float) (row * cell + cell / 2) });
+
+                    if (auto d = IconAssets::loadTinted (names[row], colour))
+                        d->drawWithin (*sg, box, juce::RectanglePlacement::centred, 1.0f);
+                }
+            }
+
+            sg.reset();
+
+            const auto file = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("icons_selftest.png");
+            juce::PNGImageFormat png;
+
+            if (auto stream = file.createOutputStream())
+            {
+                stream->setPosition (0);
+                stream->truncate();
+                png.writeImageToStream (sheet, *stream);
+                say ("        (a picture of them: " + file.getFullPathName() + ")");
+            }
         }
 
         //----------------------------------------------------------------------

@@ -15,7 +15,7 @@
 
     | 種類 | 絵 | 元のファイル |
     |---|---|---|
-    | MIDI | `track_midi_svg` | MIDIアイコン.svg |
+    | MIDI | `track_midi_svg` | MIDIアイコン.svg（8.363 で作り直した。元は`Resources/Icons/previous/`） |
     | Audio | `track_audio_svg` | Audioアイコン.svg |
     | VCA | `track_vca_svg` | VCAアイコン.svg |
     | Send | `track_send_svg` | SendIcon.svg |

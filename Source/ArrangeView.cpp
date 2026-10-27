@@ -1,4 +1,6 @@
 #include "ArrangeView.h"
+#include "PunchRecording.h"   // 8.360：パンチイン／アウト（Phase 349）
+#include "MidiFileImport.h"   // 8.362：MIDI ファイルを落とす（Phase 351）
 #include "AppColours.h"
 #include "AppSettings.h"   // 8.125：ヘッダーの幅を覚えておく（Phase 161）
 #include "Utf8.h"
@@ -161,6 +163,23 @@ ArrangeView::ArrangeView (ProjectModel& projectToUse, AudioEngine& audioEngineTo
     addAndMakeVisible (autoScrollButton);
     updateAutoScrollButton();
 
+    //--------------------------------------------------------------------------
+    // 8.350：オーバービュー（Phase 339／本人の要望）。**出し入れのボタンは自動スクロールの左隣**、
+    // 出しているかどうかは`AppSettings`が覚える（曲ごとではなく、人ごとの好み。2.5）
+
+    overviewButton.setButtonText (utf8 ("全体"));
+    overviewButton.setTooltip (utf8 ("オーバービュー：曲全体の縮図を上に出します。"
+                                      "クリック・ドラッグで再生位置を移動、スクロールバーでアレンジ画面を移動"));   // 8.359
+    overviewButton.setIconResource ("overview_svg");
+    overviewButton.setColour (juce::TextButton::buttonOnColourId, AppColours::purple);
+    overviewButton.setClickingTogglesState (false);   // 見た目はツールと同じ作りにする
+    overviewButton.onClick = [this] { setOverviewVisible (! overview.isVisible()); };
+    addAndMakeVisible (overviewButton);
+
+    addChildComponent (overview);
+    overview.setVisible (AppSettings::getInt (overviewVisibleKey, 1) != 0);   // 既定は出す
+    updateOverviewButton();
+
     // デバイスを切り替えたら、入力の有無とデバイス名表示を更新する
     audioEngine.onAudioDeviceChanged = [this] { refreshInputState(); };
 
@@ -246,9 +265,21 @@ ArrangeView::ArrangeView (ProjectModel& projectToUse, AudioEngine& audioEngineTo
             onPluginDropped (targetTrackId, description);
     };
 
-    timeline.onFilesDropped = [this] (const juce::StringArray& paths, const juce::String& trackId,
+    timeline.onFilesDropped = [this] (const juce::StringArray& droppedPaths, const juce::String& trackId,
                                        double startTime, bool intoNewTrack)
     {
+        // 8.362：**MIDI ファイルは別の口へ**（Phase 351）。残った音声ファイルは今までどおり
+        juce::StringArray paths, midiPaths;
+
+        for (const auto& path : droppedPaths)
+            (MidiFileImport::isMidiFile (juce::File (path)) ? midiPaths : paths).add (path);
+
+        if (! midiPaths.isEmpty())
+            importMidiFiles (midiPaths, trackId, startTime, intoNewTrack);
+
+        if (paths.isEmpty())
+            return;
+
         // 8.232：**空白へ落としたら、オーディオトラックごと作る**（Phase 250／本人の要望）。
         // 音源プラグインと同じ扱いです（8.123の`addTrackForDroppedInstrument()`）。
         //
@@ -411,6 +442,15 @@ ArrangeView::ArrangeView (ProjectModel& projectToUse, AudioEngine& audioEngineTo
             onLoopChanged();
     };
 
+    // 8.360：パンチの範囲・入切の変更も中継する（Phase 349）
+    timeline.onPunchChanged = [this]
+    {
+        overview.invalidateContent();
+
+        if (onPunchChanged != nullptr)
+            onPunchChanged();
+    };
+
     // 仕様書5.9：ルーラーのメニューからのマーカー挿入も中継する（Phase 50）
     timeline.onInsertMarkerRequested = [this] (double timeSeconds, bool askForName)
     {
@@ -451,7 +491,8 @@ void ArrangeView::timerCallback()
     });
 }
 
-void ArrangeView::showRecordingResult (const juce::File& recordedFile, double startTimeSeconds)
+void ArrangeView::showRecordingResult (const juce::File& recordedFile, double startTimeSeconds,
+                                       std::optional<juce::Range<double>> punchRange)
 {
     if (! recordedFile.existsAsFile())
     {
@@ -509,6 +550,39 @@ void ArrangeView::showRecordingResult (const juce::File& recordedFile, double st
     }
 
     auto track = project.getTrack (targetIndex);
+
+    // 8.360：**パンチ**（Phase 349）。録れた範囲とパンチの範囲の重なりだけを置き、そこの古いクリップを差し替える
+    if (punchRange.has_value())
+    {
+        const auto keep = PunchRecording::effectiveRange (startTimeSeconds, startTimeSeconds + lengthSeconds,
+                                                          punchRange->getStart(), punchRange->getEnd());
+
+        if (keep.isEmpty())
+        {
+            recordedFile.deleteFile();   // 使われない録音を Rec に溜めない
+            showStatusMessage (utf8 ("パンチ録音：パンチの範囲（") + juce::String (punchRange->getStart(), 2) + utf8 ("〜")
+                                 + juce::String (punchRange->getEnd(), 2) + utf8 ("秒）の中では録れていません。"
+                                 "範囲より手前から録音を始めてください。"));
+            return;
+        }
+
+        project.beginAction (utf8 ("パンチ録音"));
+        const int replaced = PunchRecording::replaceAudio (track, recordedFile.getFullPathName(), startTimeSeconds, lengthSeconds,
+                                                           keep, &project.getUndoManager());
+
+        timeline.refresh();
+
+        juce::String text;
+        text << utf8 ("パンチ録音: ") << juce::String (keep.getStart(), 2) << utf8 ("〜") << juce::String (keep.getEnd(), 2)
+             << utf8 ("秒 → ") << track.getName();
+
+        if (replaced > 0)
+            text << utf8 ("（古いクリップ ") << juce::String (replaced) << utf8 (" か所を差し替えました）");
+
+        showStatusMessage (text);
+        return;
+    }
+
     project.beginAction (utf8 ("録音クリップの追加"));
     track.addAudioClip (recordedFile.getFullPathName(), startTimeSeconds, lengthSeconds, &project.getUndoManager());
 
@@ -524,7 +598,9 @@ void ArrangeView::showRecordingResult (const juce::File& recordedFile, double st
 }
 
 juce::String ArrangeView::applyMidiRecordingResult (const std::vector<RecordedMidiTake>& takes,
-                                                    double sampleRate, double stopSeconds)
+                                                    double sampleRate, double stopSeconds,
+                                                    std::optional<juce::Range<double>> punchRange,
+                                                    double recordStartSeconds)
 {
     // **空でも黙って帰らないこと。** 「録れなかった」と出さないと、
     // 鍵盤が繋がっていないだけなのか壊れているのかが分かりません
@@ -536,17 +612,43 @@ juce::String ArrangeView::applyMidiRecordingResult (const std::vector<RecordedMi
 
     // **区切りは1回だけ**（3.1）。何本のトラックへ録れていても、
     // Undo1回で録音まるごとが消えてほしい
-    project.beginAction (utf8 ("MIDIの録音"));
+    project.beginAction (punchRange.has_value() ? utf8 ("MIDIのパンチ録音") : utf8 ("MIDIの録音"));
+
+    // 8.360：**パンチ**（Phase 349）。録れた範囲とパンチの範囲の重なりの中だけを入れ、そこの古いノートを差し替える
+    juce::Range<double> keep;
+
+    if (punchRange.has_value())
+    {
+        keep = PunchRecording::effectiveRange (recordStartSeconds, stopSeconds, punchRange->getStart(), punchRange->getEnd());
+
+        if (keep.isEmpty())
+        {
+            return utf8 ("MIDIのパンチ録音：パンチの範囲（") + juce::String (punchRange->getStart(), 2) + utf8 ("〜")
+                     + juce::String (punchRange->getEnd(), 2) + utf8 ("秒）の中では録れていません。範囲より手前から録音を始めてください。");
+        }
+    }
 
     MidiRecording::Summary total;
     juce::StringArray parts;
     bool anyOverflowed = false;
+    int replacedNotes = 0;
 
     for (const auto& take : takes)
     {
-        // 8.146：**直す規則は`MidiRecording::applyTake()`1箇所**（1.27）
-        const auto summary = MidiRecording::applyTake (project, take, sampleRate, stopSeconds,
-                                                        &project.getUndoManager());
+        // 8.146：**直す規則は`MidiRecording::applyTake()`1箇所**（1.27）。
+        // 8.360：パンチのときは`PunchRecording::replaceMidi()`が古いノートを消してから同じ`applyTake()`を呼ぶ
+        MidiRecording::Summary summary;
+
+        if (punchRange.has_value())
+        {
+            const auto result = PunchRecording::replaceMidi (project, take, sampleRate, stopSeconds, keep, &project.getUndoManager());
+            summary = result.summary;
+            replacedNotes += result.replacedNotes;
+        }
+        else
+        {
+            summary = MidiRecording::applyTake (project, take, sampleRate, stopSeconds, &project.getUndoManager());
+        }
 
         total.numNotes += summary.numNotes;
         total.numCCs += summary.numCCs;
@@ -566,6 +668,10 @@ juce::String ArrangeView::applyMidiRecordingResult (const std::vector<RecordedMi
 
     if (total.numNotes == 0 && total.numCCs == 0)
     {
+        if (replacedNotes > 0)   // 8.360：範囲の中では弾いていない＝古いノートを消しただけ
+            return utf8 ("MIDIのパンチ録音：範囲の中では弾かれていません。範囲の中の古いノート ") + juce::String (replacedNotes)
+                     + utf8 (" 個を消しました（Undo で戻せます）。");
+
         return utf8 ("MIDI録音：ノートになるものがありませんでした。");
     }
 
@@ -581,6 +687,11 @@ juce::String ArrangeView::applyMidiRecordingResult (const std::vector<RecordedMi
     if (total.numHeldNotes > 0)
         text << utf8 ("（うち ") << juce::String (total.numHeldNotes)
              << utf8 (" 音は停止位置で切りました）");
+
+    if (! keep.isEmpty())
+        text << utf8 ("（パンチ ") << juce::String (keep.getStart(), 2) << utf8 ("〜") << juce::String (keep.getEnd(), 2) << utf8 ("秒")
+             << (replacedNotes > 0 ? utf8 ("、古いノート ") + juce::String (replacedNotes) + utf8 (" 個を差し替え") : juce::String())
+             << utf8 ("）");
 
     if (anyOverflowed)
         text << utf8 ("　※ 入りきらなかったぶんがあります（1トラック ")
@@ -721,6 +832,11 @@ void ArrangeView::resized()
     // **ツールボタンと同じ大きさ**（`ToolbarLayout::toolButtonWidth`）
     autoScrollButton.setBounds (inputRow.removeFromRight (juce::jmin (ToolbarLayout::toolButtonWidth,
                                                                        inputRow.getWidth())));
+    inputRow.removeFromRight (4);
+
+    // 8.350：オーバービューの出し入れは**自動スクロールの左隣**（どちらも「見え方」のボタン）
+    overviewButton.setBounds (inputRow.removeFromRight (juce::jmin (ToolbarLayout::toolButtonWidth,
+                                                                     inputRow.getWidth())));
     inputRow.removeFromRight (12);
 
     inputMeter.setBounds (inputRow.removeFromLeft (110).reduced (0, 3));
@@ -734,6 +850,15 @@ void ArrangeView::resized()
     // 高さ0で置いておくと、親はその1行ぶんを引き算し続けます——広げたいのに広がりません
     if (statusStrip.isVisible())
         statusStrip.setBounds (area.removeFromBottom (StatusStrip::height));
+
+    // 8.350：**オーバービューはルーラーの上**（Phase 339）。タイムラインと同じ幅に置き、
+    // ヘッダーのぶんは中でずらす（ヘッダーの幅はドラッグで変わるため。`ArrangeOverview::getMapArea()`）。
+    // **見えているときだけ場所を取る**（8.195）
+    if (overview.isVisible())
+    {
+        overview.setBounds (area.removeFromTop (ArrangeOverview::preferredHeight));
+        area.removeFromTop (4);
+    }
 
     timeline.setBounds (area);
 
@@ -1041,6 +1166,29 @@ void ArrangeView::setAutoScroll (bool shouldFollow)
 {
     timeline.setAutoScroll (shouldFollow);
     updateAutoScrollButton();
+}
+
+void ArrangeView::setOverviewVisible (bool shouldBeVisible)
+{
+    if (overview.isVisible() == shouldBeVisible)
+        return;
+
+    overview.setVisible (shouldBeVisible);
+    AppSettings::setInt (overviewVisibleKey, shouldBeVisible ? 1 : 0);
+    updateOverviewButton();
+    resized();   // 見え方を変えたら、場所を決める人を呼ぶ（8.164）
+}
+
+void ArrangeView::updateOverviewButton()
+{
+    // ツールボタンと同じ見せ方（`updateAutoScrollButton()`と同じ形）
+    const bool on = overview.isVisible();
+
+    overviewButton.setColour (juce::TextButton::buttonColourId,
+                               on ? AppColours::purple : AppColours::background);
+    overviewButton.setColour (juce::TextButton::textColourOffId,
+                               on ? juce::Colours::white : AppColours::textPrimary);
+    overviewButton.repaint();
 }
 
 void ArrangeView::updateAutoScrollButton()
@@ -1458,6 +1606,73 @@ void ArrangeView::importAudioFile (const juce::File& file, const juce::String& t
                          lengthSeconds, &project.getUndoManager());
 
     timeline.refresh();
+}
+
+void ArrangeView::importMidiFiles (const juce::StringArray& paths, const juce::String& trackId,
+                                   double startTimeSeconds, bool intoNewTrack)
+{
+    // 8.362：**MIDI ファイルを置く**（Phase 351／本人の要望）。置き方は音声ファイルと同じ決まり：
+    // 行の上＝そのトラックへ時間方向に順に、空白＝1ファイル＝1本の新しいトラック（8.233）
+    const auto findTarget = [this, &trackId]() -> Track
+    {
+        if (auto track = project.findTrackById (trackId); track.state.getParent().isValid() && track.getType() == TrackType::Midi)
+            return track;
+
+        for (int i = 0; i < project.getNumTracks(); ++i)
+            if (project.getTrack (i).getType() == TrackType::Midi)
+                return project.getTrack (i);
+
+        return project.addTrack ("MIDI 1", TrackType::Midi);
+    };
+
+    double nextStartBeats = project.getBeatPositionAt (juce::jmax (0.0, startTimeSeconds));
+    const double dropBeats = nextStartBeats;
+    int totalNotes = 0, placedFiles = 0;
+    juce::String lastTrackName;
+
+    for (const auto& path : paths)
+    {
+        const juce::File file (path);
+        const auto contents = MidiFileImport::read (file);
+
+        if (! contents.ok)
+        {
+            showStatusMessage (utf8 ("MIDI ファイルとして読み取れませんでした: ") + file.getFileName());
+            continue;
+        }
+
+        Track target (juce::ValueTree{});
+
+        if (intoNewTrack)
+        {
+            // **名前はファイル名**（`addTrackForDroppedAudio()`と同じ）。トラックを作った区切りに相乗りして、Undo 1回で消える
+            auto name = file.getFileNameWithoutExtension();
+            target = project.addTrack (name.isNotEmpty() ? name : juce::String ("MIDI"), TrackType::Midi, {});
+            selection.selectTrack (target.getId());
+        }
+        else
+        {
+            target = findTarget();
+            project.beginAction (utf8 ("MIDI ファイルの読み込み"));
+        }
+
+        if (! target.state.getParent().isValid())
+            continue;
+
+        const double startBeats = intoNewTrack ? dropBeats : nextStartBeats;
+        totalNotes += MidiFileImport::addToTrack (target, contents, startBeats, &project.getUndoManager());
+        ++placedFiles;
+        lastTrackName = target.getName();
+
+        if (! intoNewTrack)
+            nextStartBeats += contents.lengthBeats;   // 次のファイルは、この終わりから
+    }
+
+    timeline.refresh();
+
+    if (placedFiles > 0)
+        showStatusMessage (utf8 ("MIDI ファイルを読み込みました: ") + juce::String (placedFiles) + utf8 (" 個 → ")
+                             + lastTrackName + " (" + juce::String (totalNotes) + utf8 (" ノート)"));
 }
 
 double ArrangeView::getAudioFileLengthSeconds (const juce::File& file)

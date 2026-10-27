@@ -53,6 +53,10 @@ namespace AppColours
     extern juce::Colour purple;        // 選択中の要素・アクティブなページタブ
     extern juce::Colour orange;        // 録音・警告・VCAトラックの識別色
 
+    /** 8.360：**パンチイン／アウトの範囲の色**（Phase 349）。ループ（オレンジ）と見分けるための赤。
+        ライト／ダーク・Manta／Ember のどれでも同じ値（帯の上で白い字を使わないので、地に合わせなくてよい）。 */
+    inline juce::Colour punch() { return juce::Colour (0xffe0453a); }
+
     /** 8.314：**「借りている点灯」の濃さ**（Phase 307／本人の要望）。
 
         フォルダをミュート／ソロすると、**中のトラックのM・Sも点きます**

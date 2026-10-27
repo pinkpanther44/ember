@@ -11,8 +11,10 @@
 #include "ColourSwatchButton.h"   // 8.125：色帯から出すパレット（Phase 161）
 #include "TrackTypeIcons.h"   // 8.295：種類の絵（Consoleと共用。Phase 288）
 
+#include <map>        // 8.353：塊の覚え（Phase 342）
 #include <optional>   // 8.150：掴んだマーカーが「無い」ことを返す（Phase 188）
 #include "SteadyScrollBar.h"      // 8.327：掴んでいるあいだは全体を伸ばさない（Phase 317）
+#include "ArrangeOverviewMap.h"   // 8.350：オーバービューの換算（Phase 339）
 
 //==============================================================================
 /**
@@ -128,6 +130,9 @@ public:
         MainComponentがオーディオエンジンへ反映する。 */
     std::function<void()> onLoopChanged;
 
+    /** 8.360：パンチの範囲や入切をルーラーで変えたときに呼ばれる（Phase 349）。トランスポートのボタンを合わせる。 */
+    std::function<void()> onPunchChanged;
+
     /** 仕様書5.9：ルーラーのメニューからマーカーを頼まれたときに呼ばれる（Phase 50）。
 
         **ここでマーカーを作らずにMainComponentへ回すのは**、
@@ -142,6 +147,68 @@ public:
     // 8.125：トラックヘッダーの幅（Phase 161／改善案38）
 
     int getTrackHeaderWidth() const { return trackHeaderWidth; }
+
+    //==========================================================================
+    // 8.350：**オーバービュー**（Phase 339／本人の要望）。
+    //
+    // 行の決まり（高さ・畳んだフォルダは0・コードトラックは固定行）は**ここが持っている**ので、
+    // オーバービューは自分で数え直さずにここから引く（`ArrangeOverview`）。
+
+    /** スクロールする行1本（固定行は除く）。位置は**スクロールする領域の上端から**の画素。 */
+    struct OverviewRow
+    {
+        int trackIndex = -1;
+        int top = 0;
+        int height = 0;            ///< 行全体（オートメーションの行を含む）
+        int trackAreaHeight = 0;   ///< クリップやノートが載る部分
+    };
+
+    /** スクロールする行を上から順に。**高さ0の行（畳んだフォルダの中）は含めない**。マスター行も含めない。 */
+    std::vector<OverviewRow> getOverviewRows() const;
+
+    /** 曲全体をオーバービューの大きさに当てた換算。
+
+        8.359：**Fit と同じ長さ・行の全部を固定で**（Phase 348）。アレンジ画面のスクロールやズームでは変わらない。
+        `songEndSeconds`は**曲の中身の端**（`getSongEndSecondsForOverview()`）。重い計算なので、
+        オーバービューは曲が変わったときだけ数え直して渡す（毎回ここで数えない。8.352）。 */
+    ArrangeOverviewMap getOverviewMap (int overviewWidth, int overviewHeight, double songEndSeconds) const;
+
+    /** 8.352：曲の中身の端（秒）。**全ノートを見て数えるので重い**——曲が変わったときだけ呼ぶこと。 */
+    double getSongEndSecondsForOverview() const { return getContentLengthSeconds(); }
+
+    /** 8.359：オーバービューのスクロールバーに渡す、アレンジ画面のスクロールの範囲と位置
+        （アレンジ画面のスクロールバーと同じ値）。 */
+    struct ScrollStateForOverview
+    {
+        double totalSeconds = 0.0, startSeconds = 0.0, visibleSeconds = 0.0;
+        int contentHeight = 0, scrollY = 0, visibleHeight = 0;
+    };
+
+    ScrollStateForOverview getScrollStateForOverview() const;
+
+    /** オーバービューから：開始時刻と縦のスクロール量を変える（はみ出しはここで丸める）。 */
+    void setViewFromOverview (double startSeconds, double scrollY);
+
+    /** 見える秒数（ズーム）と開始時刻を変える。倍率は上限・下限で丸める（自己検査で使う）。 */
+    void setVisibleSecondsFromOverview (double startSeconds, double visibleSeconds);
+
+    /** 8.359：オーバービューのクリック・ドラッグで再生位置を動かす。**ルーラーと同じくスナップに従う**。 */
+    void seekFromOverview (double seconds) { seekToTime (project.snapTime (seconds)); }
+
+    double getPlayheadSecondsForOverview() const { return playheadSeconds; }
+
+    /** クリップの載る部分の幅（ヘッダーとスクロールバーを除く）。オーバービューの幅をこれに揃える。 */
+    int getTimelineAreaWidth() const { return getTimelineArea().getWidth(); }
+
+    /** 8.353：**横スクロールとズームで描き直す範囲**（ヘッダーの列を除く。Phase 342）。
+        ヘッダーとその上の部品（フェーダー・パン・ボタン・メーター）は横には動かないので、描き直さない。 */
+    juce::Rectangle<int> getHorizontalRepaintArea() const
+    {
+        return { trackHeaderWidth, 0, juce::jmax (0, getWidth() - trackHeaderWidth), getHeight() };
+    }
+
+    juce::Rectangle<int> getRepaintAreaForHorizontalScrollForTesting() const { return getHorizontalRepaintArea(); }
+    std::vector<Track::NoteBlock> getNoteBlocksForTesting (int trackIndex) const { return getNoteBlocksFor (trackIndex); }
 
     /** 8.199：**ルーラー左端の角**（トラックヘッダーの上）。Phase 234／改善案5の3。
 
@@ -513,6 +580,11 @@ public:
     juce::ScrollBar& getHorizontalScrollBarForTesting() { return horizontalScrollBar; }
     double getScrollStartSecondsForTesting() const { return scrollStartSeconds; }
 
+    /** 8.360：試験用：パンチの帯と、時刻 → x。 */
+    juce::Rectangle<int> getPunchStripAreaForTesting() const { return getPunchStripArea(); }
+    juce::Rectangle<int> getLoopStripAreaForTesting() const  { return getLoopStripArea(); }
+    int timeToXForTesting (double seconds) const { return timeToX (seconds); }
+
     //==========================================================================
     // 仕様書4.4・6章：ドラッグ&ドロップの受け口（Phase 21）
 
@@ -547,8 +619,21 @@ public:
         ドラッグ中はマウスを動かすたびに呼ばれます。 */
     bool isReadableAudioFile (const juce::File& file) const;
 
-    /** 落とし先の行を決めてハイライトする（中からのドラッグと共用の判断）。 */
-    void updateFileDragRow (int y);
+    /** 落とし先の行を決めてハイライトする（中からのドラッグと共用の判断）。
+        8.362：**持っているファイル**と x も渡す（範囲の表示に使う。音声は Audio の行、MIDI は MIDI の行へ）。 */
+    void updateFileDragRow (const juce::StringArray& files, int x, int y);
+
+    /** 8.362：落とせるファイルか（読める音声か MIDI）。拡張子で見る。 */
+    bool isDroppableFile (const juce::File& file) const;
+
+    /** 8.362：**落としたらどこへ入るか**（Phase 351／本人の要望）。ドラッグ中に描く枠と、その中に出す名前。
+        行の上なら、その行に時間方向へ順に並ぶ。空白なら、1ファイル＝1本の新しい行。 */
+    struct DropPreview { juce::Rectangle<int> bounds; juce::String name; };
+    std::vector<DropPreview> getDropPreview() const;
+
+    /** 8.362：試験用：ドラッグ中のファイルを持たせる（行と範囲を決める）。 */
+    void setFileDragForTesting (const juce::StringArray& files, int x, int y) { updateFileDragRow (files, x, y); }
+    void clearFileDragForTesting() { fileDragExit ({}); }
 
     bool isInterestedInFileDrag (const juce::StringArray& files) override;
     void fileDragEnter (const juce::StringArray& files, int x, int y) override;
@@ -950,6 +1035,7 @@ private:
 
     /** 全クリップが収まるのに必要な長さ（秒）。**中身がどこまであるか**を測るもの。 */
     double getContentLengthSeconds() const;
+    double computeContentLengthSeconds() const;   ///< 8.353：覚えずに数える本体（`getContentLengthSeconds()`が覚える）
 
     /** 8.162：**横スクロールで行ける先**（Phase 200／本人の要望）。
 
@@ -1025,6 +1111,32 @@ private:
     // なります。切れ目は**1小節ぶんの空き**で、**ピアノロールと同じ値**を使うこと（8.2）。
 
     std::vector<Track::NoteBlock> getNoteBlocksFor (int trackIndex) const;
+
+    /** 8.353：**塊はトラックごとに覚えておく**（Phase 342／本人の報告「スクロールがピアノロールほど滑らかでない」）。
+
+        塊は全ノートを拍から秒へ直して並べ替えて作るので重い（16本×2000音で約6ms）。
+        前は**描くたびに**全トラックぶん作り直していた。**曲が変わったとき**（プロジェクトの木の変化・
+        木の差し替え）だけ捨てて、次に要るときに1回だけ作る。 */
+    const std::vector<Track::NoteBlock>& getCachedNoteBlocks (const Track& track) const;
+
+    /** 8.353：曲が変わった。塊と中身の端の覚えを捨てる（木の通知と差し替えから呼ぶ）。 */
+    void invalidateModelCaches() const;
+
+    /** 8.353：トラック1本ぶんの覚え。ノートは**秒に直したものを開始順に**並べておく
+        （塊を描くとき、その塊に入るノートだけを二分探索で取り出す。前は塊ごとに全ノートを2周していた）。 */
+    struct NoteSpan { double start = 0.0, end = 0.0; int pitch = 60; };
+
+    struct TrackNotesCache
+    {
+        std::vector<Track::NoteBlock> blocks;
+        std::vector<NoteSpan> notesByStart;
+    };
+
+    const TrackNotesCache& getTrackNotesCache (const Track& track) const;
+
+    mutable std::map<juce::String, TrackNotesCache> noteBlocksCache;   // トラックの ID ごと
+    mutable double cachedContentLengthSeconds = -1.0;
+    mutable juce::ValueTree cachesBuiltForState;   // 木が差し替わったら捨てる
 
     juce::Rectangle<int> getNoteBlockBounds (int trackIndex, const Track::NoteBlock& block) const;
 
@@ -1426,6 +1538,15 @@ private:
 
     /** ループ範囲を描く（帯と、タイムライン側の薄い塗り）。 */
     void drawLoopRange (juce::Graphics& g);
+
+    /** 8.360：ループの帯の下にある、パンチの範囲を掴むための帯（Phase 349）。 */
+    juce::Rectangle<int> getPunchStripArea() const;
+
+    /** 8.360：パンチの範囲を描く（赤い帯と、入っているときはタイムライン側に範囲の両端の線）。 */
+    void drawPunchRange (juce::Graphics& g);
+
+    /** 8.360：いまの範囲のドラッグがパンチの帯のものか（ループと同じ仕組みを使い回す）。 */
+    bool rangeDragIsPunch = false;
 
     /** ループ範囲のドラッグ。クリップと同じく、離すまでモデルへ書かない。 */
     enum class LoopDragMode { none, create, moveStart, moveEnd };
@@ -2202,6 +2323,9 @@ private:
     /** 仕様書5.9：ルーラーの上端に置く、ループ範囲の帯の高さ（Phase 48）。 */
     static constexpr int loopStripHeight = 7;
 
+    /** 8.360：ループの帯の下に置く、**パンチイン／アウトの範囲の帯**の高さ（Phase 349）。 */
+    static constexpr int punchStripHeight = 7;
+
     /** 仕様書5.9：マーカーの旗の高さ（Phase 49）。ループの帯の下、目盛りの上。 */
     static constexpr int markerStripHeight = 11;
 
@@ -2209,7 +2333,7 @@ private:
 
         **ループの帯とマーカーの旗のぶんだけ下がる。** Phase 48・49で上に2段
         足したので、それまでのように0から描くと数字が旗に隠れる。 */
-    static constexpr int rulerContentTop = loopStripHeight + markerStripHeight;
+    static constexpr int rulerContentTop = loopStripHeight + punchStripHeight + markerStripHeight;   // 8.360：パンチの帯のぶん下げた
 
     /** 小節番号を出す行の下端（Phase 142）。**ここまでが「目盛り」**で、
         この下は拍子とテンポのレーン。目盛りの線をルーラーの下端まで引くと、
@@ -2311,6 +2435,14 @@ private:
     /** 8.123：トラックの無い空白の上にプラグインを持ってきているか（Phase 158／改善案7）。
         落とし先の見せ方が行とは違う（**増える行**を示す）ので、別に持つ。 */
     bool dragOverEmptyArea = false;
+
+    // 8.362：ドラッグ中のファイルと位置（範囲の表示。Phase 351）。長さはファイルごとに一度だけ調べて覚える
+    juce::StringArray dragPreviewFiles;
+    int dragPreviewX = 0;
+    struct DropLength { bool isMidi = false; double length = 0.0; };   // 音声は秒、MIDI は拍
+    mutable std::map<juce::String, DropLength> dropLengthCache;
+    DropLength getDropLength (const juce::File& file) const;
+    void drawDropPreview (juce::Graphics& g);
 
 
     // 選択中のクリップがMIDIクリップか（Phase 15）。

@@ -2,6 +2,7 @@
 
 #include <juce_data_structures/juce_data_structures.h>
 
+#include <set>
 #include <vector>
 
 class ProjectModel;
@@ -93,10 +94,19 @@ namespace MidiRecording
         - **同じ値が続くCC**——モジュレーションホイールは毎秒100件近く来ます。
           値が変わった時だけ入れます
         - **ポリフォニックアフタータッチ**——モデルに置き場所がありません
-          （`MidiControllers`が持つのは**チャンネル**アフタータッチまで） */
+          （`MidiControllers`が持つのは**チャンネル**アフタータッチまで）
+
+        8.360：パンチの範囲（`keepRange`）が空でなければ、**その中で押し始めた音だけ**を入れて範囲の終わりで切る。
+        CC も範囲の中だけ（Phase 349）。空なら今までどおり全部。
+        古い CC を同じ番号だけ差し替えるための番号の一覧は`controllersIn()`。 */
     Summary applyTake (ProjectModel& project,
                         const RecordedMidiTake& take,
                         double sampleRate,
                         double stopSeconds,
-                        juce::UndoManager* undoManager);
+                        juce::UndoManager* undoManager,
+                        juce::Range<double> keepRange = {});
+
+    /** 8.360：録り分のうち`range`の中にある CC（ピッチベンド・チャンネルプレッシャーを含む）の番号。
+        `applyTake()`と同じ番号の振り方（`MidiControllers::pitchBend`など）。 */
+    std::set<int> controllersIn (const RecordedMidiTake& take, double sampleRate, juce::Range<double> range);
 }

@@ -164,6 +164,12 @@ public:
     /** ボタンの見た目をモデルに合わせる（ショートカットから変えたときにも呼ぶ）。 */
     void setLoopEnabled (bool isEnabled);
 
+    /** 8.360：パンチイン／アウトの入切ボタンが押されたとき（Phase 349）。 */
+    std::function<void()> onPunchToggled;
+
+    /** 8.360：パンチのボタンの見た目をモデルに合わせる。 */
+    void setPunchEnabled (bool isEnabled);
+
     //==========================================================================
     // 設計書2.2：パネルの開閉（Phase 17／Phase 30でここへ移した／Phase 66で上段へ）
     //
@@ -322,6 +328,9 @@ private:
 
     /** 仕様書5.9：ループ再生の入切（Phase 48）。 */
     IconAssets::SvgButton loopButton;   // 8.133（Phase 169）
+
+    /** 8.360：パンチイン／アウトの入切（Phase 349）。範囲はルーラーの赤い帯。 */
+    IconAssets::SvgButton punchButton;
 
     // 表示済みの時間（1/10秒単位）。同じ値での描き直しを避けるために持つ
     int lastShownTenths = -1;

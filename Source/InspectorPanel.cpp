@@ -555,8 +555,14 @@ void InspectorPanel::rebuildForSelection()
     // （レーンの削除は行の右クリックメニューにある）
     deleteTrackButton.setVisible (showTrack && ! hasLane);
 
+    // 8.361：センドトラックの色は固定（Phase 350）。見本は出したまま押せなくする（並びを崩さない）
+    const bool colourEditable = hasLane || ! hasTrack || track.hasEditableColour();
+
     for (auto* swatch : colourSwatches)
+    {
         swatch->setVisible (showNameAndColour);
+        swatch->setEnabled (colourEditable);
+    }
 
     clipStartCaption.setVisible (showClip);
     clipStartLabel.setVisible (showClip);
@@ -809,7 +815,7 @@ void InspectorPanel::colourSwatchClicked (int swatchIndex)
 
     auto track = getSelectedTrack();
 
-    if (! track.state.getParent().isValid())
+    if (! track.state.getParent().isValid() || ! track.hasEditableColour())   // 8.361：センドは固定
         return;
 
     project.beginAction (utf8 ("トラックカラーの変更"));

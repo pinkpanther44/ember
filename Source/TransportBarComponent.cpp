@@ -268,6 +268,21 @@ TransportBarComponent::TransportBarComponent()
             onLoopToggled();
     };
     addAndMakeVisible (loopButton);
+
+    // 8.360：パンチイン／アウト（Phase 349）。**範囲はループとは別**（ルーラーの赤い帯）
+    punchButton.setButtonText (utf8 ("パンチ"));
+    punchButton.setIconResource ("transport_punch_svg");
+    punchButton.setTooltip (utf8 ("パンチイン／アウトの入切\n"
+                                   "入っていると、録音はルーラーの赤い帯の範囲だけを残し、そこにあった古い音とノートを差し替えます。\n"
+                                   "範囲は赤い帯をドラッグして決めます（ダブルクリックでも入切）"));
+    punchButton.setClickingTogglesState (true);
+    punchButton.setColour (juce::TextButton::buttonOnColourId, AppColours::punch());
+    punchButton.onClick = [this]
+    {
+        if (onPunchToggled != nullptr)
+            onPunchToggled();
+    };
+    addAndMakeVisible (punchButton);
 }
 
 void TransportBarComponent::setMetronomeEnabled (bool isEnabled)
@@ -278,6 +293,11 @@ void TransportBarComponent::setMetronomeEnabled (bool isEnabled)
 void TransportBarComponent::setLoopEnabled (bool isEnabled)
 {
     loopButton.setToggleState (isEnabled, juce::dontSendNotification);
+}
+
+void TransportBarComponent::setPunchEnabled (bool isEnabled)
+{
+    punchButton.setToggleState (isEnabled, juce::dontSendNotification);
 }
 
 void TransportBarComponent::setCountingIn (bool isCountingIn)
@@ -705,6 +725,7 @@ void TransportBarComponent::resized()
 
     placeGroup (0,  { { &metronomeButton, footerValueWidth, 3 } });
     placeGroup (6,  { { &loopButton, footerValueWidth, 3 } });        // 仕様書5.9（Phase 48）
+    placeGroup (4,  { { &punchButton, footerValueWidth, 3 } });       // 8.360：ループの左隣（Phase 349）
     placeGroup (10, { { &timeSignatureLabel, footerValueWidth, 4 } });
     placeGroup (6,  { { &tempoCaption, 32, 0 }, { &tempoLabel, footerValueWidth, 4 } });
 

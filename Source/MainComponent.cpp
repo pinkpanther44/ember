@@ -248,6 +248,34 @@ MainComponent::MainComponent()
     // ルーラーの帯をドラッグして範囲を変えたとき
     arrangeView.onLoopChanged = [this] { applyLoopSettings(); };
 
+    // 8.360：**パンチイン／アウト**（Phase 349／本人の要望）。範囲はルーラーの赤い帯。
+    // 範囲がまだ無いのに入れたときは、**ループの範囲を写す**（無ければ再生位置の小節から4小節）
+    transportBar.onPunchToggled = [this]
+    {
+        const bool turnOn = ! project.isPunchEnabled();
+        project.beginAction (utf8 ("パンチの入切"));
+
+        if (turnOn && ! project.hasPunchRange())
+        {
+            if (project.getLoopEndBeats() > project.getLoopStartBeats())
+            {
+                project.setPunchRangeBeats (project.getLoopStartBeats(), project.getLoopEndBeats(), &project.getUndoManager());
+            }
+            else
+            {
+                const auto position = project.getBarBeatAt (audioEngine.getPlayheadSeconds());
+                project.setPunchRange (project.getBarStartTime (position.bar), project.getBarStartTime (position.bar + 4),
+                                       &project.getUndoManager());
+            }
+        }
+
+        project.setPunchEnabled (turnOn, &project.getUndoManager());
+        transportBar.setPunchEnabled (turnOn);
+        arrangeView.repaintTimeline();
+    };
+
+    arrangeView.onPunchChanged = [this] { transportBar.setPunchEnabled (project.isPunchEnabled()); };
+
     // 仕様書6.2：複数選択が変わったら、コマンドの有効/無効を作り直す（Phase 51）
     arrangeView.onClipSelectionChanged = [this] { commandManager.commandStatusChanged(); };
 
@@ -1229,6 +1257,13 @@ void MainComponent::finishRecording()
     const bool hadMidi = audioEngine.isMidiRecording();
     const double stopSeconds = audioEngine.getPlayheadSeconds();
     const double sampleRate = audioEngine.getSampleRate();
+    const double recordStartSeconds = audioEngine.getRecordStartSeconds();
+
+    // 8.360：**パンチが入っていて範囲があるときだけ**、範囲の中だけを残す（Phase 349）
+    std::optional<juce::Range<double>> punchRange;
+
+    if (project.isPunchEnabled() && project.hasPunchRange())
+        punchRange = juce::Range<double> (project.getPunchStartTime(), project.getPunchEndTime());
 
     audioEngine.stopRecording();
 
@@ -1253,15 +1288,14 @@ void MainComponent::finishRecording()
     }
 
     if (hadAudio)
-        arrangeView.showRecordingResult (audioEngine.getLastRecordingFile(),
-                                          audioEngine.getRecordStartSeconds());
+        arrangeView.showRecordingResult (audioEngine.getLastRecordingFile(), recordStartSeconds, punchRange);
 
     // **1つも録れていなくても呼ぶこと。** ここを`! midiTakes.empty()`で
     // 囲っていたときは、**鍵盤のデバイスが有効になっていないと画面に何も出ません**でした
     // ——録音を回して止めたのに、成功とも失敗とも分からない状態です（実機で確認）
     if (hadMidi)
     {
-        const auto message = arrangeView.applyMidiRecordingResult (midiTakes, sampleRate, stopSeconds);
+        const auto message = arrangeView.applyMidiRecordingResult (midiTakes, sampleRate, stopSeconds, punchRange, recordStartSeconds);
 
         // 入れたノートは**再生と画面の両方**へ反映が要る（1.15）。
         // モデルを見ているのは画面だけなので、エンジンには別途知らせる
@@ -2457,6 +2491,7 @@ void MainComponent::applyLoopSettings()
                           project.getLoopStartTime(), project.getLoopEndTime());
 
     transportBar.setLoopEnabled (project.isLoopEnabled());
+    transportBar.setPunchEnabled (project.isPunchEnabled());   // 8.360
     setPlayheadDisplay (audioEngine.getPlayheadSeconds()); // 帯の描き直しを促す
 
     // コマンドの表示（チェックの有無）も作り直す

@@ -158,6 +158,8 @@ set(PERSONALDAW_EMBEDDED_ASSETS
     Resources/Icons/tool_eraser.svg
     Resources/Icons/transport_loop.svg
     Resources/Icons/transport_metronome.svg
+    Resources/Icons/transport_punch.svg      # 8.360：パンチイン／アウト（Phase 349）
+    Resources/Icons/tool_bend.svg            # 8.365：ピアノロールのベンド（Phase 353）
     Resources/Icons/browser_folder.svg
     Resources/Icons/browser_file.svg
 
@@ -169,6 +171,10 @@ set(PERSONALDAW_EMBEDDED_ASSETS
     # 8.278：自動スクロールのボタン（Phase 275／本人が用意）。
     # 元の名前：自動スクロール.svg（**ファイル名はASCII**）
     Resources/Icons/auto_scroll.svg
+
+    # 8.350：オーバービューの出し入れのボタン（Phase 339）。**こちらで作った仮の絵**
+    #（枠と3本の帯）。本人が用意したものに差し替えるなら、同じ名前で置き換えるだけ
+    Resources/Icons/overview.svg
 
     # 8.295：トラックの種類を示す絵と、オートメーションのボタン（Phase 288／本人が用意）。
     # 元の名前：MIDIアイコン.svg／Audioアイコン.svg／VCAアイコン.svg／
@@ -287,6 +293,7 @@ target_sources(PersonalDAW
         Source/MusicalTimeBench.cpp
         Source/TransportBarComponent.cpp
         Source/ArrangeView.cpp
+        Source/ArrangeOverview.cpp   # 8.350：曲全体の縮図（Phase 339）
         Source/ConsoleView.cpp
         Source/AudioEngine.cpp
         Source/PluginManager.cpp
@@ -332,6 +339,8 @@ target_sources(PersonalDAW
         Source/SendGainProcessor.cpp
         Source/MidiFileExporter.cpp
         Source/MidiRecording.cpp
+        Source/PunchRecording.cpp    # 8.360：パンチイン／アウト（Phase 349）
+        Source/MidiFileImport.cpp    # 8.362：MIDI ファイルを落とす（Phase 351）
         Source/AudioTransform.cpp
         Source/ClipAudioRenderer.cpp
         Source/GrooveQuantise.cpp

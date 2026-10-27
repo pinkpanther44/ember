@@ -166,7 +166,14 @@ juce::String Track::getId() const           { return state[IDs::trackId]; }
 juce::String Track::getName() const         { return state[IDs::trackName]; }
 TrackType Track::getType() const            { return trackTypeFromString (state[IDs::trackType]); }
 
-juce::String Track::getColourString() const { return state[IDs::trackColor]; }
+juce::String Track::getColourString() const
+{
+    // 8.361：センドは固定のグレー（Phase 350）
+    if (getType() == TrackType::Send)
+        return sendTrackColour;
+
+    return state[IDs::trackColor];
+}
 
 void Track::setColourString (const juce::String& argbHex, juce::UndoManager* undoManager)
 {
@@ -234,6 +241,41 @@ double Track::getMidiDelayMs() const
     // 8.307：**未設定なら0**（Phase 300）。`jlimit`を通すのは、
     // 手で書き替えたファイルを読んでも壊れないようにするため
     return juce::jlimit (-midiDelayLimitMs, midiDelayLimitMs, (double) state[IDs::midiDelayMs]);
+}
+
+double Track::getPitchBendRange() const
+{
+    // 8.365：未設定なら 2 半音（Phase 353）
+    return juce::jlimit (1.0, 48.0, (double) state.getProperty (IDs::pitchBendRange, 2.0));
+}
+
+void Track::setPitchBendRange (double semitones, juce::UndoManager* undoManager)
+{
+    state.setProperty (IDs::pitchBendRange, juce::jlimit (1.0, 48.0, semitones), undoManager);
+}
+
+std::vector<std::pair<double, int>> Track::getNoteBendEvents() const
+{
+    // 8.365：ノートのベンド → ピッチベンドの値（Phase 353）
+    std::vector<NoteBendRender::BentNote> bent;
+    std::vector<double> starts;
+
+    for (int n = 0; n < getNumNotes(); ++n)
+    {
+        const auto note = getNote (n);
+        const double start = note.getStartTime();
+        starts.push_back (start);
+
+        const auto bend = note.getBend();
+
+        if (! bend.isEmpty())
+            bent.push_back ({ start, start + note.getLength(), bend });
+    }
+
+    if (bent.empty())
+        return {};
+
+    return NoteBendRender::render (std::move (bent), std::move (starts), getPitchBendRange());
 }
 
 void Track::setMidiDelayMs (double newDelayMs, juce::UndoManager* undoManager)
@@ -2333,6 +2375,40 @@ void Note::setVelocity (int newVelocity, juce::UndoManager* undoManager)
     state.setProperty (IDs::noteVelocity, newVelocity, undoManager);
 }
 
+// 8.365：ノートのピッチベンド（Phase 353）
+NoteBend Note::getBend() const
+{
+    NoteBend bend;
+    bend.startSemitones = state.getProperty (IDs::noteBendStart, 0.0);
+    bend.startPosition  = state.getProperty (IDs::noteBendStartPos, bend.startPosition);
+    bend.endSemitones   = state.getProperty (IDs::noteBendEnd, 0.0);
+    bend.endPosition    = state.getProperty (IDs::noteBendEndPos, bend.endPosition);
+    bend.vibratoDepth   = state.getProperty (IDs::noteVibratoDepth, 0.0);
+    bend.vibratoRate    = state.getProperty (IDs::noteVibratoRate, bend.vibratoRate);
+    return bend;
+}
+
+void Note::setBend (const NoteBend& newBend, juce::UndoManager* undoManager)
+{
+    const auto bend = newBend.normalised();
+
+    // 使っていない部分は**書かない**（ベンドの無いノートは今までどおりの保存）
+    const auto put = [&] (const juce::Identifier& id, bool used, double value)
+    {
+        if (used)
+            state.setProperty (id, value, undoManager);
+        else if (state.hasProperty (id))
+            state.removeProperty (id, undoManager);
+    };
+
+    put (IDs::noteBendStart,    bend.hasStart(),   bend.startSemitones);
+    put (IDs::noteBendStartPos, bend.hasStart(),   bend.startPosition);
+    put (IDs::noteBendEnd,      bend.hasEnd(),     bend.endSemitones);
+    put (IDs::noteBendEndPos,   bend.hasEnd(),     bend.endPosition);
+    put (IDs::noteVibratoDepth, bend.hasVibrato(), bend.vibratoDepth);
+    put (IDs::noteVibratoRate,  bend.hasVibrato(), bend.vibratoRate);
+}
+
 void Note::setStartTime (double newStartTimeSeconds, juce::UndoManager* undoManager)
 {
     // **長さは触りません。** 秒での長さは「終わりの拍 - 始まりの拍」から
@@ -3068,6 +3144,18 @@ namespace MidiControllers
     juce::Array<int> getCommonControllers()
     {
         return { 1, 11, 7, 10, 64, 71, 74, 91, 93, pitchBend, channelPressure };
+    }
+
+    int getHomeValue (int controllerNumber)
+    {
+        switch (controllerNumber)
+        {
+            case 7:  return 100;   // ボリューム
+            case 8:  return 64;    // バランス
+            case 10: return 64;    // パン
+            case 11: return 127;   // エクスプレッション
+            default: return getDefaultValue (controllerNumber);   // ピッチベンドは中央、ほかは 0
+        }
     }
 }
 
@@ -4049,6 +4137,7 @@ void ProjectModel::setState (juce::ValueTree newState)
     // **購読を始める前にやること。** Phase 59以前のプロジェクトはコードトラックが
     // 途中にあり得るが、ここで直すぶんを「未保存の変更」に数えたくない
     ensureChordTrackIsFirst();
+    ensureSendTracksLast (nullptr);   // 8.361：センドは一番下（前の版で作ったプロジェクトも、開いたときに揃える）
 
     if (state.isValid())
         state.addListener (this);
@@ -4874,6 +4963,61 @@ void ProjectModel::setLoopRange (double startSeconds, double endSeconds, juce::U
     setLoopRangeBeats (getBeatPositionAt (juce::jmax (0.0, startSeconds)),
                         getBeatPositionAt (juce::jmax (0.0, endSeconds)),
                         undoManagerToUse);
+}
+
+//==============================================================================
+// 8.360：パンチイン／アウト（Phase 349）。ループと同じ形
+
+bool ProjectModel::isPunchEnabled() const
+{
+    return state.getProperty (IDs::punchEnabled, false);
+}
+
+void ProjectModel::setPunchEnabled (bool shouldPunch, juce::UndoManager* undoManagerToUse)
+{
+    state.setProperty (IDs::punchEnabled, shouldPunch, undoManagerToUse);
+}
+
+double ProjectModel::getPunchStartBeats() const
+{
+    return juce::jmax (0.0, (double) state.getProperty (IDs::punchStartBeats, 0.0));
+}
+
+double ProjectModel::getPunchEndBeats() const
+{
+    return juce::jmax (0.0, (double) state.getProperty (IDs::punchEndBeats, 0.0));
+}
+
+double ProjectModel::getPunchStartTime() const
+{
+    return getTimeForBeatPosition (getPunchStartBeats());
+}
+
+double ProjectModel::getPunchEndTime() const
+{
+    return getTimeForBeatPosition (getPunchEndBeats());
+}
+
+void ProjectModel::setPunchRangeBeats (double startBeats, double endBeats, juce::UndoManager* undoManagerToUse)
+{
+    if (endBeats < startBeats)
+        std::swap (startBeats, endBeats);
+
+    startBeats = juce::jmax (0.0, startBeats);
+    endBeats = juce::jmax (0.0, endBeats);
+
+    if (endBeats <= startBeats)
+        return;
+
+    state.setProperty (IDs::punchStartBeats, startBeats, undoManagerToUse);
+    state.setProperty (IDs::punchEndBeats, endBeats, undoManagerToUse);
+}
+
+void ProjectModel::setPunchRange (double startSeconds, double endSeconds, juce::UndoManager* undoManagerToUse)
+{
+    setPunchRangeBeats (getBeatPositionAt (juce::jmax (0.0, startSeconds)),
+                         getBeatPositionAt (juce::jmax (0.0, endSeconds)),
+                         undoManagerToUse);
 }
 
 //==============================================================================
@@ -5961,7 +6105,7 @@ Track ProjectModel::addTrack (const juce::String& name, TrackType type,
     int insertIndex = -1;
     juce::String parentFolderId;
 
-    if (type != TrackType::Chord && afterTrackId.isNotEmpty())
+    if (type != TrackType::Chord && type != TrackType::Send && afterTrackId.isNotEmpty())   // 8.361：センドは常に最後へ
     {
         for (int i = 0; i < getNumTracks(); ++i)
         {
@@ -6005,6 +6149,8 @@ Track ProjectModel::addTrack (const juce::String& name, TrackType type,
     if (type == TrackType::Chord)
         ensureChordTrackIsFirst();
 
+    ensureSendTracksLast (&undoManager);   // 8.361：センド以外を足したら、センドの手前へ
+
     return newTrack;
 }
 
@@ -6045,6 +6191,7 @@ Track ProjectModel::duplicateTrack (const Track& source)
     // **元のトラックのすぐ下へ入れる**（末尾だと、どれを複製したのか分からなくなる）
     const int sourceIndex = tracksNode.indexOf (source.state);
     tracksNode.addChild (copy, sourceIndex + 1, &undoManager);
+    ensureSendTracksLast (&undoManager);   // 8.361
 
     // 音源・インサートは`<INSTRUMENT>`/`<INSERTS>`ごとコピーされ、
     // エンジンが作り直すときにモデルから読み直す（設計書3.8）。
@@ -6117,6 +6264,50 @@ void ProjectModel::ensureChordTrackIsFirst()
 }
 
 //==============================================================================
+// 8.361：センドトラックは一番下にまとめる（Phase 350）
+
+int ProjectModel::getNumNonSendTracks() const
+{
+    int count = 0;
+
+    for (int i = 0; i < getNumTracks(); ++i)
+        if (getTrack (i).getType() != TrackType::Send)
+            ++count;
+
+    return count;
+}
+
+void ProjectModel::ensureSendTracksLast (juce::UndoManager* undoManagerToUse)
+{
+    // フォルダには入れない（下へ寄せると「入っているのに離れた所」になる）
+    for (int i = 0; i < getNumTracks(); ++i)
+    {
+        auto track = getTrack (i);
+
+        if (track.getType() == TrackType::Send && track.getParentFolderId().isNotEmpty())
+            track.setParentFolderId ({}, undoManagerToUse);
+    }
+
+    // センドより後ろに居るセンド以外を、センドの塊の手前へ移す（どちらの並びも保つ）
+    int firstSend = -1;
+
+    for (int i = 0; i < getNumTracks(); ++i)
+    {
+        const bool isSend = getTrack (i).getType() == TrackType::Send;
+
+        if (isSend && firstSend < 0)
+        {
+            firstSend = i;
+        }
+        else if (! isSend && firstSend >= 0)
+        {
+            tracksNode.moveChild (i, firstSend, undoManagerToUse);
+            ++firstSend;
+        }
+    }
+}
+
+//==============================================================================
 // 8.50：フォルダトラック（Phase 89／D2。仕様書5.2・設計書1.3）
 //==============================================================================
 
@@ -6172,6 +6363,9 @@ bool ProjectModel::canMoveTrackIntoFolder (const Track& track, const juce::Strin
 {
     if (! track.state.getParent().isValid() || folderId.isEmpty())
         return false;
+
+    if (track.getType() == TrackType::Send)
+        return false;   // 8.361：センドはフォルダに入れない（一番下にまとめる。Phase 350）
 
     // 自分自身の中には入れない
     if (track.getId() == folderId)
@@ -6340,8 +6534,25 @@ void ProjectModel::moveTrackToSlot (const Track& track, int toIndex,
 
     toIndex = juce::jlimit (0, getNumTracks() - 1, toIndex);
 
+    // 8.361：**センドはセンドの中、ほかはほかの中だけで動く**。センドはフォルダに入れない（Phase 350）
+    juce::String wantedParent = newParentFolderId;
+    {
+        const int numNonSends = getNumNonSendTracks();
+
+        if (track.getType() == TrackType::Send)
+        {
+            toIndex = juce::jmax (toIndex, numNonSends);
+            wantedParent = {};
+        }
+        else
+        {
+            const int carried = (track.getType() == TrackType::Folder) ? getFolderDescendantIds (track.getId()).size() : 0;
+            toIndex = juce::jmax (0, juce::jmin (toIndex, numNonSends - 1 - carried));
+        }
+    }
+
     const auto currentParent = track.getParentFolderId();
-    const bool parentChanged = (currentParent != newParentFolderId);
+    const bool parentChanged = (currentParent != wantedParent);
 
     if (fromIndex == toIndex && ! parentChanged)
         return;   // 何も変わらない（`moveChild`は同じ位置でも履歴を作る）
@@ -6356,8 +6567,8 @@ void ProjectModel::moveTrackToSlot (const Track& track, int toIndex,
     if (parentChanged)
     {
         // 行き先が自分の子孫なら入れない（輪になる）
-        if (newParentFolderId.isEmpty() || canMoveTrackIntoFolder (track, newParentFolderId))
-            Track (track.state).setParentFolderId (newParentFolderId, &undoManager);
+        if (wantedParent.isEmpty() || canMoveTrackIntoFolder (track, wantedParent))
+            Track (track.state).setParentFolderId (wantedParent, &undoManager);
     }
 
     // **フォルダを動かすときは、中身も連れていく。** 置いていくと、
@@ -6393,6 +6604,8 @@ void ProjectModel::moveTrackToSlot (const Track& track, int toIndex,
         if (childIndex != wanted && juce::isPositiveAndBelow (wanted, getNumTracks()))
             tracksNode.moveChild (childIndex, wanted, &undoManager);
     }
+
+    ensureSendTracksLast (&undoManager);   // 8.361：念のため（フォルダの中身を連れて動いたときも）
 }
 void ProjectModel::moveTrack (int fromIndex, int toIndex)
 {
@@ -6411,6 +6624,19 @@ void ProjectModel::moveTrack (int fromIndex, int toIndex)
             return;   // コードトラック自身は動かせない
 
         toIndex = juce::jmax (1, toIndex);   // 他のトラックはその上へ行けない
+
+        if (fromIndex == toIndex)
+            return;
+    }
+
+    // 8.361：**センドはセンドの中、ほかはほかの中だけで動く**（Phase 350）
+    {
+        const int numNonSends = getNumNonSendTracks();
+
+        if (getTrack (fromIndex).getType() == TrackType::Send)
+            toIndex = juce::jmax (toIndex, numNonSends);
+        else
+            toIndex = juce::jmin (toIndex, numNonSends - 1);
 
         if (fromIndex == toIndex)
             return;

@@ -286,6 +286,22 @@ PianoRollView::PianoRollView (ProjectModel& projectToUse, AudioEngine& engineToU
             addAndMakeVisible (*setup.button);
         }
 
+        // 8.365：**ベンド**（Phase 353）。ツールとは別の入切（ピアノロールだけのもの）。入れているあいだ、
+        // ノートの頭・終わりを上下に引くとベンド。ツールを選び直すと切れる
+        bendToolButton.setButtonText (utf8 ("ベンド"));
+        bendToolButton.setTooltip (utf8 ("ピッチベンドの編集：ノートの頭・終わりを上下に引くとフォール／ライズ、"
+                                         "折れ目の点を左右に引くと曲がり始める位置（0.5 半音刻み。Shift で刻まない）。\n"
+                                         "次のノートへのスライド・ビブラート・ベンド幅はノートの右クリックから"));
+        bendToolButton.setIconResource ("tool_bend_svg");
+        bendToolButton.setColour (juce::TextButton::buttonOnColourId, AppColours::purple);
+        bendToolButton.setClickingTogglesState (false);
+        bendToolButton.onClick = [this]
+        {
+            pianoRoll.setBendEditing (! pianoRoll.isBendEditing());
+            updateToolButtons();
+        };
+        addAndMakeVisible (bendToolButton);
+
         updateToolButtons();
     }
 
@@ -534,6 +550,7 @@ void PianoRollView::resized()
 
         // **右から置いていく**ので、並びは逆順に書く（左から 選択・ペン・カット・消しゴム）
         // 8.196：**4つとも同じ幅**（`ToolbarLayout::toolButtonWidth`／改善案5の6）
+        place (bendToolButton);   // 8.365：消しゴムの右（Phase 353）
         place (eraserToolButton);
         place (cutToolButton);
         place (pencilToolButton);
@@ -668,6 +685,7 @@ void PianoRollView::setPlayheadSeconds (double timelineSeconds)
 void PianoRollView::setEditTool (EditTool tool)
 {
     pianoRoll.setEditTool (tool);
+    pianoRoll.setBendEditing (false);   // 8.365：ツールを選び直したら、ベンドの編集は切る
     updateToolButtons();
 }
 
@@ -684,11 +702,13 @@ void PianoRollView::updateToolButtons()
     };
 
     const auto tool = pianoRoll.getEditTool();
+    const bool bending = pianoRoll.isBendEditing();   // 8.365：ベンドの編集中は、ツールのボタンを点けない
 
-    apply (arrowToolButton,  tool == EditTool::arrow);
-    apply (pencilToolButton, tool == EditTool::pencil);
-    apply (cutToolButton,    tool == EditTool::cut);
-    apply (eraserToolButton, tool == EditTool::eraser);
+    apply (arrowToolButton,  ! bending && tool == EditTool::arrow);
+    apply (pencilToolButton, ! bending && tool == EditTool::pencil);
+    apply (cutToolButton,    ! bending && tool == EditTool::cut);
+    apply (eraserToolButton, ! bending && tool == EditTool::eraser);
+    apply (bendToolButton,   bending);
 
     repaint();
 }

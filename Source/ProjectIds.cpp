@@ -33,6 +33,11 @@ namespace IDs
     const juce::Identifier loopStartBeats { "loopStartBeats" };
     const juce::Identifier loopEndBeats   { "loopEndBeats" };
 
+    // 8.360：パンチイン／アウトの範囲（Phase 349）。ループと同じく拍で持つ
+    const juce::Identifier punchEnabled    { "punchEnabled" };
+    const juce::Identifier punchStartBeats { "punchStartBeats" };
+    const juce::Identifier punchEndBeats   { "punchEndBeats" };
+
     const juce::Identifier MARKERS { "MARKERS" };
     const juce::Identifier MARKER  { "MARKER" };
 
@@ -208,6 +213,14 @@ namespace IDs
 
     const juce::Identifier notePitch     { "pitch" };
     const juce::Identifier noteVelocity  { "velocity" };
+    // 8.365：ノートのピッチベンド（Phase 353。`NoteBend`）
+    const juce::Identifier noteBendStart    { "noteBendStart" };
+    const juce::Identifier noteBendStartPos { "noteBendStartPos" };
+    const juce::Identifier noteBendEnd      { "noteBendEnd" };
+    const juce::Identifier noteBendEndPos   { "noteBendEndPos" };
+    const juce::Identifier noteVibratoDepth { "noteVibratoDepth" };
+    const juce::Identifier noteVibratoRate  { "noteVibratoRate" };
+    const juce::Identifier pitchBendRange   { "pitchBendRange" };
     const juce::Identifier noteStartTime { "startTime" };
     const juce::Identifier noteLength    { "length" };
 

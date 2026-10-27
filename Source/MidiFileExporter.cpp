@@ -135,6 +135,11 @@ juce::String MidiFileExporter::exportToFile (const ProjectModel& project, const 
                 sequence.addEvent (MidiCCMessage::create (1, event.getControllerNumber(),
                                                            event.getValue()), ticks);
             }
+
+            // 8.365：**ノートのベンド**（Phase 353）。再生と同じ並び（`Track::getNoteBendEvents()`）を書く
+            for (const auto& [seconds, value] : track.getNoteBendEvents())
+                sequence.addEvent (MidiCCMessage::create (1, MidiControllers::pitchBend, value),
+                                   beatsToTicks (project.getBeatPositionAt (seconds)));
         }
 
         // 仕様書5.3.2：チョークグループを効かせてから、ノートを積む（Phase 25）。

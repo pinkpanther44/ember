@@ -52,6 +52,9 @@ namespace IDs
         テンポを変えても「2小節目から4小節目まで」のまま動きません。 */
     extern const juce::Identifier loopStartBeats;
     extern const juce::Identifier loopEndBeats;
+    extern const juce::Identifier punchEnabled;      // 8.360
+    extern const juce::Identifier punchStartBeats;
+    extern const juce::Identifier punchEndBeats;
 
     // 仕様書5.9：マーカー（Phase 49）
     extern const juce::Identifier MARKERS;
@@ -421,6 +424,14 @@ namespace IDs
     // MIDIノートのプロパティ（設計書1.3のNote）
     extern const juce::Identifier notePitch;
     extern const juce::Identifier noteVelocity;
+    // 8.365：ノートのピッチベンド（Phase 353。`NoteBend`）
+    extern const juce::Identifier noteBendStart;
+    extern const juce::Identifier noteBendStartPos;
+    extern const juce::Identifier noteBendEnd;
+    extern const juce::Identifier noteBendEndPos;
+    extern const juce::Identifier noteVibratoDepth;
+    extern const juce::Identifier noteVibratoRate;
+    extern const juce::Identifier pitchBendRange;   // トラック：音源のベンド幅（半音、片側）
 
     // 8.138：Phase 175までの、秒で持っていた時刻（Phase 176／8.105の宿題3）。
     //

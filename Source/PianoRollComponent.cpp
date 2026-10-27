@@ -834,10 +834,68 @@ void PianoRollComponent::showNoteMenu (const juce::ValueTree& noteState, juce::P
     menu.addItem (1, numSelected > 1 ? utf8 ("選択したノートを削除") + countSuffix
                                       : utf8 ("このノートを削除"));
 
+    // 8.365：**ピッチベンド**（Phase 353）。曲げる量そのものは「ベンド」を入れてノートを引く
+    if (! drumMode)
+    {
+        bool anyBend = false;
+
+        for (const auto& selected : selectedNotes)
+            anyBend = anyBend || ! Note (juce::ValueTree (selected)).getBend().isEmpty();
+
+        juce::PopupMenu bendMenu;
+        bendMenu.addItem (10, utf8 ("次のノートへスライド") + countSuffix);
+
+        juce::PopupMenu vibratoMenu;
+        vibratoMenu.addItem (20, utf8 ("なし"));
+        vibratoMenu.addItem (21, utf8 ("浅め"));
+        vibratoMenu.addItem (22, utf8 ("普通"));
+        vibratoMenu.addItem (23, utf8 ("深め"));
+        vibratoMenu.addItem (24, utf8 ("速く揺らす"));
+        bendMenu.addSubMenu (utf8 ("ビブラート"), vibratoMenu);
+
+        bendMenu.addItem (11, utf8 ("ベンドを消す") + countSuffix, anyBend);
+        bendMenu.addSeparator();
+
+        const double range = getTrack().getPitchBendRange();
+        juce::PopupMenu rangeMenu;
+        const int ranges[] = { 2, 7, 12, 24 };
+
+        for (int i = 0; i < 4; ++i)
+            rangeMenu.addItem (30 + i, utf8 ("±") + juce::String (ranges[i]) + utf8 (" 半音"), true,
+                               std::abs (range - ranges[i]) < 1.0e-6);
+
+        bendMenu.addSubMenu (utf8 ("ベンド幅（音源の設定と同じに）"), rangeMenu);
+
+        menu.addSeparator();
+        menu.addSubMenu (utf8 ("ピッチベンド"), bendMenu);
+    }
+
     menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this)
                                                    .withTargetScreenArea ({ screenPosition.x, screenPosition.y, 1, 1 }),
         [this] (int result)
         {
+            // 8.365：ピッチベンド
+            if (result == 10)      { slideSelectedNotesToNext(); return; }
+            if (result == 11)      { clearBendOnSelectedNotes(); return; }
+            if (result == 20)      { setVibratoOnSelectedNotes (0.0, 5.5); return; }
+            if (result == 21)      { setVibratoOnSelectedNotes (0.15, 5.5); return; }
+            if (result == 22)      { setVibratoOnSelectedNotes (0.3, 5.5); return; }
+            if (result == 23)      { setVibratoOnSelectedNotes (0.6, 5.5); return; }
+            if (result == 24)      { setVibratoOnSelectedNotes (0.3, 7.5); return; }
+
+            if (result >= 30 && result <= 33 && hasTrack())
+            {
+                const int ranges[] = { 2, 7, 12, 24 };
+                project.beginAction (utf8 ("ベンド幅の変更"));
+                getTrack().setPitchBendRange ((double) ranges[result - 30], &project.getUndoManager());
+
+                if (onModelChanged != nullptr)
+                    onModelChanged();
+
+                repaint();
+                return;
+            }
+
             if (result == 1)
                 deleteSelectedNotes();
             else if (result == 2)
@@ -998,9 +1056,23 @@ void PianoRollComponent::cutNoteAt (const juce::ValueTree& noteState, int x)
 
     project.beginAction (utf8 ("ノートの分割"));
 
+    // 8.365：**ベンドは分ける**（Phase 353）。頭のベンドは前半に、終わりのベンドとビブラートは後半に残す
+    // （割合で持っているので、そのまま両方に付けると曲がる位置がずれる）
+    const auto bend = note.getBend();
+    NoteBend firstHalf, secondHalf;
+    firstHalf.startSemitones = bend.startSemitones;
+    firstHalf.startPosition = bend.startPosition;
+    secondHalf.endSemitones = bend.endSemitones;
+    secondHalf.endPosition = bend.endPosition;
+    secondHalf.vibratoDepth = bend.vibratoDepth;
+    secondHalf.vibratoRate = bend.vibratoRate;
+
     note.setLength (cutTime - startTime, &project.getUndoManager());
-    editedTrack.addNote (note.getPitch(), note.getVelocity(), cutTime,
-                          startTime + length - cutTime, &project.getUndoManager());
+    note.setBend (firstHalf, &project.getUndoManager());
+
+    auto added = editedTrack.addNote (note.getPitch(), note.getVelocity(), cutTime,
+                                       startTime + length - cutTime, &project.getUndoManager());
+    added.setBend (secondHalf, &project.getUndoManager());
 
     // 割ったことで番号が変わる。中途半端な選択を残さない
     clearNoteSelection();
@@ -1627,6 +1699,24 @@ void PianoRollComponent::mouseMove (const juce::MouseEvent& e)
         return;
     }
 
+    // 8.365：**ベンドの編集中**は、掴める所でカーソルを変える（頭・終わり＝上下、折れ目＝左右。Phase 353）
+    if (bendEditing && ! drumMode && e.x > keyboardWidth && e.y < getGridHeight())
+    {
+        const auto hit = findBendHandleAt (e.getPosition());
+        const bool horizontal = hit.part == BendPart::startPosition || hit.part == BendPart::endPosition;
+
+        setMouseCursor (hit.part == BendPart::none ? juce::MouseCursor::NormalCursor
+                         : horizontal ? juce::MouseCursor::LeftRightResizeCursor : juce::MouseCursor::UpDownResizeCursor);
+
+        if (hit.note != bendHoverNote)
+        {
+            bendHoverNote = hit.note;
+            repaint();
+        }
+
+        return;
+    }
+
     // 8.345：**ノートの端では左右の矢印**（Phase 333／本人の要望「移動と伸縮の見分けがつかない」）。
     // 押したときと同じ判定（`grabModeForNote()`）を見るので、カーソルと動きは食い違いません。
     // 伸縮できるのは矢印とペン（ペンもノートの上では矢印と同じ。`mouseDown`）
@@ -1831,6 +1921,62 @@ float PianoRollComponent::yToAutomationValue (const juce::Rectangle<int>& laneBo
         return 0.0f;
 
     return juce::jlimit (0.0f, 1.0f, (float) (inner.getBottom() - y) / (float) inner.getHeight());
+}
+
+//==============================================================================
+// 8.366：レーンの「戻ってくる値」（Phase 354）
+
+float PianoRollComponent::getAutomationHomeValue() const
+{
+    // アレンジ画面のレーンと同じ：**トラックのいまの値**（`TimelineComponent::getCurrentAutomationValueFor()`）
+    const auto& targetId = laneTarget.automationTargetId;
+
+    if (! hasTrack() || targetId.isEmpty())
+        return 0.0f;
+
+    return AutomationTargets::fromParameterValue (targetId,
+                                                  targetId == AutomationTargets::pan ? editedTrack.getPan()
+                                                                                     : editedTrack.getVolumeDb());
+}
+
+int PianoRollComponent::ccValueNearHome (const juce::Rectangle<int>& laneBounds, int controllerNumber, int y) const
+{
+    const int home = MidiControllers::getHomeValue (controllerNumber);
+
+    if (std::abs (y - ccValueToY (laneBounds, controllerNumber, home)) <= homeSnapPixels)
+        return home;   // 目印に吸い付く
+
+    return yToCCValue (laneBounds, controllerNumber, y);
+}
+
+float PianoRollComponent::automationValueNearHome (const juce::Rectangle<int>& laneBounds, int y) const
+{
+    const float home = getAutomationHomeValue();
+
+    if (std::abs (y - automationValueToY (laneBounds, home)) <= homeSnapPixels)
+        return home;
+
+    return yToAutomationValue (laneBounds, y);
+}
+
+void PianoRollComponent::drawLaneHomeLine (juce::Graphics& g, const juce::Rectangle<int>& laneBounds, int y,
+                                           bool laneIsEmpty) const
+{
+    const float left = (float) keyboardWidth;
+    const float right = (float) laneBounds.getRight();
+
+    if (laneIsEmpty)
+    {
+        // 点が無い：アレンジ画面のレーンと同じ、いまの値の高さに水平線
+        g.setColour (AppColours::purple.withAlpha (0.45f));
+        g.drawLine (left, (float) y, right, (float) y, 1.0f);
+        return;
+    }
+
+    // 点がある：同じ高さに点線（戻ってくる場所の目印）
+    const float dashes[] = { 4.0f, 4.0f };
+    g.setColour (AppColours::purple.withAlpha (0.3f));
+    g.drawDashedLine ({ left, (float) y, right, (float) y }, dashes, 2, 1.0f);
 }
 
 int PianoRollComponent::findAutomationPointAt (juce::Point<int> position)
@@ -3711,6 +3857,27 @@ void PianoRollComponent::mouseDown (const juce::MouseEvent& e)
     const auto noteState = findNoteAt (e.getPosition());   // Phase 127：全クリップから探す
     const bool onGrid = (e.x > keyboardWidth && e.y < getGridHeight());
 
+    // 8.365：**ベンドの編集**（Phase 353）。ツールより先に見る（入っているあいだは、ノートを動かさずに曲げる）
+    if (bendEditing && ! e.mods.isPopupMenu() && onGrid && ! drumMode)
+    {
+        const auto hit = findBendHandleAt (e.getPosition());
+
+        if (! hit.note.isValid())
+            return;
+
+        setSingleNoteSelection (hit.note);
+        activeNoteState = hit.note;
+
+        project.beginAction (utf8 ("ピッチベンドの変更"));
+        bendDragNote = hit.note;
+        bendDragPart = hit.part;
+        bendDragOriginal = Note (juce::ValueTree (hit.note)).getBend();
+        bendDragStart = e.getPosition();
+        dragMode = DragMode::Bend;
+        repaint();
+        return;
+    }
+
     //==========================================================================
     // 仕様書6.2：ツールごとの振る舞い（Phase 52）。
     // **矢印以外は、ここで完結して返す**（アレンジ画面と同じ方針。8.10）。
@@ -4004,6 +4171,12 @@ void PianoRollComponent::autoScrollWhileDragging (const juce::MouseEvent& e)
 
 void PianoRollComponent::mouseDrag (const juce::MouseEvent& e)
 {
+    if (dragMode == DragMode::Bend)   // 8.365
+    {
+        updateBendDrag (e);
+        return;
+    }
+
     // 8.305：掴んだまま画面の外まで行けるようにする（Phase 298／本人の指定）
     autoScrollWhileDragging (e);
 
@@ -4146,7 +4319,7 @@ void PianoRollComponent::mouseDrag (const juce::MouseEvent& e)
         auto laneBounds = getLaneBounds();
 
         dragPreviewCCTime = juce::jmax (0.0, xToTimelineTime (e.getPosition().x));
-        dragPreviewCCValue = yToCCValue (laneBounds, controllerNumber, e.getPosition().y);
+        dragPreviewCCValue = ccValueNearHome (laneBounds, controllerNumber, e.getPosition().y);   // 8.366：目印に吸い付く
 
         repaint();
         return;
@@ -4167,7 +4340,7 @@ void PianoRollComponent::mouseDrag (const juce::MouseEvent& e)
         // 点は**タイムライン上の時刻**（8.28）。**寄せません**：オートメーションと
         // CCの点はスナップの対象外と決めてある（8.14の「寄らないもの」）
         dragPreviewAutomationTime = juce::jmax (0.0, xToTimelineTime (e.getPosition().x));
-        dragPreviewAutomationValue = yToAutomationValue (laneBounds, e.getPosition().y);
+        dragPreviewAutomationValue = automationValueNearHome (laneBounds, e.getPosition().y);   // 8.366
 
         auto point = lane.getPoint (draggedAutomationPoint);
         point.setTime (dragPreviewAutomationTime, &project.getUndoManager());
@@ -4303,6 +4476,20 @@ void PianoRollComponent::mouseUp (const juce::MouseEvent& e)
     stopPreview();
     keyboardPreviewing = false;
 
+    // 8.365：ベンドの編集を離した
+    if (dragMode == DragMode::Bend)
+    {
+        dragMode = DragMode::None;
+        bendDragNote = juce::ValueTree();
+        bendDragPart = BendPart::none;
+
+        if (onModelChanged != nullptr)
+            onModelChanged();
+
+        repaint();
+        return;
+    }
+
     // 8.122：レーンの高さ（Phase 157／改善案36）。
     // **覚えるのは離したときだけ**：ドラッグ中に呼ぶと、1回の操作で
     // 設定ファイルへ何十回も書くことになる
@@ -4380,7 +4567,7 @@ void PianoRollComponent::mouseUp (const juce::MouseEvent& e)
 
                 // **Phase 126：CCの時刻は中身基準**なので、置く前に直す
                 auto added = editedTrack.addCCEvent (laneTarget.controllerNumber,
-                                               yToCCValue (laneBounds, laneTarget.controllerNumber,
+                                               ccValueNearHome (laneBounds, laneTarget.controllerNumber,   // 8.366
                                                             lanePendingPosition.y),
                                                juce::jmax (0.0, xToTimelineTime (lanePendingPosition.x)),
                                                &project.getUndoManager());
@@ -4403,7 +4590,7 @@ void PianoRollComponent::mouseUp (const juce::MouseEvent& e)
 
                     // 点は**タイムライン上の時刻**（8.28）。**寄せません**（8.14）
                     auto added = lane.addPoint (juce::jmax (0.0, xToTimelineTime (lanePendingPosition.x)),
-                                                 yToAutomationValue (laneBounds, lanePendingPosition.y),
+                                                 automationValueNearHome (laneBounds, lanePendingPosition.y),   // 8.366
                                                  &project.getUndoManager());
 
                     if (added.state.isValid())
@@ -5036,6 +5223,8 @@ void PianoRollComponent::paint (juce::Graphics& g)
                              juce::Justification::centredLeft, false);
             }
         });
+
+        drawNoteBends (g);   // 8.365：ノートのピッチベンド（Phase 353）
 
         drawNoteDragPreview (g);
     }
@@ -5788,6 +5977,8 @@ void PianoRollComponent::drawAutomationLaneContents (juce::Graphics& g, const ju
 
     if (! lane.state.isValid() || lane.getNumPoints() == 0)
     {
+        drawLaneHomeLine (g, laneBounds, automationValueToY (laneBounds, getAutomationHomeValue()), true);   // 8.366
+
         // **空のレーンでも「何も無い」と分かるように書いておく**（1.9の考え方）。
         // オートメーションはトラックの持ち物なので、クリップが空でも点は置ける
         g.setColour (AppColours::textSecondary.withAlpha (0.7f));
@@ -5796,6 +5987,8 @@ void PianoRollComponent::drawAutomationLaneContents (juce::Graphics& g, const ju
                      laneBounds.reduced (keyboardWidth + 6, 0), juce::Justification::centredLeft, false);
         return;
     }
+
+    drawLaneHomeLine (g, laneBounds, automationValueToY (laneBounds, getAutomationHomeValue()), false);   // 8.366：戻ってくる値の目印
 
     // 8.36：**繋ぎ方（カーブ種別）に従って描きます**（Phase 76）。
     // それまでは直線で固定でしたが、右クリックメニューから種別を選べるようになったので、
@@ -5883,12 +6076,16 @@ void PianoRollComponent::drawCCLaneContents (juce::Graphics& g, const juce::Rect
 
     if (numEvents == 0)
     {
+        drawLaneHomeLine (g, laneBounds, ccValueToY (laneBounds, controllerNumber, MidiControllers::getHomeValue (controllerNumber)), true);   // 8.366
+
         g.setColour (AppColours::textSecondary.withAlpha (0.7f));
         g.setFont (juce::FontOptions (10.0f));
         g.drawText (utf8 ("クリックで点を置きます"),
                      laneBounds.reduced (keyboardWidth + 6, 0), juce::Justification::centredLeft, false);
         return;
     }
+
+    drawLaneHomeLine (g, laneBounds, ccValueToY (laneBounds, controllerNumber, MidiControllers::getHomeValue (controllerNumber)), false);   // 8.366
 
     // 8.36：**オートメーションと同じ描き方**（Phase 76）。
     // Phase 75まではCCだけが階段状で固定でしたが、繋ぎ方を点が持つようになったので、
@@ -5999,4 +6196,300 @@ void PianoRollComponent::drawCCLaneContents (juce::Graphics& g, const juce::Rect
                      ccValueToY (laneBounds, controllerNumber, dragPreviewCCValue) - 8,
                      50, 16, juce::Justification::centredLeft);
     }
+}
+
+//==============================================================================
+// 8.365：**ノートのピッチベンド**（Phase 353／本人の要望）。
+//
+// > 「MIDIノートにベンド機能を追加できるかな？」「ノートの開始からもフォール／ライズできると嬉しい」
+//
+// 曲線はノートの真ん中の高さから、半音＝1行ぶん上下に描く（画像のとおり）。ベンドの編集を入れているあいだは、
+// ノートの頭・終わりの点を上下に引くと曲がる量、折れ目の点を左右に引くと曲がり始める位置。点の外でも、
+// ノートの左 35% を引けば頭、右を引けば終わり（狙わなくても掴める）。量は 0.5 半音刻み、Shift で刻まない。
+
+void PianoRollComponent::setBendEditing (bool shouldEdit)
+{
+    if (bendEditing == shouldEdit)
+        return;
+
+    bendEditing = shouldEdit;
+    bendHoverNote = juce::ValueTree();
+    setMouseCursor (juce::MouseCursor::NormalCursor);
+    repaint();
+}
+
+PianoRollComponent::BendHandles PianoRollComponent::getBendHandles (const Note& note) const
+{
+    const auto bounds = getNoteBounds (note).toFloat();
+    const auto bend = note.getBend().normalised();
+    const float row = (float) getRowHeight();
+    const float centreY = bounds.getCentreY();
+
+    return { { bounds.getX(), centreY - (float) bend.startSemitones * row },
+             { bounds.getX() + (float) bend.startPosition * bounds.getWidth(), centreY },
+             { bounds.getX() + (float) bend.endPosition * bounds.getWidth(), centreY },
+             { bounds.getRight(), centreY - (float) bend.endSemitones * row } };
+}
+
+PianoRollComponent::BendHit PianoRollComponent::findBendHandleAt (juce::Point<int> position) const
+{
+    if (! hasTrack() || drumMode)
+        return {};
+
+    // 点（8px 以内でいちばん近いもの）
+    BendHit best;
+    float bestDistance = 8.0f;
+    const auto p = position.toFloat();
+
+    forEachNote ([&] (const juce::ValueTree& noteState)
+    {
+        Note note { juce::ValueTree (noteState) };
+        const auto handles = getBendHandles (note);
+        const auto bend = note.getBend();
+
+        const auto test = [&] (juce::Point<float> point, BendPart part)
+        {
+            const float distance = point.getDistanceFrom (p);
+
+            if (distance < bestDistance)
+            {
+                bestDistance = distance;
+                best = { noteState, part };
+            }
+        };
+
+        test (handles.start, BendPart::startSemitones);
+        test (handles.end, BendPart::endSemitones);
+
+        if (bend.hasStart())
+            test (handles.startKnee, BendPart::startPosition);
+
+        if (bend.hasEnd())
+            test (handles.endKnee, BendPart::endPosition);
+    });
+
+    if (best.note.isValid())
+        return best;
+
+    // ノートの体：左 35% は頭、残りは終わり
+    const auto noteState = findNoteAt (position);
+
+    if (! noteState.isValid())
+        return {};
+
+    const auto bounds = getNoteBounds (Note (juce::ValueTree (noteState)));
+    const bool left = position.x < bounds.getX() + bounds.getWidth() * 35 / 100;
+    return { noteState, left ? BendPart::startSemitones : BendPart::endSemitones };
+}
+
+void PianoRollComponent::updateBendDrag (const juce::MouseEvent& e)
+{
+    if (! bendDragNote.isValid() || ! bendDragNote.getParent().isValid())
+        return;
+
+    Note note { juce::ValueTree (bendDragNote) };
+    auto bend = bendDragOriginal;
+    const double row = juce::jmax (1, getRowHeight());
+    const auto bounds = getNoteBounds (note);
+
+    const auto semitonesFrom = [&] (double original)
+    {
+        double semis = original + (double) (bendDragStart.y - e.y) / row;
+
+        if (! e.mods.isShiftDown())
+            semis = std::round (semis * 2.0) / 2.0;   // 0.5 半音刻み（Shift で刻まない）
+
+        return juce::jlimit (-24.0, 24.0, semis);
+    };
+
+    const auto positionFrom = [&]
+    {
+        return juce::jlimit (0.02, 0.98, (double) (e.x - bounds.getX()) / (double) juce::jmax (1, bounds.getWidth()));
+    };
+
+    switch (bendDragPart)
+    {
+        case BendPart::startSemitones: bend.startSemitones = semitonesFrom (bendDragOriginal.startSemitones); break;
+        case BendPart::endSemitones:   bend.endSemitones = semitonesFrom (bendDragOriginal.endSemitones); break;
+        case BendPart::startPosition:  bend.startPosition = positionFrom(); break;
+        case BendPart::endPosition:    bend.endPosition = positionFrom(); break;
+        case BendPart::none:           return;
+    }
+
+    note.setBend (bend, &project.getUndoManager());
+    repaint();
+}
+
+void PianoRollComponent::drawNoteBends (juce::Graphics& g)
+{
+    if (drumMode || ! hasTrack())
+        return;
+
+    const double range = getTrack().getPitchBendRange();
+    const float row = (float) getRowHeight();
+    const auto colour = getTrackColour().brighter (0.5f);
+
+    forEachNote ([&] (const juce::ValueTree& noteState)
+    {
+        Note note { juce::ValueTree (noteState) };
+        const auto bend = note.getBend();
+        const bool editingThis = bendEditing && (noteState == bendHoverNote || noteState == bendDragNote || isNoteSelected (noteState));
+
+        if (bend.isEmpty() && ! editingThis)
+            return;
+
+        const auto bounds = getNoteBounds (note).toFloat();
+        const double lengthSeconds = juce::jmax (0.001, note.getLength());
+        const float centreY = bounds.getCentreY();
+
+        // 曲線（ビブラートが細かく描けるよう、幅に合わせて点を増やす）
+        const int samples = juce::jlimit (16, 600, (int) bounds.getWidth());
+        juce::Point<float> previous;
+
+        for (int i = 0; i <= samples; ++i)
+        {
+            const double f = (double) i / samples;
+            const double semis = bend.semitonesAt (f, f * lengthSeconds);
+            const juce::Point<float> point (bounds.getX() + (float) f * bounds.getWidth(), centreY - (float) semis * row);
+
+            if (i > 0)
+            {
+                // 音源のベンド幅を超えるところは赤（そこでは曲がりきらない）
+                g.setColour (std::abs (semis) > range + 1.0e-6 ? AppColours::punch() : colour);
+                g.drawLine ({ previous, point }, 2.0f);
+            }
+
+            previous = point;
+        }
+
+        if (! bendEditing)
+            return;
+
+        // 掴む点
+        const auto handles = getBendHandles (note);
+        const auto dot = [&] (juce::Point<float> at, float radius, bool filled)
+        {
+            const auto r = juce::Rectangle<float> (radius * 2.0f, radius * 2.0f).withCentre (at);
+            g.setColour (AppColours::orange);
+
+            if (filled)
+                g.fillEllipse (r);
+            else
+                g.drawEllipse (r, 1.5f);
+        };
+
+        dot (handles.start, 4.0f, bend.hasStart());
+        dot (handles.end, 4.0f, bend.hasEnd());
+
+        if (bend.hasStart())
+            dot (handles.startKnee, 3.0f, true);
+
+        if (bend.hasEnd())
+            dot (handles.endKnee, 3.0f, true);
+
+        // 引いているあいだは量と着く音（画像の「-5.00 st G4」）
+        if (dragMode == DragMode::Bend && noteState == bendDragNote
+             && (bendDragPart == BendPart::startSemitones || bendDragPart == BendPart::endSemitones))
+        {
+            const bool atStart = bendDragPart == BendPart::startSemitones;
+            const double semis = atStart ? bend.startSemitones : bend.endSemitones;
+            const auto at = atStart ? handles.start : handles.end;
+
+            juce::String text = juce::String (semis, 2) + " st "
+                                  + midiNoteName (juce::jlimit (0, 127, note.getPitch() + (int) std::round (semis)));
+
+            if (std::abs (semis) > range + 1.0e-6)
+                text << utf8 ("（幅 ±") << juce::String ((int) range) << utf8 (" を超えています）");
+
+            g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
+            g.setColour (AppColours::textPrimary);
+            g.drawText (text, juce::Rectangle<float> (at.x - 60.0f, at.y - 22.0f, 260.0f, 16.0f),
+                         juce::Justification::centredLeft, false);
+        }
+    });
+}
+
+void PianoRollComponent::slideSelectedNotesToNext()
+{
+    // 次のノート（頭がいちばん近い後ろのもの。音程は問わない＝単音の流れ）の音程へ、終わりで着く
+    pruneNoteSelection();
+
+    if (selectedNotes.empty() || ! hasTrack())
+        return;
+
+    project.beginAction (utf8 ("次のノートへスライド"));
+
+    for (const auto& noteState : selectedNotes)
+    {
+        Note note { juce::ValueTree (noteState) };
+        const double start = note.getStartTime();
+        double nextStart = 1.0e12;
+        int nextPitch = -1;
+
+        forEachNote ([&] (const juce::ValueTree& other)
+        {
+            Note candidate { juce::ValueTree (other) };
+            const double t = candidate.getStartTime();
+
+            if (t > start + 1.0e-6 && t < nextStart)
+            {
+                nextStart = t;
+                nextPitch = candidate.getPitch();
+            }
+        });
+
+        if (nextPitch < 0)
+            continue;
+
+        auto bend = note.getBend();
+        bend.endSemitones = (double) (nextPitch - note.getPitch());
+        note.setBend (bend, &project.getUndoManager());
+    }
+
+    if (onModelChanged != nullptr)
+        onModelChanged();
+
+    repaint();
+}
+
+void PianoRollComponent::setVibratoOnSelectedNotes (double depth, double rate)
+{
+    pruneNoteSelection();
+
+    if (selectedNotes.empty())
+        return;
+
+    project.beginAction (utf8 ("ビブラート"));
+
+    for (const auto& noteState : selectedNotes)
+    {
+        Note note { juce::ValueTree (noteState) };
+        auto bend = note.getBend();
+        bend.vibratoDepth = depth;
+        bend.vibratoRate = rate;
+        note.setBend (bend, &project.getUndoManager());
+    }
+
+    if (onModelChanged != nullptr)
+        onModelChanged();
+
+    repaint();
+}
+
+void PianoRollComponent::clearBendOnSelectedNotes()
+{
+    pruneNoteSelection();
+
+    if (selectedNotes.empty())
+        return;
+
+    project.beginAction (utf8 ("ベンドを消す"));
+
+    for (const auto& noteState : selectedNotes)
+        Note (juce::ValueTree (noteState)).setBend ({}, &project.getUndoManager());
+
+    if (onModelChanged != nullptr)
+        onModelChanged();
+
+    repaint();
 }

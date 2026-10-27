@@ -210,6 +210,25 @@ public:
     void setEditTool (EditTool newTool);
     EditTool getEditTool() const { return editTool; }
 
+    /** 8.365：**ベンドの編集**（Phase 353）。入っているあいだ、ノートの頭・終わりを上下に引くとベンド、
+        曲がり始め（折れ目の点）を左右に引くと位置が変わる。ツール（選択・ペン…）とは別の入切で、ピアノロールだけのもの。 */
+    void setBendEditing (bool shouldEdit);
+    bool isBendEditing() const { return bendEditing; }
+
+    /** 8.365：試験用：ベンドの掴む所（ノートの頭・終わり・折れ目）。 */
+    enum class BendPart { none, startSemitones, startPosition, endSemitones, endPosition };
+    struct BendHit { juce::ValueTree note; BendPart part = BendPart::none; };
+    BendHit findBendHandleAt (juce::Point<int> position) const;
+
+    /** 8.365：そのノートのベンドの点（頭の点・頭の折れ目・終わりの折れ目・終わりの点）。描くのと掴むのが同じ点を使う。 */
+    struct BendHandles { juce::Point<float> start, startKnee, endKnee, end; };
+    BendHandles getBendHandles (const Note& note) const;
+
+    /** 8.365：右クリックのメニューと同じ操作（試験からも呼ぶ）。選んでいるノート全部に効く。 */
+    void slideSelectedNotesToNext();
+    void setVibratoOnSelectedNotes (double depth, double rate);
+    void clearBendOnSelectedNotes();
+
     //==========================================================================
     // 8.29の表：鍵盤の表示（Phase 70）
 
@@ -416,13 +435,28 @@ public:
     /** レーンの見出しに出す名前（"Velocity"／"Volume"／"CC11 Expression" など）。 */
     juce::String getLaneTargetName() const;
 
+    // 8.366：試験用（レーンの目印と吸い付き）
+    juce::Rectangle<int> getLaneBoundsForTesting() const { return getLaneBounds(); }
+    int ccValueToYForTesting (int controllerNumber, int value) const { return ccValueToY (getLaneBounds(), controllerNumber, value); }
+    int automationValueToYForTesting (float value) const { return automationValueToY (getLaneBounds(), value); }
+    float getAutomationHomeValueForTesting() const { return getAutomationHomeValue(); }
+
 private:
     // Phase 69で`ResizeLeft`（左端の伸縮）と`VelocityPaint`（なぞり書き）を足した（8.29）
     // Phase 75で`AutomationPoint`（下部レーンのオートメーション）を足した（8.35）
     // Phase 77で`CurveHandle`（曲がり具合のつまみ）を足した（8.37）
     // Phase 78で`LanePaint`（レーンでのなぞり書き）を足した（8.38）
     enum class DragMode { None, Move, ResizeRight, ResizeLeft, Velocity, VelocityPaint,
-                          CCPoint, AutomationPoint, CurveHandle, LanePaint };
+                          CCPoint, AutomationPoint, CurveHandle, LanePaint, Bend };   // 8.365：Bend
+
+    // 8.365：ベンドの編集（Phase 353）
+    bool bendEditing = false;
+    BendPart bendDragPart = BendPart::none;
+    juce::ValueTree bendDragNote, bendHoverNote;
+    NoteBend bendDragOriginal;
+    juce::Point<int> bendDragStart;
+    void drawNoteBends (juce::Graphics& g);
+    void updateBendDrag (const juce::MouseEvent& e);
 
     juce::Rectangle<int> getNoteBounds (const Note& note) const;
 
@@ -522,6 +556,21 @@ private:
     /** 正規化値（0〜1）とY座標の変換。 */
     int automationValueToY (const juce::Rectangle<int>& laneBounds, float value) const;
     float yToAutomationValue (const juce::Rectangle<int>& laneBounds, int y) const;
+
+    // 8.366：**レーンの「戻ってくる値」**（Phase 354／本人の要望「最初に設定した値に戻ってきたい時に迷子になる」）。
+    // 点が無いときはその高さに線（アレンジ画面のレーンと同じ見た目）、点があるときは同じ高さに点線の目印。
+    // 点を置く・動かすとき、目印から`homeSnapPixels`以内なら**その値に吸い付く**
+    static constexpr int homeSnapPixels = 5;
+
+    /** オートメーション（ボリューム／パン）の戻ってくる値＝**トラックのいまの値**（正規化）。 */
+    float getAutomationHomeValue() const;
+
+    /** y から値。目印の近くなら目印の値。 */
+    int ccValueNearHome (const juce::Rectangle<int>& laneBounds, int controllerNumber, int y) const;
+    float automationValueNearHome (const juce::Rectangle<int>& laneBounds, int y) const;
+
+    /** 目印の線（点が無ければ実線、あれば点線）。 */
+    void drawLaneHomeLine (juce::Graphics& g, const juce::Rectangle<int>& laneBounds, int y, bool laneIsEmpty) const;
 
     /** そのレーンの中で、座標に近い点の番号を返す（無ければ-1）。 */
     int findAutomationPointAt (juce::Point<int> position);

@@ -5,6 +5,8 @@
 #include "DragAndDropIds.h"
 #include "Utf8.h"
 #include "AudioTransform.h"   // 8.149：伸縮の上下限（Phase 187／8.48）
+#include "MidiFileImport.h"   // 8.362：MIDI ファイルを落とす（Phase 351）
+#include <array>       // 8.353：音程ごとの塗った右端
 #include <algorithm>   // 8.126：std::find（複数選択。Phase 162）
 #include <cmath>  // std::pow（ズーム倍率の計算）
 #include <limits> // 隣の区間が無いときの「上限なし」（コード区間のドラッグ）
@@ -201,10 +203,13 @@ void TimelineComponent::updateProjectSubscription()
     subscribedProjectState.removeListener (this);
     subscribedProjectState = currentState;
     subscribedProjectState.addListener (this);
+    invalidateModelCaches();   // 8.353：木が差し替わった
 }
 
 void TimelineComponent::valueTreePropertyChanged (juce::ValueTree& tree, const juce::Identifier& property)
 {
+    invalidateModelCaches();   // 8.353：曲が変わった（塊と中身の端を作り直す）
+
     // スクロール範囲に影響するのは、クリップとコード区間の位置と長さだけ。
     // オートメーションの点のように毎秒何度も変わる値まで含めて計算し直すのは無駄が大きい。
     //
@@ -230,12 +235,15 @@ void TimelineComponent::valueTreePropertyChanged (juce::ValueTree& tree, const j
 
 void TimelineComponent::valueTreeChildAdded (juce::ValueTree&, juce::ValueTree&)
 {
+    invalidateModelCaches();   // 8.353
     updateScrollBars();
     repaint();
 }
 
 void TimelineComponent::valueTreeChildRemoved (juce::ValueTree&, juce::ValueTree&, int)
 {
+    invalidateModelCaches();   // 8.353
+
     // Phase 33：トラックが消えた／並びが変わった可能性があるので、まず番号を引き直す。
     // クリップの判定はこの後で行う（トラック番号が正しくないと意味が無いため）。
     syncSelectedTrackIndexFromSelection();
@@ -265,6 +273,8 @@ void TimelineComponent::valueTreeChildRemoved (juce::ValueTree&, juce::ValueTree
 
 void TimelineComponent::valueTreeChildOrderChanged (juce::ValueTree&, int, int)
 {
+    invalidateModelCaches();   // 8.353
+
     // Phase 33：並べ替えで番号がずれる。引き直さないと、選択の枠が
     // 「動かしたトラック」ではなく「その位置に来たトラック」に付いたままになる。
     syncSelectedTrackIndexFromSelection();
@@ -528,6 +538,19 @@ juce::Rectangle<int> TimelineComponent::getRulerArea() const
 
 double TimelineComponent::getContentLengthSeconds() const
 {
+    // 8.353：**曲が変わったときだけ数え直す**（Phase 342）。全ノートを拍から秒へ直して端を探すので重く
+    //（16本×2000音で約5ms）、前は横スクロール1回のたびに2回ずつ数えていた
+    if (cachesBuiltForState != project.getState())
+        invalidateModelCaches();
+
+    if (cachedContentLengthSeconds < 0.0)
+        cachedContentLengthSeconds = computeContentLengthSeconds();
+
+    return cachedContentLengthSeconds;
+}
+
+double TimelineComponent::computeContentLengthSeconds() const
+{
     double lastClipEnd = 0.0;
 
     for (int t = 0; t < project.getNumTracks(); ++t)
@@ -770,7 +793,7 @@ void TimelineComponent::setScrollStartSeconds (double newStartSeconds)
 
     scrollStartSeconds = limited;
     updateScrollBars();
-    repaint();
+    repaint (getHorizontalRepaintArea());   // 8.353：ヘッダーの列は横には動かないので描き直さない
 }
 
 void TimelineComponent::setVerticalScrollPixels (int newOffset)
@@ -787,6 +810,82 @@ void TimelineComponent::setVerticalScrollPixels (int newOffset)
     updateScrollBars();
     layoutHeaderControls();   // 仕様書5.7：行が動いたらメーターも追わせる（Phase 58）
     repaint();
+}
+
+//==============================================================================
+// 8.350：オーバービュー（Phase 339／本人の要望）
+
+std::vector<TimelineComponent::OverviewRow> TimelineComponent::getOverviewRows() const
+{
+    // **`getTrackRowY()`と同じ積み方**（固定行を飛ばして上から足す）。ここだけ別に数えると、
+    // 行の高さの決まりを変えた日にオーバービューだけずれる
+    std::vector<OverviewRow> rows;
+    const int pinned = getPinnedRowIndex();
+    int y = 0;
+
+    for (int i = 0; i < project.getNumTracks(); ++i)
+    {
+        if (i == pinned)
+            continue;
+
+        const int height = getRowHeight (i);
+
+        if (height > 0)
+            rows.push_back ({ i, y, height, getTrackAreaHeight (i) });
+
+        y += height;
+    }
+
+    return rows;
+}
+
+ArrangeOverviewMap TimelineComponent::getOverviewMap (int overviewWidth, int overviewHeight, double songEndSeconds) const
+{
+    // 8.359：**曲全体を固定で**（Phase 348／本人の要望「常にArrangeの全体縮図を固定表示（FITを押した時の状態で固定）」）。
+    // 横は`zoomToFit()`と同じ長さ（曲の中身の端）、縦はスクロールする行の全部。
+    // **アレンジ画面のスクロールやズームでは変わらない**ので、縮図を描き直さない（8.352）
+    ArrangeOverviewMap map;
+    map.width = overviewWidth;
+    map.height = overviewHeight;
+    map.totalSeconds = songEndSeconds;
+    map.contentHeight = (double) getContentHeightPixels();
+    return map;
+}
+
+TimelineComponent::ScrollStateForOverview TimelineComponent::getScrollStateForOverview() const
+{
+    ScrollStateForOverview s;
+    s.visibleSeconds = getVisibleSeconds();
+    s.startSeconds = scrollStartSeconds;
+    s.totalSeconds = getScrollableLengthSeconds();
+    s.contentHeight = getContentHeightPixels();
+    s.scrollY = verticalScrollPixels;
+    s.visibleHeight = getScrollableAreaHeight();
+    return s;
+}
+
+void TimelineComponent::setViewFromOverview (double startSeconds, double scrollY)
+{
+    setScrollStartSeconds (startSeconds);
+    setVerticalScrollPixels (juce::roundToInt (scrollY));
+}
+
+void TimelineComponent::setVisibleSecondsFromOverview (double startSeconds, double visibleSeconds)
+{
+    const auto timelineArea = getTimelineArea();
+
+    if (visibleSeconds <= 0.0 || timelineArea.getWidth() <= 0)
+        return;
+
+    // `setZoom()`と同じ丸め。倍率を決めてから、その倍率での最大の開始位置で丸める
+    pixelsPerSecond = juce::jlimit (minPixelsPerSecond, maxPixelsPerSecond, timelineArea.getWidth() / visibleSeconds);
+
+    const double actualVisible = timelineArea.getWidth() / pixelsPerSecond;
+    const double maxStart = juce::jmax (0.0, getScrollableLengthSeconds() - actualVisible);
+    scrollStartSeconds = juce::jlimit (0.0, maxStart, startSeconds);
+
+    updateScrollBars();
+    repaint (getHorizontalRepaintArea());   // 8.353：ヘッダーの列は横には動かないので描き直さない
 }
 
 void TimelineComponent::scrollBarMoved (juce::ScrollBar* scrollBarThatHasMoved, double newRangeStart)
@@ -822,7 +921,7 @@ void TimelineComponent::setZoom (double newPixelsPerSecond, int anchorX)
     scrollStartSeconds = juce::jlimit (0.0, maxStart, anchorTime - anchorOffsetPixels / pixelsPerSecond);
 
     updateScrollBars();
-    repaint();
+    repaint (getHorizontalRepaintArea());   // 8.353：ヘッダーの列は横には動かないので描き直さない
 }
 
 void TimelineComponent::zoomIn()
@@ -848,7 +947,7 @@ void TimelineComponent::zoomToFit()
                                      timelineArea.getWidth() / contentSeconds);
 
     updateScrollBars();
-    repaint();
+    repaint (getHorizontalRepaintArea());   // 8.353：ヘッダーの列は横には動かないので描き直さない
 }
 
 void TimelineComponent::mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel)
@@ -1612,6 +1711,12 @@ juce::Rectangle<int> TimelineComponent::getLoopStripArea() const
     return { trackHeaderWidth, 0, juce::jmax (0, getWidth() - trackHeaderWidth), loopStripHeight };
 }
 
+juce::Rectangle<int> TimelineComponent::getPunchStripArea() const
+{
+    // 8.360：ループの帯のすぐ下（Phase 349）
+    return { trackHeaderWidth, loopStripHeight, juce::jmax (0, getWidth() - trackHeaderWidth), punchStripHeight };
+}
+
 void TimelineComponent::updateLoopDrag (const juce::MouseEvent& e)
 {
     if (loopDragMode == LoopDragMode::none)
@@ -1653,6 +1758,28 @@ void TimelineComponent::commitLoopDrag()
     if (loopDragMode == LoopDragMode::none)
         return;
 
+    // 8.360：**パンチの帯のドラッグ**（Phase 349）。ループと同じく、引いたら入れる
+    if (rangeDragIsPunch)
+    {
+        if (loopDragPreviewEnd > loopDragPreviewStart)
+        {
+            project.beginAction (utf8 ("パンチ範囲の変更"));
+            project.setPunchRange (loopDragPreviewStart, loopDragPreviewEnd, &project.getUndoManager());
+
+            if (! project.isPunchEnabled())
+                project.setPunchEnabled (true, &project.getUndoManager());
+        }
+
+        loopDragMode = LoopDragMode::none;
+        rangeDragIsPunch = false;
+
+        if (onPunchChanged != nullptr)
+            onPunchChanged();
+
+        repaint();
+        return;
+    }
+
     if (loopDragPreviewEnd > loopDragPreviewStart)
     {
         project.beginAction (utf8 ("ループ範囲の変更"));
@@ -1677,7 +1804,7 @@ void TimelineComponent::commitLoopDrag()
 
 juce::Rectangle<int> TimelineComponent::getMarkerStripArea() const
 {
-    return { trackHeaderWidth, loopStripHeight,
+    return { trackHeaderWidth, loopStripHeight + punchStripHeight,   // 8.360：パンチの帯の下
              juce::jmax (0, getWidth() - trackHeaderWidth), markerStripHeight };
 }
 
@@ -3519,9 +3646,53 @@ void TimelineComponent::commitSignatureDrag()
     repaint();
 }
 
+void TimelineComponent::drawPunchRange (juce::Graphics& g)
+{
+    // 8.360：**パンチイン／アウトの範囲**（Phase 349）。ループの帯と同じ形で、色だけ赤
+    const bool dragging = (loopDragMode != LoopDragMode::none) && rangeDragIsPunch;
+
+    const double startTime = dragging ? loopDragPreviewStart : project.getPunchStartTime();
+    const double endTime   = dragging ? loopDragPreviewEnd   : project.getPunchEndTime();
+
+    auto strip = getPunchStripArea();
+
+    // 帯の地（範囲が無くても「ここを引けば決まる」と分かるように出しておく）。ループの帯と見分けられるよう、少し赤みを
+    g.setColour (AppColours::punch().withAlpha (0.12f));
+    g.fillRect (strip);
+
+    if (endTime <= startTime)
+        return;
+
+    const int startX = timeToX (startTime);
+    const int endX = timeToX (endTime);
+
+    if (endX <= strip.getX() || startX >= strip.getRight())
+        return;
+
+    const int clippedStartX = juce::jmax (strip.getX(), startX);
+    const int clippedEndX = juce::jmin (strip.getRight(), endX);
+
+    // 切れているときは色を落とす（範囲は残したまま）
+    const bool enabled = project.isPunchEnabled() || dragging;
+    const auto colour = enabled ? AppColours::punch() : AppColours::textSecondary;
+
+    g.setColour (colour);
+    g.fillRect (clippedStartX, strip.getY(), clippedEndX - clippedStartX, strip.getHeight());
+
+    // 入っているときは、タイムライン側に**範囲の両端の線**（塗るとループの塗りと重なって読めない）
+    if (enabled)
+    {
+        g.setColour (colour.withAlpha (0.7f));
+
+        for (const int x : { startX, endX })
+            if (x >= strip.getX() && x <= strip.getRight())
+                g.fillRect (x, rulerHeight, 1, juce::jmax (0, getHeight() - rulerHeight));
+    }
+}
+
 void TimelineComponent::drawLoopRange (juce::Graphics& g)
 {
-    const bool dragging = (loopDragMode != LoopDragMode::none);
+    const bool dragging = (loopDragMode != LoopDragMode::none) && ! rangeDragIsPunch;   // 8.360：パンチの帯のドラッグは別
 
     const double startTime = dragging ? loopDragPreviewStart : project.getLoopStartTime();
     const double endTime   = dragging ? loopDragPreviewEnd   : project.getLoopEndTime();
@@ -4099,7 +4270,7 @@ void TimelineComponent::showTrackColourPalette (int rowIndex)
         {
             auto target = project.findTrackById (id);
 
-            if (target.state.getParent().isValid())
+            if (target.state.getParent().isValid() && target.hasEditableColour())   // 8.361：センドは固定
                 target.state.setProperty (IDs::trackColor, colour.toString(),
                                            &project.getUndoManager());
         }
@@ -4608,7 +4779,7 @@ void TimelineComponent::drawFolderSummaryBlock (juce::Graphics& g, int trackInde
 
         // **`getNoteBlocks()`を使うこと**（1.27）。ここで自前に数え直すと、
         // トラック行の四角とフォルダの帯で切れ目が違う、という形で食い違います
-        for (const auto& block : track.getNoteBlocks (project.getNoteBlockGapSeconds()))
+        for (const auto& block : getCachedNoteBlocks (track))
             spans.push_back ({ block.startTime, block.endTime });
     }
 
@@ -5104,6 +5275,7 @@ void TimelineComponent::mouseDown (const juce::MouseEvent& e)
         const double endTime = project.getLoopEndTime();
         const bool hasRange = (endTime > startTime);
 
+        rangeDragIsPunch = false;
         loopDragPreviewStart = startTime;
         loopDragPreviewEnd = endTime;
 
@@ -5122,6 +5294,38 @@ void TimelineComponent::mouseDown (const juce::MouseEvent& e)
 
             // **掴んだ側の端も寄せること**（Phase 54）。ここを寄せ忘れると、
             // 引いた範囲の片方だけが目盛りから外れる（8.14）
+            loopDragAnchorTime = project.snapTime (xToTime (e.x));
+            loopDragPreviewStart = loopDragAnchorTime;
+            loopDragPreviewEnd = loopDragAnchorTime;
+        }
+
+        updateLoopDrag (e);
+        return;
+    }
+
+    // 8.360：**パンチの帯**（Phase 349）。ループの帯と同じ操作（端で伸縮、ほかは引き直し）。
+    // ループの帯と同じく、シークより先に判定すること
+    if (getPunchStripArea().contains (e.getPosition()) && ! e.mods.isPopupMenu())
+    {
+        const double startTime = project.getPunchStartTime();
+        const double endTime = project.getPunchEndTime();
+        const bool hasRange = project.hasPunchRange();
+
+        rangeDragIsPunch = true;
+        loopDragPreviewStart = startTime;
+        loopDragPreviewEnd = endTime;
+
+        if (hasRange && std::abs (e.x - timeToX (startTime)) <= edgeGrabMargin)
+        {
+            loopDragMode = LoopDragMode::moveStart;
+        }
+        else if (hasRange && std::abs (e.x - timeToX (endTime)) <= edgeGrabMargin)
+        {
+            loopDragMode = LoopDragMode::moveEnd;
+        }
+        else
+        {
+            loopDragMode = LoopDragMode::create;
             loopDragAnchorTime = project.snapTime (xToTime (e.x));
             loopDragPreviewStart = loopDragAnchorTime;
             loopDragPreviewEnd = loopDragAnchorTime;
@@ -6403,6 +6607,22 @@ void TimelineComponent::mouseDoubleClick (const juce::MouseEvent& e)
 
         if (onLoopChanged != nullptr)
             onLoopChanged();
+
+        repaint();
+        return;
+    }
+
+    // 8.360：パンチの帯のダブルクリック → パンチの入切（ループの帯と同じ。Phase 349）
+    if (getPunchStripArea().contains (e.getPosition()))
+    {
+        loopDragMode = LoopDragMode::none;   // 1回目で始まった引き直しを畳む
+        rangeDragIsPunch = false;
+
+        project.beginAction (utf8 ("パンチの入切"));
+        project.setPunchEnabled (! project.isPunchEnabled(), &project.getUndoManager());
+
+        if (onPunchChanged != nullptr)
+            onPunchChanged();
 
         repaint();
         return;
@@ -8653,9 +8873,56 @@ std::vector<Track::NoteBlock> TimelineComponent::getNoteBlocksFor (int trackInde
     if (! juce::isPositiveAndBelow (trackIndex, project.getNumTracks()))
         return {};
 
-    // 塊の切れ目は**1小節ぶんの空き**。**決めるのはProjectModelの1箇所**（8.98／Phase 138）——
-    // 別々に持つと、同じ曲がアレンジとピアノロールで違う塊に見える（8.2）
-    return project.getTrack (trackIndex).getNoteBlocks (project.getNoteBlockGapSeconds());
+    // 8.353：覚えておいたものを返す（Phase 342）
+    return getCachedNoteBlocks (project.getTrack (trackIndex));
+}
+
+void TimelineComponent::invalidateModelCaches() const
+{
+    noteBlocksCache.clear();
+    cachedContentLengthSeconds = -1.0;
+    cachesBuiltForState = project.getState();
+}
+
+const std::vector<Track::NoteBlock>& TimelineComponent::getCachedNoteBlocks (const Track& track) const
+{
+    return getTrackNotesCache (track).blocks;
+}
+
+const TimelineComponent::TrackNotesCache& TimelineComponent::getTrackNotesCache (const Track& track) const
+{
+    // **木が差し替わっていたら捨てる**（通知より先に描かれることがあるので、ここでも見る）
+    if (cachesBuiltForState != project.getState())
+        invalidateModelCaches();
+
+    const auto id = track.getId();
+    auto found = noteBlocksCache.find (id);
+
+    if (found == noteBlocksCache.end())
+    {
+        TrackNotesCache cache;
+
+        // 塊の切れ目は**1小節ぶんの空き**。**決めるのはProjectModelの1箇所**（8.98／Phase 138）——
+        // 別々に持つと、同じ曲がアレンジとピアノロールで違う塊に見える（8.2）
+        cache.blocks = track.getNoteBlocks (project.getNoteBlockGapSeconds());
+
+        // ノートは秒に直して開始順に（拍 → 秒の換算は1音につき1回だけ）
+        cache.notesByStart.reserve ((size_t) track.getNumNotes());
+
+        for (int n = 0; n < track.getNumNotes(); ++n)
+        {
+            auto note = track.getNote (n);
+            const double start = note.getStartTime();
+            cache.notesByStart.push_back ({ start, start + note.getLength(), note.getPitch() });
+        }
+
+        std::sort (cache.notesByStart.begin(), cache.notesByStart.end(),
+                   [] (const NoteSpan& a, const NoteSpan& b) { return a.start < b.start; });
+
+        found = noteBlocksCache.emplace (id, std::move (cache)).first;
+    }
+
+    return found->second;
 }
 
 juce::Rectangle<int> TimelineComponent::getNoteBlockBounds (int trackIndex,
@@ -10457,15 +10724,22 @@ void TimelineComponent::drawNoteBlock (juce::Graphics& g, juce::Rectangle<int> b
     int highestPitch = 0;
     bool haveAny = false;
 
-    for (int n = 0; n < track.getNumNotes(); ++n)
-    {
-        auto note = track.getNote (n);
+    // 8.353：**その塊に入るノートだけ**を、覚えておいた並び（秒・開始順）から二分探索で取り出す（Phase 342）。
+    // 前は塊ごとに全ノートを2周し、1音ずつ拍 → 秒に直していた（塊が多い曲ほど掛け算で重い）。
+    // 塊は重なる音をまとめたものなので、塊に重なる音の開始は必ず塊の中にある
+    const auto& notes = getTrackNotesCache (track).notesByStart;
+    const auto first = std::lower_bound (notes.begin(), notes.end(), block.startTime - 1.0e-9,
+                                         [] (const NoteSpan& n, double t) { return n.start < t; });
 
-        if (note.getStartTime() >= block.endTime || note.getStartTime() + note.getLength() <= block.startTime)
+    auto inBlock = [&block] (const NoteSpan& n) { return n.start < block.endTime && n.end > block.startTime; };
+
+    for (auto it = first; it != notes.end() && it->start < block.endTime; ++it)
+    {
+        if (! inBlock (*it))
             continue;
 
-        lowestPitch = juce::jmin (lowestPitch, note.getPitch());
-        highestPitch = juce::jmax (highestPitch, note.getPitch());
+        lowestPitch = juce::jmin (lowestPitch, it->pitch);
+        highestPitch = juce::jmax (highestPitch, it->pitch);
         haveAny = true;
     }
 
@@ -10506,22 +10780,34 @@ void TimelineComponent::drawNoteBlock (juce::Graphics& g, juce::Rectangle<int> b
         // 8.61：ノートもトラックの色（Phase 99／改善案⑫）。地より濃くして読めるようにする
         g.setColour (trackColour.brighter (0.25f));
 
-        for (int n = 0; n < track.getNumNotes(); ++n)
-        {
-            auto note = track.getNote (n);
+        // 8.353：見えている範囲より右のノートは描かない（開始順なので、そこで打ち切れる）
+        const double visibleEnd = xToTime (g.getClipBounds().getRight() + 1);
 
-            if (note.getStartTime() >= block.endTime
-                 || note.getStartTime() + note.getLength() <= block.startTime)
+        // 8.353：**前に描いたものに完全に隠れるノートは描かない**（引いたズームで、1px に何十音も重なるとき）。
+        // 開始順に描くので、同じ音程の行で「これまでに塗った右端」より手前で終わるノートは見えない
+        std::array<float, 128> paintedRight;
+        paintedRight.fill (-1.0e9f);
+
+        for (auto it = first; it != notes.end() && it->start < block.endTime && it->start <= visibleEnd; ++it)
+        {
+            if (! inBlock (*it))
                 continue;
 
             // 8.91：**ノートの時刻はそのまま曲の時刻**（Phase 131）。
             // オフセットを引く必要が無くなった
-            const float x = (float) timeToX (note.getStartTime());
-            const float width = juce::jmax (2.0f, (float) (note.getLength() * pixelsPerSecond));
+            const float x = (float) timeToX (it->start);
+            const float width = juce::jmax (2.0f, (float) ((it->end - it->start) * pixelsPerSecond));
+
+            auto& right = paintedRight[(size_t) juce::jlimit (0, 127, it->pitch)];
+
+            if (x + width <= right)
+                continue;
+
+            right = juce::jmax (right, x + width);
 
             // 高い音ほど上に来るよう、下端から積み上げる
             const float y = (float) noteArea.getBottom()
-                              - (float) (note.getPitch() - lowestPitch + 1) * rowHeight;
+                              - (float) (it->pitch - lowestPitch + 1) * rowHeight;
 
             g.fillRect (x, y, width, barHeight);
         }
@@ -11691,16 +11977,20 @@ void TimelineComponent::itemDragMove (const SourceDetails& details)
     const int row = getTrackIndexForY (details.localPosition.y);
     const bool isTrackRow = juce::isPositiveAndBelow (row, project.getNumTracks());
 
+    // 8.362：**ファイルは外からのドラッグと同じ判断**（音声は Audio、MIDI は MIDI の行。範囲も出す。Phase 351）
+    if (DragAndDropIds::isFileDrag (details.description))
+    {
+        updateFileDragRow ({ DragAndDropIds::getFile (details.description).getFullPathName() },
+                           details.localPosition.x, details.localPosition.y);
+        return;
+    }
+
     int newRow = -1;
 
     if (isTrackRow)
     {
         const auto type = project.getTrack (row).getType();
-
-        if (DragAndDropIds::isFileDrag (details.description))
-            newRow = (type == TrackType::Audio) ? row : -1; // 音声ファイルはAudioトラックのみ
-        else
-            newRow = trackTypeHasAudioPath (type) ? row : -1;
+        newRow = trackTypeHasAudioPath (type) ? row : -1;
     }
 
     // 8.123：**空いている場所も落とし先**（Phase 158／改善案7）。
@@ -11731,6 +12021,7 @@ void TimelineComponent::itemDragExit (const SourceDetails&)
 {
     dragOverEmptyArea = false;
     dragOverRowIndex = -1;
+    dragPreviewFiles.clear();   // 8.362
     repaint();
 }
 
@@ -11745,6 +12036,7 @@ void TimelineComponent::itemDropped (const SourceDetails& details)
 
     dragOverRowIndex = -1;
     dragOverEmptyArea = false;
+    dragPreviewFiles.clear();   // 8.362
     repaint();
 
     if (DragAndDropIds::isPluginDrag (details.description))
@@ -11792,7 +12084,7 @@ bool TimelineComponent::isInterestedInFileDrag (const juce::StringArray& files)
     // **読める音声ファイルが1つでもあれば受けます。** 全部が音声である必要は
     // ありません——フォルダごと掴んだときに、混ざっているだけで何も置けないのは不便です
     for (const auto& path : files)
-        if (isReadableAudioFile (juce::File (path)))
+        if (isDroppableFile (juce::File (path)))   // 8.362：MIDI ファイルも
             return true;
 
     return false;
@@ -11803,23 +12095,24 @@ void TimelineComponent::fileDragEnter (const juce::StringArray& files, int x, in
     fileDragMove (files, x, y);
 }
 
-void TimelineComponent::fileDragMove (const juce::StringArray&, int, int y)
+void TimelineComponent::fileDragMove (const juce::StringArray& files, int x, int y)
 {
     // **中からのドラッグと同じ判断を通します**（`updateFileDragRow()`）。
     // 2つ書くと、片方だけ「音声以外の行にも置ける」といった食い違いになります
-    updateFileDragRow (y);
+    updateFileDragRow (files, x, y);
 }
 
 void TimelineComponent::fileDragExit (const juce::StringArray&)
 {
     dragOverEmptyArea = false;
     dragOverRowIndex = -1;
+    dragPreviewFiles.clear();   // 8.362
     repaint();
 }
 
 void TimelineComponent::filesDropped (const juce::StringArray& files, int x, int y)
 {
-    updateFileDragRow (y);
+    updateFileDragRow (files, x, y);
 
     const int row = dragOverRowIndex;
     const bool hasValidRow = juce::isPositiveAndBelow (row, project.getNumTracks());
@@ -11829,6 +12122,7 @@ void TimelineComponent::filesDropped (const juce::StringArray& files, int x, int
 
     dragOverRowIndex = -1;
     dragOverEmptyArea = false;
+    dragPreviewFiles.clear();   // 8.362
     repaint();
 
     if (onFilesDropped == nullptr)
@@ -11836,10 +12130,11 @@ void TimelineComponent::filesDropped (const juce::StringArray& files, int x, int
 
     // **音声として読めないものは、ここで落とす。** 受け手まで持っていくと、
     // 「読めませんでした」が置けなかったファイルの数だけ出ます
+    // 8.362：MIDI ファイルも通す（振り分けは受け手。Phase 351）
     juce::StringArray audioFiles;
 
     for (const auto& path : files)
-        if (isReadableAudioFile (juce::File (path)))
+        if (isDroppableFile (juce::File (path)))
             audioFiles.add (path);
 
     if (audioFiles.isEmpty())
@@ -11863,25 +12158,167 @@ bool TimelineComponent::isReadableAudioFile (const juce::File& file) const
              != nullptr;
 }
 
-void TimelineComponent::updateFileDragRow (int y)
+void TimelineComponent::updateFileDragRow (const juce::StringArray& files, int x, int y)
 {
     const int row = getTrackIndexForY (y);
     const bool isTrackRow = juce::isPositiveAndBelow (row, project.getNumTracks());
 
-    // 音声ファイルはAudioトラックにだけ置けます（`itemDragMove()`と同じ判断）
-    const int newRow = (isTrackRow && project.getTrack (row).getType() == TrackType::Audio)
-                           ? row : -1;
+    // 8.362：**音声は Audio の行、MIDI は MIDI の行**（Phase 351）。混ざっているときは行には置かない（空白だけ）
+    bool anyAudio = false, anyMidi = false;
+
+    for (const auto& path : files)
+    {
+        const juce::File file (path);
+
+        if (MidiFileImport::isMidiFile (file))
+            anyMidi = true;
+        else if (isReadableAudioFile (file))
+            anyAudio = true;
+    }
+
+    int newRow = -1;
+
+    if (isTrackRow && anyAudio != anyMidi)
+    {
+        const auto type = project.getTrack (row).getType();
+        newRow = ((anyAudio && type == TrackType::Audio) || (anyMidi && type == TrackType::Midi)) ? row : -1;
+    }
 
     // 8.232：**空白も落とし先**（Phase 250）。中からのドラッグと同じ判断にすること——
     // **外から持ってきたときだけ枠が出ない**のでは、覚えることが2つになります
     const bool overEmpty = ! isTrackRow && y >= rulerHeight;
 
-    if (newRow == dragOverRowIndex && overEmpty == dragOverEmptyArea)
+    // 8.362：範囲の表示のために、持っているものと横位置を覚える
+    juce::StringArray droppable;
+
+    for (const auto& path : files)
+        if (isDroppableFile (juce::File (path)))
+            droppable.add (path);
+
+    const bool previewChanged = droppable != dragPreviewFiles || x != dragPreviewX;
+    dragPreviewFiles = droppable;
+    dragPreviewX = x;
+
+    if (newRow == dragOverRowIndex && overEmpty == dragOverEmptyArea && ! previewChanged)
         return;
 
     dragOverRowIndex = newRow;
     dragOverEmptyArea = overEmpty;
     repaint();
+}
+
+bool TimelineComponent::isDroppableFile (const juce::File& file) const
+{
+    return file.existsAsFile() && (MidiFileImport::isMidiFile (file) || isReadableAudioFile (file));
+}
+
+TimelineComponent::DropLength TimelineComponent::getDropLength (const juce::File& file) const
+{
+    // **ファイルごとに一度だけ**開いて覚える（ドラッグ中はマウスを動かすたびに描き直す）
+    const auto key = file.getFullPathName();
+
+    if (const auto it = dropLengthCache.find (key); it != dropLengthCache.end())
+        return it->second;
+
+    DropLength length;
+
+    if (MidiFileImport::isMidiFile (file))
+    {
+        length.isMidi = true;
+        length.length = MidiFileImport::read (file).lengthBeats;
+    }
+    else if (auto reader = std::unique_ptr<juce::AudioFormatReader> (waveformCache.getFormatManager().createReaderFor (file)))
+    {
+        if (reader->sampleRate > 0.0)
+            length.length = (double) reader->lengthInSamples / reader->sampleRate;
+    }
+
+    dropLengthCache[key] = length;
+    return length;
+}
+
+std::vector<TimelineComponent::DropPreview> TimelineComponent::getDropPreview() const
+{
+    std::vector<DropPreview> preview;
+
+    const bool onRow = juce::isPositiveAndBelow (dragOverRowIndex, project.getNumTracks());
+
+    if (dragPreviewFiles.isEmpty() || (! onRow && ! dragOverEmptyArea))
+        return preview;
+
+    // 置く位置は、落としたときと同じ決め方（スナップに従う）
+    const double startTime = project.snapTime (xToTime (dragPreviewX));
+
+    const auto secondsFor = [this] (const DropLength& length, double at)
+    {
+        if (! length.isMidi)
+            return length.length;
+
+        // MIDI は拍で持っている。落とした位置の拍から数えて秒へ（テンポが途中で変わっても合う）
+        const double startBeats = project.getBeatPositionAt (at);
+        return project.getTimeForBeatPosition (startBeats + length.length) - at;
+    };
+
+    if (onRow)
+    {
+        // 行の上：その行に**時間方向へ順に**並ぶ（`ArrangeView::importAudioFiles()`と同じ）
+        const int y = getTrackRowY (dragOverRowIndex);
+        const int h = getTrackAreaHeight (dragOverRowIndex);
+        double t = startTime;
+
+        for (const auto& path : dragPreviewFiles)
+        {
+            const juce::File file (path);
+            const double length = juce::jmax (0.05, secondsFor (getDropLength (file), t));
+            const int x1 = timeToX (t);
+            const int x2 = juce::jmax (x1 + 4, timeToX (t + length));
+            preview.push_back ({ { x1, y + 2, x2 - x1, juce::jmax (4, h - 4) }, file.getFileName() });
+            t += length;
+        }
+
+        return preview;
+    }
+
+    // 空白：**1ファイル＝1本の新しい行**。新しい行はセンドの手前に入る（8.361）ので、その位置から描く
+    int y = rulerHeight;
+
+    for (int i = 0; i < project.getNumTracks(); ++i)
+        if (project.getTrack (i).getType() != TrackType::Send)
+            y = getTrackRowY (i) + getRowHeight (i);
+
+    for (int i = 0; i < dragPreviewFiles.size(); ++i)
+    {
+        const juce::File file (dragPreviewFiles[i]);
+        const double length = juce::jmax (0.05, secondsFor (getDropLength (file), startTime));
+        const int x1 = timeToX (startTime);
+        const int x2 = juce::jmax (x1 + 4, timeToX (startTime + length));
+        preview.push_back ({ { x1, y + i * trackRowHeight + 2, x2 - x1, trackRowHeight - 4 }, file.getFileName() });
+    }
+
+    return preview;
+}
+
+void TimelineComponent::drawDropPreview (juce::Graphics& g)
+{
+    // 8.362：**落としたら入る範囲**（Phase 351）。クリップと同じ形の枠に、ファイル名
+    const auto preview = getDropPreview();
+
+    if (preview.empty())
+        return;
+
+    juce::Graphics::ScopedSaveState save (g);
+    g.reduceClipRegion (getTimelineArea().withTop (rulerHeight));
+    g.setFont (juce::FontOptions (11.0f));
+
+    for (const auto& item : preview)
+    {
+        g.setColour (AppColours::purple.withAlpha (0.30f));
+        g.fillRect (item.bounds);
+        g.setColour (AppColours::purple);
+        g.drawRect (item.bounds, 2);
+        g.setColour (AppColours::textPrimary);
+        g.drawText (item.name, item.bounds.reduced (6, 2), juce::Justification::topLeft, true);
+    }
 }
 
 void TimelineComponent::seekToX (int x)
@@ -11913,6 +12350,10 @@ void TimelineComponent::paint (juce::Graphics& g)
     // **行より先に描く**：ヘッダーの下や、行の境目の線より奥に沈ませる
     drawTimelineGrid (g);
 
+    // 8.353：**描き直す範囲がヘッダーの列に掛かっていなければ、ヘッダーは描かない**（Phase 342）。
+    // 横スクロールとズームはヘッダーの列を除いて描き直す（`getHorizontalRepaintArea()`）
+    const bool paintsHeaders = g.getClipBounds().getX() < trackHeaderWidth;
+
     for (int t = 0; t < project.getNumTracks(); ++t)
     {
         auto track = project.getTrack (t);
@@ -11932,8 +12373,9 @@ void TimelineComponent::paint (juce::Graphics& g)
             continue;
 
         // 8.56：この行にぶら下がっているレーンのヘッダー（Phase 94／D3）
-        for (int i = 0, n = getNumAutomationRows (t); i < n; ++i)
-            drawAutomationRowHeader (g, { t, i });
+        if (paintsHeaders)
+            for (int i = 0, n = getNumAutomationRows (t); i < n; ++i)
+                drawAutomationRowHeader (g, { t, i });
 
         // 仕様書5.2.2：センドトラックは行の地を少し変えて見分けやすくする
         // （Phase 62／8.1のC6）。**まずタイムライン側**に重ねる。
@@ -12009,10 +12451,13 @@ void TimelineComponent::paint (juce::Graphics& g)
         // 色はデータ層がARGBのhex文字列で持っている（ProjectModel.cppのTrack::create参照）
         auto colourBand = headerBounds.removeFromLeft (headerColourBandWidth).reduced (0, 2);
 
-        g.setColour (trackColour);
-        g.fillRect (colourBand);
+        if (paintsHeaders)
+        {
+            g.setColour (trackColour);
+            g.fillRect (colourBand);
 
-        drawTrackHeaderContents (g, t, track);
+            drawTrackHeaderContents (g, t, track);
+        }
 
         g.setColour (AppColours::border);
         g.drawRect (rowBounds);
@@ -12376,10 +12821,12 @@ void TimelineComponent::paint (juce::Graphics& g)
     // **最後の行の下に1行ぶんの枠**を描いて、そこへ増えることを示す
     if (dragOverEmptyArea)
     {
-        const int y = (project.getNumTracks() > 0)
-                         ? getTrackRowY (project.getNumTracks() - 1)
-                             + getRowHeight (project.getNumTracks() - 1)
-                         : rulerHeight;
+        // 8.361：新しい行は**センドの手前**に入る（センドは一番下にまとめる）ので、そこに描く
+        int y = rulerHeight;
+
+        for (int i = 0; i < project.getNumTracks(); ++i)
+            if (project.getTrack (i).getType() != TrackType::Send)
+                y = getTrackRowY (i) + getRowHeight (i);
 
         auto newRowBounds = juce::Rectangle<int> (0, y, getWidth() - scrollBarThickness, trackRowHeight);
 
@@ -12391,10 +12838,13 @@ void TimelineComponent::paint (juce::Graphics& g)
         // 8.232：**音声ファイルも作るようになりました**（Phase 250）。
         // 文をそのままにすると、**ファイルを持っているときに嘘を言います**
         g.setFont (juce::FontOptions (12.0f));
-        g.drawText (utf8 ("音源か音声ファイルなら、トラックごと作ります"),
+        g.drawText (utf8 ("音源・音声・MIDI ファイルなら、トラックごと作ります"),   // 8.362：MIDI も
                      newRowBounds.reduced (10, 0),
                      juce::Justification::centredLeft, false);
     }
+
+    // 8.362：**落としたら入る範囲**（Phase 351／本人の要望）
+    drawDropPreview (g);
 
     // Phase 36：トラックの並べ替え中の予告。
     // 掴んでいる行を薄く伏せ、**入る位置に線を引く**。
@@ -12448,6 +12898,9 @@ void TimelineComponent::paint (juce::Graphics& g)
 
     // 仕様書5.9：ループ範囲（Phase 48）。ルーラーの上に重ねる
     drawLoopRange (g);
+
+    // 8.360：パンチの範囲（Phase 349）。ループの帯の下
+    drawPunchRange (g);
 
     // 仕様書5.9：マーカー（Phase 49）。ループの帯の下に並べる
     drawMarkers (g);

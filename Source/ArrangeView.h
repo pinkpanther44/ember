@@ -10,6 +10,9 @@
 #include "IconAssets.h"          // 8.133：ツールの絵（Phase 169）
 #include "MidiRecording.h"       // 8.146：録れたMIDIの入れ物（Phase 184）
 #include "StatusStrip.h"         // 8.195：出るときだけ出る帯（Phase 232）
+#include "ArrangeOverview.h"     // 8.350：曲全体の縮図（Phase 339）
+
+#include <optional>
 
 class AudioEngine;
 
@@ -63,8 +66,12 @@ public:
 
     /** 仕様書5.4：録音が終わったファイルをステータス欄に表示する。
         録音待機中（アーム）のオーディオトラック、無ければ最初のオーディオトラックへ
-        クリップとして自動配置する。 */
-    void showRecordingResult (const juce::File& recordedFile, double startTimeSeconds);
+        クリップとして自動配置する。
+
+        8.360：`punchRange`（パンチの範囲。曲の秒）を渡すと、**録れた範囲との重なりだけ**をクリップにし、
+        そこにあった古いクリップを差し替える（`PunchRecording`。Phase 349）。重ならなければ何も置かず、ファイルも消す。 */
+    void showRecordingResult (const juce::File& recordedFile, double startTimeSeconds,
+                              std::optional<juce::Range<double>> punchRange = std::nullopt);
 
     /** 8.146：録れたMIDIをノートにして入れ、**画面に出す文面を返す**
         （Phase 184／改善案⑬a。仕様書5.4）。
@@ -75,6 +82,9 @@ public:
 
         `stopSeconds`は録音を止めた曲の時刻（押しっぱなしの鍵をここで切ります）。
 
+        8.360：`punchRange`を渡すと、録れた範囲（`recordStartSeconds`〜`stopSeconds`）との重なりの中だけを入れ、
+        そこにあった古いノート（と、録り直した番号の CC）を差し替える（Phase 349）。
+
         ### なぜ自分で出さずに返すのか
 
         入れたノートは画面を作り直さないと出ません（`refreshAllViews()`）。
@@ -82,7 +92,9 @@ public:
         ここで出しても消えます——**実際に、録れているのに何も出ませんでした**。
         **出すのは作り直したあと**なので、文面だけ返して呼ぶ側に任せます。 */
     juce::String applyMidiRecordingResult (const std::vector<RecordedMidiTake>& takes,
-                                            double sampleRate, double stopSeconds);
+                                            double sampleRate, double stopSeconds,
+                                            std::optional<juce::Range<double>> punchRange = std::nullopt,
+                                            double recordStartSeconds = 0.0);
 
     /** 設計書4.2：MIDIクリップがダブルクリックされたときに呼ばれる（Phase 15）。
         MainComponentがこれを受けてエディタパネルを開く。 */
@@ -111,6 +123,11 @@ public:
         1つ前の終わりが次の頭になります。1つだけのときも、ここを通って構いません。 */
     void importAudioFiles (const juce::StringArray& paths, const juce::String& trackId = {},
                             double startTimeSeconds = 0.0);
+
+    /** 8.362：**MIDI ファイルを置く**（Phase 351／本人の要望）。行の上なら そのトラック（MIDI）へ時間方向に順に、
+        `intoNewTrack`なら 1ファイル＝1本の新しい MIDI トラック。どちらでもなければ最初の MIDI トラック（無ければ作る）。 */
+    void importMidiFiles (const juce::StringArray& paths, const juce::String& trackId,
+                          double startTimeSeconds, bool intoNewTrack);
 
     /** 音声ファイルの長さ（秒）。**読めなければ0**。 */
     double getAudioFileLengthSeconds (const juce::File& file);
@@ -241,6 +258,12 @@ public:
     /** 仕様書5.9：ルーラーの帯でループ範囲が変わったときに呼ばれる（Phase 48）。 */
     std::function<void()> onLoopChanged;
 
+    /** 8.360：ルーラーの赤い帯でパンチの範囲・入切が変わったときに呼ばれる（Phase 349）。 */
+    std::function<void()> onPunchChanged;
+
+    /** 8.360：タイムラインとオーバービューを描き直す（パンチをボタンで入れたときなど）。 */
+    void repaintTimeline() { timeline.repaint(); overview.invalidateContent(); }
+
     /** 仕様書5.9：ルーラーのメニューからマーカーを頼まれたときに呼ばれる（Phase 50）。 */
     std::function<void (double timeSeconds, bool askForName)> onInsertMarkerRequested;
 
@@ -353,6 +376,7 @@ private:
         値はpx。**上下限の丸めは`TimelineComponent::setTrackHeaderWidth()`が持っている**ので、
         ここでは読んだ値をそのまま渡す（同じ判断を2箇所に書かない）。 */
     const juce::String trackHeaderWidthKey { "arrangeTrackHeaderWidth" };
+    const juce::String overviewVisibleKey { "arrangeOverviewVisible" };   // 8.350（Phase 339）
 
     ProjectModel& project;
 
@@ -409,6 +433,21 @@ private:
     juce::Label inputStateLabel;
 
     TimelineComponent timeline { project, waveformCache, selection };
+
+    /** 8.350：**オーバービュー**（曲全体の縮図。Phase 339／本人の要望）。アレンジ画面の上端、
+        ルーラーの上。**`timeline`より後に宣言すること**（タイムラインを参照して作る）。 */
+    ArrangeOverview overview { project, timeline };
+
+    /** 8.350：オーバービューを出し入れするボタン（自動スクロールの左隣）。状態は`AppSettings`が覚える。 */
+    IconAssets::SvgButton overviewButton;
+    void setOverviewVisible (bool shouldBeVisible);
+    void updateOverviewButton();
+
+public:
+    /** 試験用。 */
+    ArrangeOverview& getOverviewForTesting() noexcept { return overview; }
+
+private:
     /** 8.195：知らせは出るときだけ（Phase 232／改善案5の2）。
         **常設だった一覧と説明文は廃止しました**——トラックヘッダーと重複していたためです */
     StatusStrip statusStrip;

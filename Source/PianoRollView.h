@@ -311,6 +311,7 @@ private:
     IconAssets::SvgButton pencilToolButton;
     IconAssets::SvgButton cutToolButton;
     IconAssets::SvgButton eraserToolButton;   // Phase 83（C11）
+    IconAssets::SvgButton bendToolButton;     // 8.365：ノートのピッチベンド（Phase 353）。ピアノロールだけの入切
 
     /** ツールボタンの見た目を、いまのツールに合わせる。 */
     void updateToolButtons();

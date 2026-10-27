@@ -29,6 +29,16 @@
     | `plugin_bypass.svg` | バイパスボタン.svg（Phase 210） |
     | `plugin_pin.svg` | 画面固定ボタン.svg（Phase 210） |
     | `auto_scroll.svg` | 自動スクロール.svg（Phase 275／8.278） |
+    | `overview.svg` | （こちらで作った仮の絵。Phase 339／8.350） |
+    | `transport_punch.svg` | （こちらで作った絵。パンチイン／アウト。Phase 349／8.360） |
+
+    8.358（Phase 347）：**ツール4つ・ループ・メトロノーム・追従は、オーバービューと同じ雰囲気で作り直した**
+    （本人の要望）。太い線（1500 の格子で 100、SVG の`stroke`）・角ばった形・黒1色。
+    **もらった元の絵は`Resources/Icons/previous/`に残してある**（埋め込んではいない）。戻すときはそこから写す。
+    見比べは`Docs/Icons/icon_compare.html`、アプリでの描かれ方は`--header-selftest`の`icons_selftest.png`。
+
+    8.363（Phase 352）：**2組目**——オーディオ・MIDI・センド・VCA・オートメーション・フォルダ・ファイル・バイパス・ピンも同じ雰囲気で作り直した。
+    フォルダは紫（`#8c52ff`）、ファイルはオレンジ（`#ff914d`）で描いてある（ブラウザがその色をアクセントへ塗り替えるため）。元の絵は同じく`previous/`。
 
     ### 色は塗り替える
 

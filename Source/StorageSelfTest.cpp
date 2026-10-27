@@ -8,6 +8,7 @@
 #include "ExportOptions.h"   // 8.319：書き出したファイルの中身（Phase 312）
 #include "CrashLog.h"        // 8.320：起動時に知らせる記録（Phase 312）
 #include "AppMessageBox.h"   // 8.322：ボタンの番号の戻し方（Phase 312）
+#include "PunchRecording.h"  // 8.360：パンチイン／アウト（Phase 349）
 
 #include <juce_events/juce_events.h>
 
@@ -810,6 +811,481 @@ namespace StorageSelfTest
             check (allRight, "every button of a 1 to 4 button box comes back as the one pressed");
             check (AppMessageBox::toPressedIndex (1, 2) == 0 && AppMessageBox::toPressedIndex (0, 2) == 1,
                    "...in a two button box, the first is 0 and the second is 1 (as before)");
+        }
+
+        //----------------------------------------------------------------------
+        // 8.360：**パンチイン／アウト**（Phase 349／本人の要望「録音のパンチイン／アウトって実装できるかな？」）。
+        // 本人と決めたこと：ループとは別の専用の範囲（ルーラーの赤い帯）／範囲の中の古い音とノートは差し替える／オーディオと MIDI の両方。
+        // 録音は今までどおり回し続け、止めたあとで**録れた範囲とパンチ範囲の重なりだけ**を残す（`PunchRecording`）。
+        // ここでは画面を通さず、**画面が呼ぶのと同じ関数**（`replaceAudio()`・`replaceMidi()`）を数える
+        say ("--- punch in / out recording (8.360)");
+        {
+            // 範囲：拍で持つ。向きは揃える。長さ0は無視。テンポを変えても小節の位置のまま。Undo で戻る
+            {
+                ProjectModel project;
+                project.createNewProject();
+                project.setTempo (120.0, nullptr);
+
+                project.setPunchRange (10.0, 4.0, nullptr);   // 逆向き
+                const bool swapped = std::abs (project.getPunchStartTime() - 4.0) < 1e-6 && std::abs (project.getPunchEndTime() - 10.0) < 1e-6
+                                       && std::abs (project.getPunchStartBeats() - 8.0) < 1e-6;
+
+                project.setPunchRange (6.0, 6.0, nullptr);    // 長さ0 → そのまま
+                const bool zeroIgnored = std::abs (project.getPunchStartTime() - 4.0) < 1e-6;
+
+                project.setTempo (60.0, nullptr);             // 拍で持つので、時刻は倍になる
+                const bool followsTempo = std::abs (project.getPunchStartTime() - 8.0) < 1e-6 && std::abs (project.getPunchEndTime() - 20.0) < 1e-6;
+
+                project.beginAction ("punch");
+                project.setPunchEnabled (true, &project.getUndoManager());
+                project.getUndoManager().undo();
+
+                check (swapped && zeroIgnored && followsTempo && ! project.isPunchEnabled() && project.hasPunchRange(),
+                       "the punch range is kept in beats (4-10 s at 120 BPM is beats 8-20; at 60 BPM it becomes 8-20 s), a backwards range "
+                       "is turned round, a zero-length one is ignored, and turning punch on can be undone");
+
+                check (project.getState().hasProperty ("punchStartBeats") && project.getState().hasProperty ("punchEndBeats"),
+                       "the punch range is saved with the project");
+            }
+
+            // 重なり：録れた範囲とパンチ範囲
+            {
+                const auto a = PunchRecording::effectiveRange (2.0, 14.0, 5.0, 10.0);
+                const auto b = PunchRecording::effectiveRange (7.0, 14.0, 5.0, 10.0);
+                const auto c = PunchRecording::effectiveRange (11.0, 14.0, 5.0, 10.0);
+
+                check (a == juce::Range<double> (5.0, 10.0) && b == juce::Range<double> (7.0, 10.0) && c.isEmpty(),
+                       "what is kept is where the recording and the punch range overlap: recorded 2-14 s keeps 5-10 s; started at 7 s keeps 7-10 s; "
+                       "started after the range keeps nothing");
+            }
+
+            // オーディオ：古いクリップ 0〜20 秒の上に、2〜14 秒を録ってパンチ 5〜10 秒
+            {
+                ProjectModel project;
+                project.createNewProject();
+                auto track = project.addTrack ("Vocal", TrackType::Audio);
+                track.addAudioClip ("C:/old.wav", 0.0, 20.0, nullptr);
+                track.addAudioClip ("C:/inside.wav", 6.0, 2.0, nullptr);   // 範囲の中にすっぽり
+                track.addAudioClip ("C:/end.wav", 8.0, 4.0, nullptr);      // 範囲の終わりをまたぐ
+
+                const auto keep = PunchRecording::effectiveRange (2.0, 14.0, 5.0, 10.0);
+                project.beginAction ("punch audio");
+                const int replaced = PunchRecording::replaceAudio (track, "C:/take.wav", 2.0, 12.0, keep, &project.getUndoManager());
+
+                struct Seen { juce::String file; double start, length, offset; };
+                std::vector<Seen> clips;
+
+                for (int i = 0; i < track.getNumClips(); ++i)
+                {
+                    auto clip = track.getClip (i);
+                    clips.push_back ({ clip.getSourceFilePath(), clip.getStartTime(), clip.getLength(), clip.getOffset() });
+                }
+
+                std::sort (clips.begin(), clips.end(), [] (const Seen& x, const Seen& y)
+                           { return x.start != y.start ? x.start < y.start : x.file < y.file; });
+
+                auto has = [&] (const juce::String& file, double start, double length, double offset)
+                {
+                    for (const auto& c : clips)
+                        if (c.file == file && std::abs (c.start - start) < 1e-6 && std::abs (c.length - length) < 1e-6
+                            && std::abs (c.offset - offset) < 1e-6)
+                            return true;
+
+                    return false;
+                };
+
+                juce::String listing;
+
+                for (const auto& c : clips)
+                    listing << c.file.fromLastOccurrenceOf ("/", false, false) << " " << juce::String (c.start, 2) << "+"
+                            << juce::String (c.length, 2) << "@" << juce::String (c.offset, 2) << "  ";
+
+                check (clips.size() == 4 && has ("C:/old.wav", 0.0, 5.0, 0.0) && has ("C:/old.wav", 10.0, 10.0, 10.0)
+                         && has ("C:/end.wav", 10.0, 2.0, 2.0) && has ("C:/take.wav", 5.0, 5.0, 3.0) && ! has ("C:/inside.wav", 6.0, 2.0, 0.0),
+                       "punching 5-10 s into a 2-14 s recording leaves the old clip before and after (0-5, 10-20), trims the one crossing the end "
+                       "to 10-12, removes the one inside, and places the take at 5-10 s showing its 3-8 s  (" + listing + ")");
+
+                check (replaced == 3,
+                       "...three old pieces inside the range were replaced (" + juce::String (replaced) + ")");
+
+                project.getUndoManager().undo();
+                check (track.getNumClips() == 3,
+                       "one Undo brings the old clips back (" + juce::String (track.getNumClips()) + " clips)");
+            }
+
+            // 範囲の途中から録り始めたら、その手前の古い音は残す
+            {
+                ProjectModel project;
+                project.createNewProject();
+                auto track = project.addTrack ("Vocal", TrackType::Audio);
+                track.addAudioClip ("C:/old.wav", 0.0, 20.0, nullptr);
+
+                const auto keep = PunchRecording::effectiveRange (7.0, 14.0, 5.0, 10.0);
+                PunchRecording::replaceAudio (track, "C:/take.wav", 7.0, 7.0, keep, nullptr);
+
+                double oldUntil = 0.0;
+
+                for (int i = 0; i < track.getNumClips(); ++i)
+                    if (track.getClip (i).getSourceFilePath() == "C:/old.wav" && track.getClip (i).getStartTime() < 1.0)
+                        oldUntil = track.getClip (i).getStartTime() + track.getClip (i).getLength();
+
+                check (std::abs (oldUntil - 7.0) < 1e-6,
+                       "recording that starts at 7 s inside a 5-10 s range keeps the old audio up to 7 s (" + juce::String (oldUntil, 2) + " s)");
+            }
+
+            // MIDI：古いノートの上に、3〜12 秒を録ってパンチ 5〜10 秒
+            {
+                ProjectModel project;
+                project.createNewProject();
+                auto track = project.addTrack ("Keys", TrackType::Midi);
+
+                track.addNote (60, 100, 4.0, 2.0, nullptr);    // 手前から範囲へ → 5 秒で切る
+                track.addNote (62, 100, 6.0, 1.0, nullptr);    // 範囲の中 → 消す
+                track.addNote (64, 100, 9.0, 0.5, nullptr);    // 範囲の中 → 消す
+                track.addNote (65, 100, 11.0, 1.0, nullptr);   // 範囲の後ろ → 残す
+                track.addCCEvent (1, 20, 8.0, nullptr);        // 録り直した番号（モジュレーション）→ 消す
+                track.addCCEvent (7, 90, 8.0, nullptr);        // 録っていない番号（ボリューム）→ 残す
+
+                const double sr = 48000.0;
+                auto at = [sr] (double seconds) { return (juce::int64) std::llround (seconds * sr); };
+
+                RecordedMidiTake take;
+                take.trackId = track.getId();
+                take.events = {
+                    { 0xb0, 1, 30, at (4.0) },            // 範囲の手前の CC → 入れない
+                    { 0x90, 67, 100, at (4.5) },          // 範囲の手前で押した → 入れない
+                    { 0x80, 67, 0, at (5.5) },
+                    { 0x90, 69, 100, at (6.5) },          // 範囲の中 → 入れる
+                    { 0x80, 69, 0, at (7.0) },
+                    { 0xb0, 1, 64, at (7.0) },            // 範囲の中の CC → 入れる
+                    { 0x90, 71, 100, at (9.5) },          // 範囲の中で押して、終わりをまたぐ → 10 秒で切る
+                    { 0x80, 71, 0, at (11.0) },
+                    { 0xb0, 1, 90, at (11.0) },           // 範囲の後ろの CC → 入れない
+                };
+
+                const auto keep = PunchRecording::effectiveRange (3.0, 12.0, 5.0, 10.0);
+                const auto result = PunchRecording::replaceMidi (project, take, sr, 12.0, keep, nullptr);
+
+                juce::String listing;
+                std::map<int, std::pair<double, double>> notes;
+
+                for (int i = 0; i < track.getNumNotes(); ++i)
+                {
+                    const auto note = track.getNote (i);
+                    notes[note.getPitch()] = { note.getStartTime(), note.getLength() };
+                    listing << note.getPitch() << " " << juce::String (note.getStartTime(), 2) << "+" << juce::String (note.getLength(), 2) << "  ";
+                }
+
+                auto noteIs = [&] (int pitch, double start, double length)
+                {
+                    const auto it = notes.find (pitch);
+                    return it != notes.end() && std::abs (it->second.first - start) < 1e-3 && std::abs (it->second.second - length) < 1e-3;
+                };
+
+                check (notes.size() == 4 && noteIs (60, 4.0, 1.0) && noteIs (65, 11.0, 1.0) && noteIs (69, 6.5, 0.5) && noteIs (71, 9.5, 0.5)
+                         && notes.count (62) == 0 && notes.count (64) == 0 && notes.count (67) == 0,
+                       "punching MIDI 5-10 s: the note running into the range is cut at 5 s, the two inside are replaced, the one after stays; "
+                       "only what was pressed inside the range goes in, cut at 10 s  (" + listing + ")");
+
+                int mod = 0, volume = 0, modValue = -1;
+
+                for (int i = 0; i < track.getNumCCEvents(); ++i)
+                {
+                    const auto cc = track.getCCEvent (i);
+
+                    if (cc.getControllerNumber() == 1) { ++mod; modValue = cc.getValue(); }
+                    if (cc.getControllerNumber() == 7) ++volume;
+                }
+
+                check (mod == 1 && modValue == 64 && volume == 1 && result.replacedNotes == 2,
+                       "...the modulation recorded inside the range replaces the old one there, the volume that was not played stays "
+                       "(mod " + juce::String (mod) + " = " + juce::String (modValue) + ", volume " + juce::String (volume)
+                       + "), 2 old notes replaced (" + juce::String (result.replacedNotes) + ")");
+
+                // 範囲の後ろから録り始めたら、何も入れない（空の範囲で全部入ってしまわない）
+                const int before = track.getNumNotes();
+                const auto none = PunchRecording::replaceMidi (project, take, sr, 14.0, PunchRecording::effectiveRange (11.0, 14.0, 5.0, 10.0), nullptr);
+                check (none.summary.numNotes == 0 && track.getNumNotes() == before,
+                       "recording that starts after the range puts nothing in (" + juce::String (track.getNumNotes() - before) + " notes added)");
+            }
+        }
+
+        //----------------------------------------------------------------------
+        // 8.361：**センドトラックは色を固定（グレー）、並びは一番下**（Phase 350／本人の要望）。
+        // > 「センドトラックのトラック色は固定に（他トラックと分かりやすくするため）。グレーで試す」
+        // > 「センドトラックはMIDIトラックやオーディオトラック、フォルダトラックの下に並べて配置。
+        // >  Consoleでは、マスターの左、その他トラックの右側に」（Console はトラックの並びのまま並ぶ）
+        say ("--- send tracks: fixed grey, always at the bottom (8.361)");
+        {
+            ProjectModel project;
+            project.createNewProject();
+
+            auto names = [&]
+            {
+                juce::StringArray list;
+
+                for (int i = 0; i < project.getNumTracks(); ++i)
+                    list.add (project.getTrack (i).getName());
+
+                return list.joinIntoString (",");
+            };
+
+            auto a = project.addTrack ("A", TrackType::Midi);
+            auto s1 = project.addTrack ("S1", TrackType::Send);
+            project.addTrack ("B", TrackType::Audio, a.getId());   // A の真下へ（センドより上）
+            project.addTrack ("S2", TrackType::Send, a.getId());   // A を選んでいても、センドは一番下
+            project.addTrack ("C", TrackType::Midi);               // 末尾へ足しても、センドの手前
+
+            const auto base = names();
+            check (base.endsWith ("A,B,C,S1,S2"),
+                   "new tracks go above the sends and new sends go to the bottom (" + base + ")");
+
+            s1.state.setProperty (IDs::trackColor, "FFFF0000", nullptr);   // 保存されている色が何でも
+            check (s1.getColourString() == Track::sendTrackColour && ! s1.hasEditableColour() && a.hasEditableColour(),
+                   "a send track's colour is the fixed grey whatever is stored, and it cannot be changed (" + s1.getColourString() + ")");
+
+            // 並べ替え：センドを一番上へ引いても、センドの中にとどまる。ほかを一番下へ引いても、センドの手前まで
+            const int numTracks = project.getNumTracks();
+            project.moveTrack (numTracks - 1, 0);            // S2 を一番上へ
+            const auto afterSendUp = names();
+            project.moveTrack (numTracks - 5, numTracks - 1); // A を一番下へ
+            const auto afterTrackDown = names();
+
+            check (afterSendUp.endsWith ("A,B,C,S2,S1") && afterTrackDown.endsWith ("B,C,A,S2,S1"),
+                   "dragging a send to the top keeps it among the sends (" + afterSendUp + "); dragging a track to the bottom stops above the sends ("
+                     + afterTrackDown + ")");
+
+            auto folder = project.addTrack ("F", TrackType::Folder);
+            check (! project.canMoveTrackIntoFolder (s1, folder.getId()),
+                   "a send cannot be put into a folder");
+
+            // 前の版のプロジェクト（センドが途中・フォルダの中）を開くと、一番下へ揃う
+            auto tracksNode = project.getState().getChildWithName (IDs::TRACKS);
+            tracksNode.moveChild (tracksNode.indexOf (s1.state), 0, nullptr);
+            Track (s1.state).setParentFolderId (folder.getId(), nullptr);
+
+            const auto file = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("send_order_selftest.mdaw");
+            project.writeCopyToFile (file);
+
+            ProjectModel reopened;
+            reopened.loadFromFile (file);
+            file.deleteFile();
+
+            juce::StringArray reopenedNames;
+
+            for (int i = 0; i < reopened.getNumTracks(); ++i)
+                reopenedNames.add (reopened.getTrack (i).getName());
+
+            const auto reopenedList = reopenedNames.joinIntoString (",");
+            const auto reopenedS1 = reopened.getTrack (reopened.getNumTracks() - 2);   // ファイルでは S1 が先頭＝センドの中でも先
+
+            check (reopenedList.endsWith ("F,S1,S2") && reopenedS1.getName() == "S1" && reopenedS1.getParentFolderId().isEmpty(),
+                   "opening a project made before this version moves its sends to the bottom and out of folders (" + reopenedList + ")");
+        }
+
+        //----------------------------------------------------------------------
+        // 8.365：**ノートのピッチベンド**（Phase 353／本人の要望）。
+        // > 「MIDIノートにベンド機能を追加できるかな？」「ノートの開始からもフォール／ライズできると嬉しい」
+        // 決めたこと：単音向け（ノートの曲線 → 普通のピッチベンド）／頭と終わりのフォール・ライズ、次のノートへのスライド、ビブラート
+        say ("--- pitch bend on notes (8.365)");
+        {
+            // 曲線の形
+            {
+                NoteBend fall;
+                fall.endSemitones = -5.0;   // 終わりで5半音下がる（画像の「A fall」）
+                fall.endPosition = 0.6;
+
+                NoteBend scoop;
+                scoop.startSemitones = -2.0; // 頭で2半音下から上がってくる
+                scoop.startPosition = 0.3;
+
+                NoteBend vibrato;
+                vibrato.vibratoDepth = 0.5;
+                vibrato.vibratoRate = 6.0;
+
+                double vibratoPeak = 0.0;
+
+                for (int i = 0; i <= 1000; ++i)
+                    vibratoPeak = juce::jmax (vibratoPeak, std::abs (vibrato.semitonesAt (i / 1000.0, i / 1000.0)));
+
+                check (std::abs (fall.semitonesAt (0.0, 0.0)) < 1e-9 && std::abs (fall.semitonesAt (0.6, 0.6)) < 1e-9
+                         && std::abs (fall.semitonesAt (0.8, 0.8) + 2.5) < 1e-6 && std::abs (fall.semitonesAt (1.0, 1.0) + 5.0) < 1e-9,
+                       "a fall stays on the note until 60 %, then bends smoothly down to -5 at the end (-2.5 half way)");
+
+                check (std::abs (scoop.semitonesAt (0.0, 0.0) + 2.0) < 1e-9 && std::abs (scoop.semitonesAt (0.3, 0.3)) < 1e-9
+                         && std::abs (scoop.semitonesAt (1.0, 1.0)) < 1e-9,
+                       "a bend from the start begins 2 below and is back on the note by 30 % (\"from the start of the note\")");
+
+                check (std::abs (vibrato.semitonesAt (0.2, 0.2)) < 1e-9 && vibratoPeak > 0.45 && vibratoPeak <= 0.5 + 1e-9,
+                       "vibrato is still for the first quarter, then swings up to its depth (peak " + juce::String (vibratoPeak, 3) + " of 0.5)");
+            }
+
+            // 保存：ノートに書いて読み戻す。空にすると消える（ベンドの無いノートは今までどおりの保存）
+            {
+                ProjectModel project;
+                project.createNewProject();
+                auto track = project.addTrack ("Lead", TrackType::Midi);
+                auto note = track.addNote (64, 100, 1.0, 1.0, nullptr);
+
+                NoteBend bend;
+                bend.startSemitones = 1.0;
+                bend.endSemitones = -3.5;
+                bend.endPosition = 0.7;
+                bend.vibratoDepth = 0.3;
+                note.setBend (bend, nullptr);
+
+                const auto back = note.getBend();
+                const bool same = std::abs (back.startSemitones - 1.0) < 1e-9 && std::abs (back.endSemitones + 3.5) < 1e-9
+                                    && std::abs (back.endPosition - 0.7) < 1e-9 && std::abs (back.vibratoDepth - 0.3) < 1e-9;
+
+                note.setBend ({}, nullptr);
+                const bool cleared = note.getBend().isEmpty() && ! note.state.hasProperty (IDs::noteBendEnd)
+                                       && ! note.state.hasProperty (IDs::noteVibratoDepth);
+
+                check (same && cleared && std::abs (track.getPitchBendRange() - 2.0) < 1e-9,
+                       "a note keeps its bend (start, end, where, vibrato) and drops it entirely when cleared; a track's bend range is 2 unless set");
+            }
+
+            // ピッチベンドの値の並び（単音向け）
+            {
+                const double range = 12.0;
+                const int bottom = NoteBendRender::toPitchWheel (-5.0, range);
+
+                NoteBend fall;
+                fall.endSemitones = -5.0;
+
+                NoteBend scoop;
+                scoop.startSemitones = -2.0;
+
+                // A [0,1) フォール、B [1,2) 頭から上がる、C [3,4) ベンド無し
+                const auto events = NoteBendRender::render ({ { 0.0, 1.0, fall }, { 1.0, 2.0, scoop } }, { 0.0, 1.0, 3.0 }, range);
+
+                auto valueAt = [&] (double seconds)
+                {
+                    int value = 8192;
+
+                    for (const auto& [t, v] : events)
+                        if (t <= seconds + 1e-9)
+                            value = v;
+
+                    return value;
+                };
+
+                const bool startsCentred = ! events.empty() && events.front().first == 0.0 && events.front().second == 8192;
+                bool reachesBottom = false;   // A の終わり（1 秒）に一番下の値。同じ時刻にそのあと戻し・B の頭が続く
+
+                for (const auto& [t, v] : events)
+                    if (std::abs (t - 1.0) < 1e-9 && v == bottom)
+                        reachesBottom = true;
+                const bool nextStartsLow = valueAt (1.0) == NoteBendRender::toPitchWheel (-2.0, range);   // 戻しの直後に B の頭の値
+                const bool backToCentre = valueAt (2.5) == 8192 && valueAt (3.5) == 8192;
+
+                check (startsCentred && reachesBottom && nextStartsLow && backToCentre,
+                       "the bends become pitch-wheel values: A falls to " + juce::String (bottom) + " by its end, B starts 2 below at 1 s "
+                       "(after the reset), and the wheel is back at the centre after B (" + juce::String ((int) events.size()) + " events)");
+
+                // 単音向け：A が長くても、B が鳴ったら A の曲線は止まる
+                NoteBend earlyFall = fall;
+                earlyFall.endPosition = 0.3;   // 0.6 秒から曲がり始める（B の頭 1 秒より前）
+                const auto overlapped = NoteBendRender::render ({ { 0.0, 2.0, earlyFall } }, { 0.0, 1.0 }, range);
+                bool stopsAtNext = true;
+
+                for (const auto& [t, v] : overlapped)
+                    if (t > 1.0 + 1e-9)
+                        stopsAtNext = false;
+
+                check (stopsAtNext && ! overlapped.empty() && overlapped.back().first == 1.0 && overlapped.back().second == 8192,
+                       "one voice: when the next note starts, the bent note's curve stops and the wheel goes back to the centre there");
+
+                // 幅を超えたら端で止まる
+                check (NoteBendRender::toPitchWheel (-5.0, 2.0) == 0 && NoteBendRender::toPitchWheel (5.0, 2.0) == 16383
+                         && NoteBendRender::toPitchWheel (0.0, 2.0) == 8192,
+                       "a bend beyond the instrument's range stops at the end of the wheel (-5 with a range of 2 is 0)");
+            }
+
+            // 再生：本物の`MidiPlayerProcessor`から、フォールしていくピッチベンドが出る
+            {
+                ProjectModel project;
+                project.createNewProject();
+                auto track = project.addTrack ("Lead", TrackType::Midi);
+                track.setPitchBendRange (12.0, nullptr);
+
+                auto note = track.addNote (60, 100, 0.5, 1.0, nullptr);   // [0.5, 1.5)
+                NoteBend fall;
+                fall.endSemitones = -5.0;
+                note.setBend (fall, nullptr);
+                track.addNote (62, 100, 2.0, 0.5, nullptr);                // 次のノート（ここで中央へ戻る）
+
+                constexpr double sampleRate = 48000.0;
+                constexpr int blockSize = 512;
+                auto at = [] (double seconds) { return (juce::int64) (seconds * sampleRate); };
+
+                Transport transport;
+                transport.prepare (sampleRate);
+
+                MidiPlayerProcessor player { project, transport, track.getId() };
+                player.prepareToPlay (sampleRate, blockSize);
+                player.prepareNotesForPlayback();
+                transport.start (at (3.0));
+
+                juce::AudioBuffer<float> buffer (2, blockSize);
+                juce::MidiBuffer midi;
+                int lowest = 8192, wheelAtNextNote = -1, lastWheel = 8192, count = 0;
+
+                while (transport.isPlaying() && transport.getPositionSamples() < at (3.0))
+                {
+                    midi.clear();
+                    player.processBlock (buffer, midi);
+
+                    for (const auto metadata : midi)
+                    {
+                        const auto message = metadata.getMessage();
+
+                        if (message.isPitchWheel())
+                        {
+                            lastWheel = message.getPitchWheelValue();
+                            lowest = juce::jmin (lowest, lastWheel);
+                            ++count;
+                        }
+                        else if (message.isNoteOn() && message.getNoteNumber() == 62)
+                        {
+                            wheelAtNextNote = lastWheel;
+                        }
+                    }
+
+                    transport.advance (blockSize);
+                }
+
+                // MIDI 書き出しにも、同じベンドが入る（再生と同じ`Track::getNoteBendEvents()`）
+                {
+                    const auto midiFile = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("note_bend_selftest.mid");
+                    const auto error = MidiFileExporter::exportToFile (project, midiFile);
+
+                    juce::MidiFile readBack;
+                    int wheels = 0, lowestWritten = 8192;
+
+                    if (juce::FileInputStream in (midiFile); in.openedOk() && readBack.readFrom (in))
+                        for (int t = 0; t < readBack.getNumTracks(); ++t)
+                            for (const auto* event : *readBack.getTrack (t))
+                                if (event->message.isPitchWheel())
+                                {
+                                    ++wheels;
+                                    lowestWritten = juce::jmin (lowestWritten, event->message.getPitchWheelValue());
+                                }
+
+                    midiFile.deleteFile();
+
+                    check (error.isEmpty() && wheels > 20 && std::abs (lowestWritten - NoteBendRender::toPitchWheel (-5.0, 12.0)) <= 2,
+                           "exporting a MIDI file writes the same bend (" + juce::String (wheels) + " pitch-wheel events, lowest "
+                             + juce::String (lowestWritten) + ")");
+                }
+
+                const int expectedLowest = NoteBendRender::toPitchWheel (-5.0, 12.0);
+                check (std::abs (lowest - expectedLowest) <= 2 && wheelAtNextNote == 8192 && count > 20,
+                       "playing it sends the fall as pitch-wheel messages (" + juce::String (count) + " of them, lowest "
+                         + juce::String (lowest) + " for -5 in a range of 12), and the wheel is centred before the next note starts ("
+                         + juce::String (wheelAtNextNote) + ")");
+            }
         }
 
         say ("--- " + juce::String (problems) + " problem(s) ---");

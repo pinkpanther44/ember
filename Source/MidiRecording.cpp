@@ -28,7 +28,8 @@ Summary applyTake (ProjectModel& project,
                     const RecordedMidiTake& take,
                     double sampleRate,
                     double stopSeconds,
-                    juce::UndoManager* undoManager)
+                    juce::UndoManager* undoManager,
+                    juce::Range<double> keepRange)
 {
     Summary summary;
 
@@ -56,8 +57,17 @@ Summary applyTake (ProjectModel& project,
         return juce::jmax (0.0, (double) samples / sampleRate);
     };
 
-    const auto addNote = [&] (int pitch, const HeldNote& note, double endSeconds)
+    const auto addNote = [&] (int pitch, const HeldNote& note, double endSeconds) -> bool
     {
+        // 8.360：パンチの範囲があるときは、**範囲の中で押し始めた音だけ**。範囲の終わりで切る（Phase 349）
+        if (! keepRange.isEmpty())
+        {
+            if (note.startSeconds < keepRange.getStart() || note.startSeconds >= keepRange.getEnd())
+                return false;
+
+            endSeconds = juce::jmin (endSeconds, keepRange.getEnd());
+        }
+
         // ループの折り返しをまたぐと、終わりが始まりより前に来ます
         // （`Transport::advance()`が位置を戻すため）。**捨てずに最短で入れる**——
         // 弾いた音が消えるより、短くても残っているほうがましです
@@ -65,10 +75,14 @@ Summary applyTake (ProjectModel& project,
 
         track.addNote (pitch, note.velocity, note.startSeconds, length, undoManager);
         ++summary.numNotes;
+        return true;
     };
 
     const auto addCC = [&] (int controllerNumber, int value, double timeSeconds)
     {
+        if (! keepRange.isEmpty() && (timeSeconds < keepRange.getStart() || timeSeconds >= keepRange.getEnd()))
+            return;   // 8.360：範囲の外の CC は入れない
+
         if (! juce::isPositiveAndBelow (controllerNumber, (int) lastCCValue.size()))
             return;
 
@@ -151,12 +165,40 @@ Summary applyTake (ProjectModel& project,
         if (! note.held)
             continue;
 
-        addNote (pitch, note, juce::jmax (stopSeconds, note.startSeconds + minimumNoteSeconds));
+        if (addNote (pitch, note, juce::jmax (stopSeconds, note.startSeconds + minimumNoteSeconds)))
+            ++summary.numHeldNotes;   // 8.360：範囲の外で捨てた音は数えない
+
         note.held = false;
-        ++summary.numHeldNotes;
     }
 
     return summary;
+}
+
+std::set<int> controllersIn (const RecordedMidiTake& take, double sampleRate, juce::Range<double> range)
+{
+    std::set<int> numbers;
+
+    if (sampleRate <= 0.0)
+        return numbers;
+
+    for (const auto& event : take.events)
+    {
+        const double t = juce::jmax (0.0, (double) event.samplePosition / sampleRate);
+
+        if (! range.isEmpty() && (t < range.getStart() || t >= range.getEnd()))
+            continue;
+
+        // 番号の振り方は`applyTake()`と同じ
+        switch (event.status & 0xf0)
+        {
+            case 0xb0: numbers.insert (event.data1 & 0x7f); break;
+            case 0xe0: numbers.insert (MidiControllers::pitchBend); break;
+            case 0xd0: numbers.insert (MidiControllers::channelPressure); break;
+            default: break;
+        }
+    }
+
+    return numbers;
 }
 
 } // namespace MidiRecording

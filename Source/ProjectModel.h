@@ -437,8 +437,17 @@ public:
 
         `juce::Colour`を使わないのは意図的：`juce_data_structures`は`juce_graphics`に
         依存していないため、データ層でColourを扱うとモジュール依存が増えてしまう
-        （設計書1.1の層分離）。色として解釈するのはUI層の仕事。 */
+        （設計書1.1の層分離）。色として解釈するのはUI層の仕事。
+
+        8.361：**センドトラックは色を固定（グレー）**（Phase 350／本人の要望「他トラックと分かりやすくするため」）。
+        保存されている色に関わらず`sendTrackColour`を返す。色の変更の画面（ヘッダーの色・インスペクタ）もセンドには効かせない。 */
     juce::String getColourString() const;
+
+    /** 8.361：センドトラックの固定の色（グレー）。 */
+    static constexpr const char* sendTrackColour = "FF8E949C";
+
+    /** 8.361：色を選べるトラックか（センドは固定）。 */
+    bool hasEditableColour() const { return getType() != TrackType::Send; }
     void setColourString (const juce::String& argbHex, juce::UndoManager* undoManager);
 
     bool isMuted() const;
@@ -501,6 +510,15 @@ public:
 
     /** 8.307：MIDIディレイの上限（ミリ秒）。**前後とも同じだけ動かせます。** */
     static constexpr double midiDelayLimitMs = 500.0;
+
+    /** 8.365：**音源のピッチベンドの幅**（半音、片側。Phase 353）。ノートのベンドを値へ直すときに使う。
+        **音源側の設定と同じにすること**（違うと曲がる量がずれる）。未設定なら 2（一般的な音源の既定）。 */
+    double getPitchBendRange() const;
+    void setPitchBendRange (double semitones, juce::UndoManager* undoManager);
+
+    /** 8.365：**ノートのベンドを、時刻（曲の秒）とピッチベンドの値の並びにする**（`NoteBendRender::render()`。単音向け）。
+        再生（`MidiPlayerProcessor`）と MIDI 書き出し（`MidiFileExporter`）が**同じこれを使う**。ベンドの無いトラックは空。 */
+    std::vector<std::pair<double, int>> getNoteBendEvents() const;
 
     /** 音量はdB表記。0.0dBが基準。VCA連携時の加算方式は設計書1.3参照。 */
     float getVolumeDb() const;
@@ -1228,6 +1246,28 @@ public:
     void setLoopRangeBeats (double startBeats, double endBeats, juce::UndoManager* undoManager);
 
     //==========================================================================
+    // 8.360：**パンチイン／アウト**（Phase 349／本人の要望「録音のパンチイン／アウトって実装できるかな？」）。
+    //
+    // 本人と決めたこと：**ループとは別の専用の範囲**（ルーラーの赤い帯）／範囲の中の古い音とノートは**差し替える**／
+    // **オーディオと MIDI の両方**に効く。ループと同じく**拍で保存**する（テンポを変えても小節の位置のまま）。
+    // 入っているときは、録音は今までどおり回し続け、止めたあとで**範囲の中だけを残す**（`PunchRecording`）。
+
+    bool isPunchEnabled() const;
+    void setPunchEnabled (bool shouldPunch, juce::UndoManager* undoManager);
+
+    double getPunchStartBeats() const;
+    double getPunchEndBeats() const;
+    double getPunchStartTime() const;
+    double getPunchEndTime() const;
+
+    /** 範囲が引かれているか（長さが0より大きい）。 */
+    bool hasPunchRange() const { return getPunchEndBeats() > getPunchStartBeats(); }
+
+    /** 向きは中で揃える。長さ0以下は無視。 */
+    void setPunchRange (double startSeconds, double endSeconds, juce::UndoManager* undoManager);
+    void setPunchRangeBeats (double startBeats, double endBeats, juce::UndoManager* undoManager);
+
+    //==========================================================================
     // 仕様書5.9：マーカー（Phase 49）
     //
     // プロジェクト直下の`<MARKERS>`に置く。**時刻の順に並べて持つ**ので、
@@ -1628,6 +1668,15 @@ public:
         **読み込み直後と、コードトラックを足した直後に呼ぶ。**
         Undoには積みません（並びを直したこと自体を戻せても意味がないため）。 */
     void ensureChordTrackIsFirst();
+
+    /** 8.361：**センドトラックは一番下にまとめる**（Phase 350／本人の要望「MIDIトラックやオーディオトラック、フォルダトラックの下に並べて配置」）。
+
+        センドを並びの最後へ寄せ（センド同士の順は保つ）、フォルダには入れない。並べ替え・追加・複製の最後と、読み込み直後に呼ぶ。
+        Console も同じ並びを見ているので、センドは「ほかのトラックの右、マスターの左」に並ぶ。 */
+    void ensureSendTracksLast (juce::UndoManager* undoManagerToUse);
+
+    /** 8.361：センド以外のトラックの数（＝センドの並ぶ先頭の位置）。 */
+    int getNumNonSendTracks() const;
 
     /** トラックの並び順を入れ替える（Phase 33）。
 

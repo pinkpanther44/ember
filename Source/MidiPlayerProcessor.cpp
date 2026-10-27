@@ -186,6 +186,17 @@ void MidiPlayerProcessor::rebuildNoteList()
             }
         }
 
+        // 8.365：**ノートのベンド**（Phase 353）。ピッチベンドの値の並びにして、CC と同じ道で送る
+        // （`Track::getNoteBendEvents()`。MIDI 書き出しと共有）
+        for (const auto& [seconds, value] : track.getNoteBendEvents())
+        {
+            ScheduledCC bend;
+            bend.controllerNumber = MidiControllers::pitchBend;
+            bend.value = value;
+            bend.sample = juce::jmax ((juce::int64) 0, (juce::int64) (seconds * currentSampleRate) + delaySamples);
+            newCCs.push_back (bend);
+        }
+
         // 仕様書5.3.2：クリップをまたいで並んだ音も含めてチョークを効かせる（Phase 25）。
         // クリップ単位でやると、隣のクリップのオープンハイハットを切れない。
         if (! chokeNotes.empty())
@@ -206,8 +217,9 @@ void MidiPlayerProcessor::rebuildNoteList()
 
     // 追いかけ（sendCCChase）は「位置以前の最後の値」を探すので、時刻順に並んでいる必要がある。
     // クリップが複数ある場合、上のループの出来上がり順は時刻順とは限らない。
-    std::sort (newCCs.begin(), newCCs.end(),
-                [] (const ScheduledCC& a, const ScheduledCC& b) { return a.sample < b.sample; });
+    // 8.365：**同じ時刻は足した順のまま**（ベンドを中央へ戻す値と、次のノートの頭の値が同じ時刻に並ぶ）
+    std::stable_sort (newCCs.begin(), newCCs.end(),
+                       [] (const ScheduledCC& a, const ScheduledCC& b) { return a.sample < b.sample; });
 
     // 8.116：**鳴っている最中のノートを引き継ぐ**（Phase 151）。
     //

@@ -2,6 +2,7 @@
 
 #include "ProjectIds.h"
 #include "AutomationModel.h"   // 仕様書5.3.3：CCの繋ぎ方もAutomationCurveを使う（Phase 76）
+#include "NoteBend.h"         // 8.365：ノートのピッチベンド（Phase 353）
 
 #include <vector> // 仕様書5.3.2：チョークグループの適用（applyChokeGroups）
 
@@ -222,6 +223,11 @@ namespace MidiControllers
     /** レーンを新しく作ったときの初期値（ピッチベンドだけ中央、他は0）。 */
     int getDefaultValue (int controllerNumber);
 
+    /** 8.366：**戻ってくる値**（Phase 354／本人の要望「最初に設定した値に戻ってきたい時に迷子になる」）。
+        音源が何も受け取っていないときに使っている値（GM の初期値）：ボリューム 100・パン／バランス 64・
+        エクスプレッション 127・ピッチベンド中央、ほかは`getDefaultValue()`。ピアノロールのレーンに目印の線を引き、点を近づけると吸い付く。 */
+    int getHomeValue (int controllerNumber);
+
     /** よく使うものをレーン追加メニューに並べるための一覧。 */
     juce::Array<int> getCommonControllers();
 }
@@ -317,6 +323,13 @@ public:
 
     void setPitch (int newPitch, juce::UndoManager* undoManager);
     void setVelocity (int newVelocity, juce::UndoManager* undoManager);
+
+    /** 8.365：**このノートのピッチベンド**（Phase 353。`NoteBend.h`）。無ければ空（`isEmpty()`）。
+        ノートの長さに対する割合で持つので、ノートを動かす・伸ばすと曲線も付いてくる。 */
+    NoteBend getBend() const;
+
+    /** 8.365：書く。空なら全部消す（保存を軽くする）。 */
+    void setBend (const NoteBend& bend, juce::UndoManager* undoManager);
     void setStartTime (double newStartTimeSeconds, juce::UndoManager* undoManager);
     void setLength (double newLengthSeconds, juce::UndoManager* undoManager);
 
