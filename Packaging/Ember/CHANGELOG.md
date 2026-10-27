@@ -6,6 +6,61 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.4.0] - 2026-10-27
+
+### Added
+
+- **Overview.** A miniature of the whole song sits above the arrange window
+  (toggle it with the Overview button). It always shows the song at the same
+  scale as Fit, starting at the left edge
+  - Its horizontal and vertical scroll bars move the arrange window; their
+    thumbs show the part you are looking at
+  - Click or drag on it to move the playback cursor (it follows the snap
+    grid, like the ruler)
+  - Markers appear as flags with their names, and the loop range is shaded
+- **Punch in / out recording.** A red strip under the loop strip on the ruler
+  sets the punch range (drag to draw it, drag its ends to resize,
+  double-click to switch punch on or off), and a **Punch** button sits next
+  to Loop. With punch on, recording runs as usual but only what was
+  recorded inside the range is kept, replacing the audio and notes that were
+  there
+  - Audio: older clips are split at the range edges and the inside is
+    replaced; the recorded file itself is kept whole, so the new clip's
+    edges can be widened later
+  - MIDI: notes started inside the range replace the old ones; controllers
+    you did not play keep their automation
+  - One Undo brings everything back
+- **Pitch bend on notes** (for one voice at a time). Switch on **Bend** in the
+  piano roll and drag a note's end up or down for a fall or rise, or its
+  start for a bend into the note; drag the knee point to move where the bend
+  begins. Right-click a note for **Slide into the next note**, **Vibrato**
+  and the track's **bend range** (set it to match the instrument). Bends are
+  played as pitch-wheel messages and written into exported MIDI files
+  - Parts of a bend beyond the bend range are drawn in red
+- **MIDI files can be dropped on the arrange window** (from the browser or
+  from Explorer). They are read in beats, so they line up with bars whatever
+  the song's tempo
+- **While dragging files in, the arrange window shows where they will land**,
+  with their names: one after another on a track, or one new track per file
+  on the empty area
+
+### Changed
+
+- **Piano roll lanes show the value to come back to** (Volume 100, Pan and
+  Balance centre, Expression 127, pitch bend centre; for volume and pan
+  automation, the track's own setting). Empty lanes show it as a line, lanes
+  with points as a dotted guide, and points placed or dragged close to it
+  snap onto it
+- **Send tracks** are always grey and kept together at the bottom of the
+  track list, which also puts them just left of the master in the Console.
+  Projects from earlier versions are tidied when opened
+- **New icons** for the tools, transport, track types, automation, the
+  browser and plug-in windows, in one consistent style
+- Horizontal scrolling in the arrange window is much lighter on songs with
+  many notes
+
+---
+
 ## [1.3.2] - 2026-10-11
 
 ### Added
