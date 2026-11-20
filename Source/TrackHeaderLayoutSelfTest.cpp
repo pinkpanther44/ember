@@ -1032,10 +1032,10 @@ namespace TrackHeaderLayoutSelfTest
         // Relatedでは、下にスペースが空いてしまうが問題ない」）
         say ("--- chord pad sizes (8.369)");
         {
-            ProjectModel project;
-            SelectionState selection;
-            AudioEngine engineForPads (project);
-            ChordPadPanel panel (project, selection, engineForPads);
+            ProjectModel padProject;
+            SelectionState padSelection;
+            AudioEngine engineForPads (padProject);
+            ChordPadPanel panel (padProject, padSelection, engineForPads);
             panel.setBounds (0, 0, 950, 480);
 
             auto heights = [] (const std::vector<juce::Rectangle<int>>& areas)
