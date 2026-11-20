@@ -665,8 +665,12 @@ void ChannelStripComponent::paint (juce::Graphics& g)
 
     const bool outlined = isDragOver || isSelected;
 
-    g.setColour (outlined ? AppColours::purple : AppColours::border);
-    g.drawRoundedRectangle (area.reduced (0.5f), AppColours::corner (4.0f), outlined ? 2.0f : 1.0f);
+    // 8.368：レトロでは1本ずつ浮き出した板（Phase 356）。選択・落とし先の紺の枠はそのまま
+    if (outlined || ! AppColours::drawBevel (g, area, AppColours::Bevel::raised))
+    {
+        g.setColour (outlined ? AppColours::purple : AppColours::border);
+        g.drawRoundedRectangle (area.reduced (0.5f), AppColours::corner (4.0f), outlined ? 2.0f : 1.0f);
+    }
 
     drawTypeIcon (g);
 }

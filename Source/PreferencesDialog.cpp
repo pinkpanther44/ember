@@ -123,6 +123,17 @@ PreferencesDialog::PreferencesDialog (AudioEngine& engineToUse,
     };
     addChildComponent (darkThemeButton);
 
+    // 8.368：レトロ（Phase 356）。**製品名は借りません**——「Win95」ではなく「レトロ」
+    retroThemeButton.setButtonText (utf8 ("レトロ"));
+    retroThemeButton.setClickingTogglesState (false);
+    retroThemeButton.setTooltip (utf8 ("90年代のパソコン風。灰色の地に、浮き出し／へこみの縁"));
+    retroThemeButton.onClick = [this]
+    {
+        AppColours::saveThemeToSettings (AppColours::Theme::Retro);
+        themeChanged();
+    };
+    addChildComponent (retroThemeButton);
+
     themeNoticeLabel.setFont (juce::FontOptions (12.0f));
     themeNoticeLabel.setColour (juce::Label::textColourId, AppColours::textSecondary);
     themeNoticeLabel.setJustificationType (juce::Justification::topLeft);
@@ -312,6 +323,7 @@ void PreferencesDialog::showCategory (Category category)
     themeCaption.setVisible (showAppearance);
     lightThemeButton.setVisible (showAppearance);
     darkThemeButton.setVisible (showAppearance);
+    retroThemeButton.setVisible (showAppearance);
     themeNoticeLabel.setVisible (showAppearance);
 
     // 8.163：言語も「見た目」の欄（Phase 201）
@@ -375,9 +387,7 @@ void PreferencesDialog::themeChanged()
 {
     // 保存済みの値を正とする（AppColours::getTheme()は「今描いている色」で、
     // 再起動するまで選んだものとは食い違うため）。
-    const auto saved = AppSettings::getInt ("theme", 0) == 1 ? AppColours::Theme::Dark
-                                                              : AppColours::Theme::Light;
-    const bool isDark = (saved == AppColours::Theme::Dark);
+    const auto saved = AppColours::getSavedTheme();
 
     // 設計書2.6：選ばれているほうをパープルで示す
     auto applySelected = [] (juce::TextButton& button, bool selected)
@@ -388,8 +398,9 @@ void PreferencesDialog::themeChanged()
                            selected ? juce::Colours::white : AppColours::textPrimary);
     };
 
-    applySelected (lightThemeButton, ! isDark);
-    applySelected (darkThemeButton, isDark);
+    applySelected (lightThemeButton, saved == AppColours::Theme::Light);
+    applySelected (darkThemeButton, saved == AppColours::Theme::Dark);
+    applySelected (retroThemeButton, saved == AppColours::Theme::Retro);
 
     // 反映されるのが次回起動からであることを、選んだ場合だけはっきり出す。
     // 黙っていると「押したのに変わらない」と受け取られる。
@@ -461,6 +472,8 @@ void PreferencesDialog::resized()
         lightThemeButton.setBounds (buttonRow.removeFromLeft (110));
         buttonRow.removeFromLeft (8);
         darkThemeButton.setBounds (buttonRow.removeFromLeft (110));
+        buttonRow.removeFromLeft (8);
+        retroThemeButton.setBounds (buttonRow.removeFromLeft (110));
 
         content.removeFromTop (12);
         themeNoticeLabel.setBounds (content.removeFromTop (40));

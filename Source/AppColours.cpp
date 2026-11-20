@@ -111,6 +111,43 @@ namespace AppColours
             0xff7a94ff, // scaleRootTone
         };
 
+        // 8.368：レトロ（Phase 356）。**90年代のパソコンの標準の灰色と紺**。
+        //
+        // 地も帯も同じ灰色（`#C0C0C0`）にして、**面の区別は縁（`drawBevel()`）で付けます**——
+        // あの頃の画面は色の濃淡ではなく、浮き出し／へこみで区画を分けていました。
+        // 編集面（タイムライン・ピアノロール）は白。選択は紺に白い字。
+        //
+        // パープルとオレンジは`setTheme()`で別に決めます（ブランドの色ではなく紺にするため）。
+        // 度数の色とスケール音はライトと同じ（明るい地の上に重ねる前提が同じ）。
+        constexpr Palette retroPalette
+        {
+            0xffc0c0c0, // background   灰色の地
+            0xffc0c0c0, // panel        帯も同じ灰色（区別は縁で付ける）
+            0xff808080, // border
+            0xff000000, // textPrimary
+            0xff404040, // textSecondary
+            0xff000080, // purple       （`setTheme()`で上書き）
+            0xffc8a02e, // orange       （同上）
+            0xff0000a8, // timeSignatureMarker（青。白文字が乗る濃さ）
+            0xff008080, // tempoMarker  （青緑）
+            0xffffffff, // canvas       白
+            0xffe8e8e8, // canvasAlt    **canvasより暗いこと**
+            0xffffffff, // pianoWhiteKey
+            0xff000000, // pianoBlackKey
+            0x14000000, // sendTrackTint（明るい地の上なので黒を薄く）
+
+            {
+                lightPalette.chordDegree[0], lightPalette.chordDegree[1], lightPalette.chordDegree[2],
+                lightPalette.chordDegree[3], lightPalette.chordDegree[4], lightPalette.chordDegree[5],
+                lightPalette.chordDegree[6], lightPalette.chordDegree[7], lightPalette.chordDegree[8],
+            },
+            lightPalette.scaleTone,
+            lightPalette.scaleRootTone,
+        };
+
+        /** 8.368：レトロの選択の色（紺）。**ブランドに関係なく同じ**——あの頃の画面の「選択」の色です。 */
+        constexpr juce::uint32 retroSelection = 0xff000080;
+
         /** 仕様書5.3.1：度数ごとの色の実体。`chordDegreeColour()`から引く。
 
             他の色と違って`extern`で直接出していないのは、**添字を間違えたまま
@@ -185,7 +222,9 @@ namespace AppColours
     void setTheme (Theme newTheme)
     {
         currentTheme = newTheme;
-        applyPalette (newTheme == Theme::Dark ? darkPalette : lightPalette);
+        applyPalette (newTheme == Theme::Dark  ? darkPalette
+                    : newTheme == Theme::Retro ? retroPalette
+                                               : lightPalette);
 
         // 8.175：**アクセント2色だけブランドで差し替える**（Phase 216／`Branding.h`）。
         //
@@ -199,6 +238,11 @@ namespace AppColours
 
         purple = juce::Colour (Branding::accentPrimary (dark));
         orange = juce::Colour (Branding::accentSecondary (dark));
+
+        // 8.368：**レトロの「選択」は紺**（Phase 356）。いま起きていること（録音・警告）は
+        // ブランドの色のまま——紺と並んでも見分けがつき、Ember／Manta の区別も少し残ります
+        if (newTheme == Theme::Retro)
+            purple = juce::Colour (retroSelection);
     }
 
     Theme getTheme()
@@ -206,14 +250,78 @@ namespace AppColours
         return currentTheme;
     }
 
+    Theme getSavedTheme()
+    {
+        return themeFromStoredValue (AppSettings::getInt (themeKey, 0));
+    }
+
+    Theme themeFromStoredValue (int value)
+    {
+        // 知らない値（先の版で増えた配色など）はライトとして読む
+        switch (value)
+        {
+            case 1:  return Theme::Dark;
+            case 2:  return Theme::Retro;
+            default: return Theme::Light;
+        }
+    }
+
     void loadThemeFromSettings()
     {
-        setTheme (AppSettings::getInt (themeKey, 0) == 1 ? Theme::Dark : Theme::Light);
+        setTheme (getSavedTheme());
     }
 
     void saveThemeToSettings (Theme newTheme)
     {
-        AppSettings::setInt (themeKey, newTheme == Theme::Dark ? 1 : 0);
+        AppSettings::setInt (themeKey, (int) newTheme);
+    }
+
+    //==========================================================================
+    bool drawBevel (juce::Graphics& g, juce::Rectangle<int> area, Bevel bevel)
+    {
+        if (! isRetro())
+            return false;
+
+        if (area.getWidth() < 2 || area.getHeight() < 2)
+            return true;
+
+        // 左上の線（上辺＋左辺）と右下の線（下辺＋右辺）を1px ずつ。
+        // 右下は角まで、左上は右下の角に掛からない長さで描く（角の1点で色が混ざらないように）
+        auto edge = [&g] (juce::Rectangle<int> r, juce::uint32 topLeft, juce::uint32 bottomRight)
+        {
+            g.setColour (juce::Colour (topLeft));
+            g.fillRect (r.getX(), r.getY(), r.getWidth() - 1, 1);
+            g.fillRect (r.getX(), r.getY(), 1, r.getHeight() - 1);
+
+            g.setColour (juce::Colour (bottomRight));
+            g.fillRect (r.getX(), r.getBottom() - 1, r.getWidth(), 1);
+            g.fillRect (r.getRight() - 1, r.getY(), 1, r.getHeight());
+        };
+
+        using namespace RetroShade;
+
+        switch (bevel)
+        {
+            case Bevel::raised:
+                edge (area, highlight, darkShadow);
+                edge (area.reduced (1), light, shadow);
+                break;
+
+            case Bevel::sunken:
+                edge (area, shadow, highlight);
+                edge (area.reduced (1), darkShadow, light);
+                break;
+
+            case Bevel::raisedThin:
+                edge (area, highlight, shadow);
+                break;
+
+            case Bevel::sunkenThin:
+                edge (area, shadow, highlight);
+                break;
+        }
+
+        return true;
     }
 
 
@@ -259,6 +367,25 @@ namespace AppColours
                                     bool shouldDrawButtonAsHighlighted,
                                     bool shouldDrawButtonAsDown) override
         {
+            // 8.368：レトロ（Phase 356）。**面は渡された色のまま**（選ばれているものの紺・
+            // 鳴っているもののオレンジはそのまま意味を持つ）、縁だけ浮き出し／へこみにする。
+            // 押している間とトグルが入っている間はへこむ
+            if (isRetro())
+            {
+                const auto area = button.getLocalBounds();
+                const bool in = shouldDrawButtonAsDown || button.getToggleState();
+
+                if (! backgroundColour.isTransparent())
+                {
+                    g.setColour (backgroundColour.withMultipliedAlpha (button.isEnabled() ? 1.0f : 0.6f));
+                    g.fillRect (area);
+                }
+
+                AppColours::drawBevel (g, area, in ? Bevel::sunken : Bevel::raised);
+                juce::ignoreUnused (shouldDrawButtonAsHighlighted);
+                return;
+            }
+
             auto bounds = button.getLocalBounds().toFloat().reduced (0.5f, 0.5f);
 
             auto baseColour = backgroundColour.withMultipliedSaturation (
@@ -324,6 +451,33 @@ namespace AppColours
         void drawComboBox (juce::Graphics& g, int width, int height, bool,
                             int, int, int, int, juce::ComboBox& box) override
         {
+            // 8.368：レトロ（Phase 356）。へこんだ白い欄＋右端に浮き出した灰色の押しボタン（黒い三角）
+            if (isRetro())
+            {
+                const juce::Rectangle<int> area (0, 0, width, height);
+
+                g.setColour (box.findColour (juce::ComboBox::backgroundColourId));
+                g.fillRect (area);
+                AppColours::drawBevel (g, area, Bevel::sunken);
+
+                const int buttonWidth = juce::jmin (16, juce::jmax (0, width - 4));
+                const auto arrowButton = area.reduced (2).removeFromRight (buttonWidth);
+
+                g.setColour (juce::Colour (RetroShade::face));
+                g.fillRect (arrowButton);
+                AppColours::drawBevel (g, arrowButton, Bevel::raised);
+
+                const auto centre = arrowButton.toFloat().getCentre();
+                juce::Path triangle;
+                triangle.addTriangle (centre.x - 3.5f, centre.y - 2.0f,
+                                      centre.x + 3.5f, centre.y - 2.0f,
+                                      centre.x,        centre.y + 1.5f);
+
+                g.setColour (juce::Colours::black.withAlpha (box.isEnabled() ? 1.0f : 0.35f));
+                g.fillPath (triangle);
+                return;
+            }
+
             const float cornerSize = corner (4.0f);
             const auto boxBounds = juce::Rectangle<int> (0, 0, width, height)
                                        .toFloat().reduced (0.5f, 0.5f);
@@ -347,6 +501,70 @@ namespace AppColours
             g.setColour (box.findColour (juce::ComboBox::arrowColourId)
                              .withAlpha (box.isEnabled() ? 0.9f : 0.2f));
             g.strokePath (path, juce::PathStrokeType (2.0f));
+        }
+
+        //======================================================================
+        // 8.368：**レトロのときだけ**描き方を変える部品（Phase 356）。
+        // レトロでなければ基底へそのまま渡すので、ライト／ダークは何も変わりません
+
+        void drawPopupMenuBackground (juce::Graphics& g, int width, int height) override
+        {
+            if (! isRetro())
+                return juce::LookAndFeel_V4::drawPopupMenuBackground (g, width, height);
+
+            const juce::Rectangle<int> area (0, 0, width, height);
+            g.fillAll (juce::Colour (RetroShade::face));
+            AppColours::drawBevel (g, area, Bevel::raised);
+        }
+
+        void fillTextEditorBackground (juce::Graphics& g, int width, int height, juce::TextEditor& editor) override
+        {
+            if (! isRetro())
+                return juce::LookAndFeel_V4::fillTextEditorBackground (g, width, height, editor);
+
+            g.fillAll (editor.findColour (juce::TextEditor::backgroundColourId));
+        }
+
+        void drawTextEditorOutline (juce::Graphics& g, int width, int height, juce::TextEditor& editor) override
+        {
+            if (! isRetro())
+                return juce::LookAndFeel_V4::drawTextEditorOutline (g, width, height, editor);
+
+            // 枠を消してある欄（ラベルの打ち込みなど）は、そのまま枠なし
+            if (editor.findColour (juce::TextEditor::outlineColourId).isTransparent())
+                return;
+
+            AppColours::drawBevel (g, juce::Rectangle<int> (0, 0, width, height), Bevel::sunken);
+        }
+
+        void drawTickBox (juce::Graphics& g, juce::Component& component,
+                          float x, float y, float w, float h,
+                          bool ticked, bool isEnabled,
+                          bool shouldDrawButtonAsHighlighted, bool shouldDrawButtonAsDown) override
+        {
+            if (! isRetro())
+                return juce::LookAndFeel_V4::drawTickBox (g, component, x, y, w, h, ticked, isEnabled,
+                                                          shouldDrawButtonAsHighlighted, shouldDrawButtonAsDown);
+
+            // へこんだ白い升に、黒いチェック
+            const auto box = juce::Rectangle<float> (x, y, w, h).toNearestInt();
+
+            g.setColour (juce::Colour (shouldDrawButtonAsDown || ! isEnabled ? RetroShade::face
+                                                                              : RetroShade::window));
+            g.fillRect (box);
+            AppColours::drawBevel (g, box, Bevel::sunken);
+
+            if (ticked)
+            {
+                const auto inner = box.reduced (3).toFloat();
+                juce::Path tick;
+                tick.startNewSubPath (inner.getX(), inner.getCentreY());
+                tick.lineTo (inner.getX() + inner.getWidth() * 0.38f, inner.getBottom() - 1.0f);
+                tick.lineTo (inner.getRight(), inner.getY() + 1.0f);
+
+                g.setColour (juce::Colours::black.withAlpha (isEnabled ? 1.0f : 0.4f));
+                g.strokePath (tick, juce::PathStrokeType (2.0f));
+            }
         }
     };
 
@@ -381,6 +599,26 @@ namespace AppColours
 
     std::unique_ptr<juce::LookAndFeel_V4> createLookAndFeel()
     {
-        return std::make_unique<AppLookAndFeel> (createColourScheme());
+        auto lookAndFeel = std::make_unique<AppLookAndFeel> (createColourScheme());
+
+        // 8.368：レトロでは**文字を打つ面と一覧は白**、ツールチップは淡い黄色（Phase 356）。
+        // `ColourScheme`には「ボタンの面」と「入力欄の面」の区別が無いので、ここで個別に入れます。
+        // 部品の側で色を指定してあるものは、そちらが勝ちます
+        if (isRetro())
+        {
+            const juce::Colour window (RetroShade::window);
+
+            lookAndFeel->setColour (juce::TextEditor::backgroundColourId, window);
+            lookAndFeel->setColour (juce::TextEditor::outlineColourId, border);
+            lookAndFeel->setColour (juce::TextEditor::focusedOutlineColourId, border);
+            lookAndFeel->setColour (juce::ComboBox::backgroundColourId, window);
+            lookAndFeel->setColour (juce::ListBox::backgroundColourId, window);
+            lookAndFeel->setColour (juce::TooltipWindow::backgroundColourId, juce::Colour (RetroShade::info));
+            lookAndFeel->setColour (juce::TooltipWindow::outlineColourId, juce::Colours::black);
+            lookAndFeel->setColour (juce::TooltipWindow::textColourId, juce::Colours::black);
+            lookAndFeel->setColour (juce::ScrollBar::thumbColourId, juce::Colour (RetroShade::face));
+        }
+
+        return lookAndFeel;
     }
 }

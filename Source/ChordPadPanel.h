@@ -52,6 +52,11 @@ public:
         伝えると、同じ更新の経路が2本になる（HANDOVER 1.15と同じ話）。 */
     std::function<void (double newPositionSeconds)> onInsertPositionChanged;
 
+    // 8.369：自己検査用（`--header-selftest`「chord pad sizes」）
+    std::vector<juce::Rectangle<int>> getPadAreasForTesting() const;
+    void togglePageForTesting() { pageButton.onClick(); }
+    juce::Rectangle<int> getGridAreaForTesting() const { return getGridArea(); }
+
 private:
     /** 右クリックを基底へ渡さないボタン（1.39）。
 
@@ -306,6 +311,13 @@ private:
     juce::ValueTree subscribedProjectState;
 
     ChordGrid grid;
+
+    /** 8.369：**段の高さを決める段数**（Phase 357／本人の要望）。
+
+        いまのページの段数と、Main の段数の多いほう。Related は段が少ないので、
+        自分の段数で割ると**1段ずつが高くなり、ページを替えるたびにパッドの大きさが変わって**いました。
+        Main に合わせて、Related では下が空きます（本人の指定）。 */
+    int rowSlots = 0;
 
     struct Pad
     {

@@ -130,6 +130,7 @@ private:
     juce::Label themeCaption;
     juce::TextButton lightThemeButton;
     juce::TextButton darkThemeButton;
+    juce::TextButton retroThemeButton;   // 8.368（Phase 356）
     juce::Label themeNoticeLabel;
 
     /** 8.163：**表示の言語**（Phase 201／本人の要望。仕様書6章）。

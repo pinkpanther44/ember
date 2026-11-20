@@ -31,10 +31,19 @@
 */
 namespace AppColours
 {
+    /** 設定に保存する値は宣言順（Light=0, Dark=1, Retro=2）。**並べ替えないこと**——
+        保存済みの設定が別の配色として読まれます。 */
     enum class Theme
     {
         Light,
-        Dark
+        Dark,
+
+        /** 8.368：**90年代のパソコン風**（Phase 356／本人の要望「UIを全体的にWin95風に切り替えたい」）。
+
+            灰色の地・紺の選択・白い編集面に、**浮き出し／へこみの縁**（`drawBevel()`）を付けたもの。
+            明るい地なので、**「ダークかどうか」で分けている所（内蔵プラグインなど）はライト扱い**になります。
+            画面に出す名前は「レトロ」（製品名を借りない）。 */
+        Retro
     };
 
     //==========================================================================
@@ -128,8 +137,18 @@ namespace AppColours
 
     Theme getTheme();
 
+    /** 8.368：いまレトロで描いているか。**縁を付けるかどうかは、これで分けること**。 */
+    inline bool isRetro() { return getTheme() == Theme::Retro; }
+
     /** アプリ設定に保存されているテーマを読み出して適用する（起動時に1回呼ぶ）。 */
     void loadThemeFromSettings();
+
+    /** 設定に保存されているテーマ（**再起動するまで、いま描いているものとは違うことがある**）。 */
+    Theme getSavedTheme();
+
+    /** 8.368：設定に書く数から配色へ（0＝ライト・1＝ダーク・2＝レトロ。**知らない数はライト**）。
+        先の版で配色が増えても、古い版が設定を読んで黒い画面にならないための決まりです。 */
+    Theme themeFromStoredValue (int value);
 
     /** テーマを選んでアプリ設定へ保存する（次回起動から効く）。 */
     void saveThemeToSettings (Theme newTheme);
@@ -199,9 +218,92 @@ namespace AppColours
         **スクロールバーを描く LookAndFeel は全部これを呼ぶこと**——アプリ全体の`AppLookAndFeel`と、
         ブラウザのファイル一覧の`FileRowLookAndFeel`（`LookAndFeel_V4`から直に作っているので、
         呼ばないとそこだけ丸いまま残る）。 */
+    //==========================================================================
+    /** 8.368：**浮き出し／へこみの縁**（Phase 356。レトロの配色だけで描く）。
+
+        | | 外側の左上 | 内側の左上 | 内側の右下 | 外側の右下 | 使う所 |
+        |---|---|---|---|---|---|
+        | `raised` | 白 | 明るい灰 | 灰 | 黒 | ボタン・つまみ・窓のような面 |
+        | `sunken` | 灰 | 黒 | 明るい灰 | 白 | 入力欄・一覧・メーター・編集面 |
+        | `raisedThin` | 白 | – | – | 灰 | 並んだ行（トラックの行など。2px だと重い） |
+        | `sunkenThin` | 灰 | – | – | 白 | 小さな窪み（フェーダーの溝など） |
+
+        **レトロでなければ何も描かずに false を返します。** 呼ぶ側はいままでの枠をそのまま残して
+
+        ```cpp
+        if (! AppColours::drawBevel (g, area, AppColours::Bevel::raised))
+            { いままでの枠 }
+        ```
+
+        と書けば、ライト／ダークの見た目は1px も変わりません。
+
+        縁は`area`の**内側**に描きます（幅は太いもので2px、細いもので1px）。 */
+    enum class Bevel
+    {
+        raised,
+        sunken,
+        raisedThin,
+        sunkenThin
+    };
+
+    bool drawBevel (juce::Graphics& g, juce::Rectangle<int> area, Bevel bevel);
+
+    inline bool drawBevel (juce::Graphics& g, juce::Rectangle<float> area, Bevel bevel)
+    {
+        return drawBevel (g, area.toNearestInt(), bevel);
+    }
+
+    /** レトロの縁の4色（`drawBevel()`の表）。ほかの所で同じ色が要るとき用。 */
+    namespace RetroShade
+    {
+        inline constexpr juce::uint32 highlight  = 0xffffffff;
+        inline constexpr juce::uint32 light      = 0xffdfdfdf;
+        inline constexpr juce::uint32 shadow     = 0xff808080;
+        inline constexpr juce::uint32 darkShadow = 0xff000000;
+        inline constexpr juce::uint32 face       = 0xffc0c0c0;
+
+        /** 文字や絵を置く面（入力欄・一覧）。 */
+        inline constexpr juce::uint32 window     = 0xffffffff;
+
+        /** ツールチップの地（淡い黄色）。 */
+        inline constexpr juce::uint32 info       = 0xffffffe1;
+    }
+
     inline void drawScrollbarThumb (juce::Graphics& g, juce::ScrollBar& scrollbar, int x, int y, int width, int height,
                                     bool isScrollbarVertical, int thumbStartPosition, int thumbSize, bool isMouseOver)
     {
+        // 8.368：レトロでは、溝を白と灰の市松に、つまみを浮き出した灰の板にする（Phase 356）
+        if (isRetro())
+        {
+            const juce::Rectangle<int> track (x, y, width, height);
+            const auto thumb = isScrollbarVertical ? juce::Rectangle<int> (x, thumbStartPosition, width, thumbSize)
+                                                   : juce::Rectangle<int> (thumbStartPosition, y, thumbSize, height);
+
+            // 市松は2×2の絵を敷き詰める（1点ずつ描くと、長いスクロールバーで重い）
+            static const juce::Image checker = []
+            {
+                juce::Image image (juce::Image::ARGB, 2, 2, false);
+                image.setPixelAt (0, 0, juce::Colour (RetroShade::highlight));
+                image.setPixelAt (1, 1, juce::Colour (RetroShade::highlight));
+                image.setPixelAt (1, 0, juce::Colour (RetroShade::face));
+                image.setPixelAt (0, 1, juce::Colour (RetroShade::face));
+                return image;
+            }();
+
+            g.setFillType (juce::FillType (checker, juce::AffineTransform()));
+            g.fillRect (track);
+
+            if (thumbSize > 0)
+            {
+                g.setColour (juce::Colour (RetroShade::face));
+                g.fillRect (thumb);
+                drawBevel (g, thumb, Bevel::raised);
+            }
+
+            juce::ignoreUnused (scrollbar, isMouseOver);
+            return;
+        }
+
         const auto thumbBounds = isScrollbarVertical ? juce::Rectangle<int> (x, thumbStartPosition, width, thumbSize)
                                                      : juce::Rectangle<int> (thumbStartPosition, y, thumbSize, height);
 

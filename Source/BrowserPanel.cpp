@@ -100,7 +100,9 @@ BrowserPanel::BrowserPanel (AudioEngine& audioEngineToUse)
 
     pluginListBox.setModel (&pluginListModel);
     pluginListBox.setRowHeight (22);
-    pluginListBox.setColour (juce::ListBox::backgroundColourId, AppColours::background);
+    // 8.368：レトロでは一覧は白（Phase 356。`paint()`でへこんだ縁を付ける）
+    pluginListBox.setColour (juce::ListBox::backgroundColourId, AppColours::isRetro() ? juce::Colour (AppColours::RetroShade::window)
+                                                                                       : AppColours::background);
     addAndMakeVisible (pluginListBox);
 
     emptyLabel.setJustificationType (juce::Justification::centredTop);
@@ -128,7 +130,8 @@ BrowserPanel::BrowserPanel (AudioEngine& audioEngineToUse)
     directoryList->setDirectory (startFolder, true, true);
 
     fileTree = std::make_unique<juce::FileTreeComponent> (*directoryList);
-    fileTree->setColour (juce::FileTreeComponent::backgroundColourId, AppColours::background);
+    fileTree->setColour (juce::FileTreeComponent::backgroundColourId, AppColours::isRetro() ? juce::Colour (AppColours::RetroShade::window)
+                                                                                             : AppColours::background);
 
     // 8.133：行の絵を差し替える（Phase 169／改善案44）。
     // **壊れる前に外すこと**（デストラクタで`setLookAndFeel(nullptr)`）
@@ -218,6 +221,7 @@ void BrowserPanel::setTab (Tab newTab)
 
     updateTabButtons();
     resized();
+    repaint();   // 8.368：一覧の外側の縁（レトロ）を描き直す
 }
 
 void BrowserPanel::updateTabButtons()
@@ -566,10 +570,14 @@ void BrowserPanel::PluginListModel::paintListBoxItem (int rowNumber, juce::Graph
     {
         const bool collapsed = ! owner.isManufacturerExpanded (row.manufacturer);
 
-        g.setColour (AppColours::panel);
-        g.fillRect (0, 0, width, height);
-        g.setColour (AppColours::border);
-        g.drawHorizontalLine (height - 1, 0.0f, (float) width);
+        // 8.368：レトロでは見出しも白い一覧の上にそのまま置く（Phase 356。あの頃のツリーの見え方）
+        if (! AppColours::isRetro())
+        {
+            g.setColour (AppColours::panel);
+            g.fillRect (0, 0, width, height);
+            g.setColour (AppColours::border);
+            g.drawHorizontalLine (height - 1, 0.0f, (float) width);
+        }
 
         auto area = juce::Rectangle<int> (0, 0, width, height).reduced (4, 0);
 
@@ -725,6 +733,16 @@ void BrowserPanel::paint (juce::Graphics& g)
     g.setColour (AppColours::border);
     g.drawLine ((float) PanelResizerBar::thickness, 0.0f,
                  (float) PanelResizerBar::thickness, (float) getHeight(), 1.0f);
+
+    // 8.368：レトロでは一覧を**へこんだ窓**に収める（Phase 356。縁は外側の余白に描く）
+    if (AppColours::isRetro())
+    {
+        if (pluginListBox.isVisible())
+            AppColours::drawBevel (g, pluginListBox.getBounds().expanded (2), AppColours::Bevel::sunken);
+
+        if (fileTree != nullptr && fileTree->isVisible())
+            AppColours::drawBevel (g, fileTree->getBounds().expanded (2), AppColours::Bevel::sunken);
+    }
 }
 
 void BrowserPanel::resized()

@@ -1001,6 +1001,8 @@
     { "配色", "Theme", false },
     { "ライト", "Light", false },
     { "ダーク", "Dark", false },
+    { "レトロ", "Retro", false },
+    { "90年代のパソコン風。灰色の地に、浮き出し／へこみの縁", "A 1990s desktop look: grey panels with raised and sunken edges", false },
     { "言語", "Language", false },
     { "画面に出る言葉の切り替え。「English + 日本語の説明」は、ボタン名などは英語・ツールチップや案内文は日本語になります", "Switches the language of the interface. \"English + \xe6\x97\xa5\xe6\x9c\xac\xe8\xaa\x9e\xe3\x81\xae\xe8\xaa\xac\xe6\x98\x8e\" keeps button names in English and tooltips and explanations in Japanese", true },
     { "次回アプリを起動したときから反映されます。", "It takes effect the next time you start the app.", true },

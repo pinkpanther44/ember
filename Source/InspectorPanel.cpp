@@ -50,7 +50,9 @@ InspectorPanel::InspectorPanel (ProjectModel& projectToUse, SelectionState& sele
     : project (projectToUse), selection (selectionToUse), audioEngine (audioEngineToUse)
 {
     titleLabel.setFont (juce::FontOptions (13.0f, juce::Font::bold));
-    titleLabel.setColour (juce::Label::textColourId, AppColours::textPrimary);
+    // 8.368：レトロでは見出しを紺の帯に載せるので白（Phase 356。`paint()`）
+    titleLabel.setColour (juce::Label::textColourId, AppColours::isRetro() ? juce::Colours::white
+                                                                          : AppColours::textPrimary);
     addAndMakeVisible (titleLabel);
 
     // 載せる要素が増えたため、中身はスクロールできるようにしてある（Phase 29）
@@ -902,6 +904,13 @@ void InspectorPanel::itemDropped (const SourceDetails& details)
 void InspectorPanel::paint (juce::Graphics& g)
 {
     g.fillAll (AppColours::background);
+
+    // 8.368：レトロでは見出しを**窓のタイトルバーのような紺の帯**に（Phase 356。Console などの見出しと同じ）
+    if (AppColours::isRetro())
+    {
+        g.setColour (AppColours::purple);
+        g.fillRect (titleLabel.getBounds().expanded (4, 1));
+    }
 
     // Phase 28：インスペクタは画面の**左**側に移した。仕切り線とリサイザーの余白も右端に来る
     g.setColour (AppColours::border);

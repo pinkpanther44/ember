@@ -771,6 +771,16 @@ void ArrangeView::refreshInputState()
 void ArrangeView::paint (juce::Graphics& g)
 {
     g.fillAll (AppColours::background);
+
+    // 8.368：レトロでは、タイムラインとオーバービューを**へこんだ窓**に収める（Phase 356）。
+    // 縁は外側の余白（16px）に描くので、中の並びは1px も動きません
+    if (AppColours::isRetro())
+    {
+        AppColours::drawBevel (g, timeline.getBounds().expanded (2), AppColours::Bevel::sunken);
+
+        if (overview.isVisible())
+            AppColours::drawBevel (g, overview.getBounds().expanded (2), AppColours::Bevel::sunken);
+    }
 }
 
 void ArrangeView::resized()

@@ -16,7 +16,9 @@ EditorPanel::EditorPanel()
     addAndMakeVisible (resizer);
 
     titleLabel.setFont (juce::FontOptions (13.0f, juce::Font::bold));
-    titleLabel.setColour (juce::Label::textColourId, AppColours::textPrimary);
+    // 8.368：レトロでは見出しの帯が紺なので、字は白（Phase 356。`paint()`）
+    titleLabel.setColour (juce::Label::textColourId, AppColours::isRetro() ? juce::Colours::white
+                                                                          : AppColours::textPrimary);
     titleLabel.setText ("Piano Roll", juce::dontSendNotification);
     addAndMakeVisible (titleLabel);
 
@@ -78,8 +80,9 @@ void EditorPanel::paint (juce::Graphics& g)
 {
     g.fillAll (AppColours::background);
 
+    // 8.368：レトロでは**窓のタイトルバーのような紺の帯**（Phase 356）。ボタンは灰色のまま浮く
     // ヘッダー部分だけ、他のパネルと同じ色で塗り分ける
-    g.setColour (AppColours::panel);
+    g.setColour (AppColours::isRetro() ? AppColours::purple : AppColours::panel);
     g.fillRect (0, resizerHeight, getWidth(), headerHeight);
 
     g.setColour (AppColours::border);

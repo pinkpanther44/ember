@@ -135,6 +135,48 @@ void MixerLookAndFeel::drawLinearSlider (juce::Graphics& g, int x, int y, int wi
                          : juce::Rectangle<float> (area.getX(), area.getCentreY() - groove * 0.5f,
                                                     area.getWidth(), groove);
 
+    // 8.368：レトロ（Phase 356）。**へこんだ溝に、浮き出した灰色のつまみ**。
+    // 溝の中身（いまの量の塗り）と、つまみの大きさ・位置はほかの配色と同じ
+    if (AppColours::isRetro())
+    {
+        const auto channel = grooveArea.toNearestInt().expanded (1);
+
+        g.setColour (juce::Colour (AppColours::RetroShade::window));
+        g.fillRect (channel);
+
+        auto filled = channel.reduced (2).toFloat();
+
+        if (isVertical)
+            filled = filled.withTop (juce::jlimit (filled.getY(), filled.getBottom(), sliderPos));
+        else
+            filled = filled.withRight (juce::jlimit (filled.getX(), filled.getRight(), sliderPos));
+
+        g.setColour (fillColour);
+        g.fillRect (filled);
+
+        AppColours::drawBevel (g, channel, AppColours::Bevel::sunken);
+
+        const auto thumb = (isVertical
+                               ? juce::Rectangle<float> (thumbLong, (float) thumbShortSide)
+                                     .withCentre ({ area.getCentreX(), sliderPos })
+                               : juce::Rectangle<float> ((float) thumbShortSide, thumbLong)
+                                     .withCentre ({ sliderPos, area.getCentreY() })).toNearestInt();
+
+        g.setColour (juce::Colour (AppColours::RetroShade::face));
+        g.fillRect (thumb);
+        AppColours::drawBevel (g, thumb, AppColours::Bevel::raised);
+
+        // 真ん中の線（掴む場所の目印）は黒
+        g.setColour (juce::Colours::black);
+
+        if (isVertical)
+            g.fillRect (thumb.getX() + 3, thumb.getCentreY(), thumb.getWidth() - 6, 1);
+        else
+            g.fillRect (thumb.getCentreX(), thumb.getY() + 3, 1, thumb.getHeight() - 6);
+
+        return;
+    }
+
     g.setColour (grooveColour);
     g.fillRoundedRectangle (grooveArea, AppColours::corner (groove * 0.5f));
     g.setColour (AppColours::border);

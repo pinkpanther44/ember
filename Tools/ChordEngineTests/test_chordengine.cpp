@@ -143,6 +143,45 @@ int main()
     weights.rootMotion[5] = 0.0f;
     checkFloat ("重みを変えた G7 -> C", connectionScore (&g7, c, cMajor, weights), 0.64f);
 
+    // 8.369：分数コード（Phase 357／本人の要望「繋がり易さを分数コード選択時にも反映したい。
+    // カスタムコードにて、ベース音を変えるごとに繋がり易さも表現したい」）
+    std::printf ("\n=== 分数コード ===\n");
+    auto slash = [] (int root, ChordType type, int bass)
+    {
+        Chord chord { root, type };
+        chord.bass = bass;
+        return chord;
+    };
+
+    const Chord g    { 7, ChordType::Maj };
+    const Chord am   { 9, ChordType::Min };
+    const Chord gOverB  = slash (7, ChordType::Maj, 11);
+    const Chord fOverC  = slash (5, ChordType::Maj, 0);
+    const Chord gOverCs = slash (7, ChordType::Maj, 1);
+
+    // 分数でないものどうしは今までどおり：0.15 + 0.30 + 5度上 0.15 + 共通音 G 0.04
+    checkFloat ("C -> G（分数でない。変わらない）", connectionScore (&c, g, cMajor), 0.64f);
+
+    // C→G/B：上と同じ ＋ ベースが C→B と半音下がる 0.12
+    checkFloat ("C -> G/B（ベースが半音下がる）", connectionScore (&c, gOverB, cMajor), 0.76f);
+
+    // G/B→Am：0.15 + 0.30 + 全音上 0.20 + 共通音0 ＋ ベース B→A 0.12
+    checkFloat ("G/B -> Am（直前が分数コード）", connectionScore (&gOverB, am, cMajor), 0.77f);
+
+    // C→F/C：0.15 + 0.30 + 4度上 0.35 + 共通音 C 0.04 ＋ ベースが C のまま 0.06
+    checkFloat ("C -> F/C（ペダル）", connectionScore (&c, fOverC, cMajor), 0.90f);
+
+    // C→G/C#：ベースがスケールの外なのでダイアトニックではない（ルートだけ中 0.10）
+    //  0.15 + 0.10 + 0.15 + 0.04 ＋ ベース C→C# 0.12
+    checkFloat ("C -> G/C#（ベースがスケールの外）", connectionScore (&c, gOverCs, cMajor), 0.56f);
+
+    // ベースを変えると点が変わる（カスタムコードの欄でベースを選び直したとき）
+    checkInt ("Am のあとの G/B と G/C# は違う点",
+              std::abs (connectionScore (&am, gOverB, cMajor) - connectionScore (&am, gOverCs, cMajor)) > 0.01f ? 1 : 0, 1);
+
+    // ルートと同じベースは分数コードではない（C/C は C）
+    checkFloat ("C -> G/G（ベース＝ルート）", connectionScore (&c, slash (7, ChordType::Maj, 7), cMajor), 0.64f);
+
     std::printf ("\n=== ダイアトニック判定 ===\n");
     checkInt ("G7 は C major の中",   isChordDiatonic (g7, cMajor)   ? 1 : 0, 1);
     checkInt ("Ebm7 は C major の外", isChordDiatonic (ebm7, cMajor) ? 1 : 0, 0);

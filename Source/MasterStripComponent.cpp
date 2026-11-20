@@ -225,8 +225,12 @@ void MasterStripComponent::paint (juce::Graphics& g)
         g.fillRoundedRectangle (area, AppColours::corner (4.0f));
     }
 
-    g.setColour (isDragOver ? AppColours::purple : AppColours::border);
-    g.drawRoundedRectangle (area.reduced (0.5f), AppColours::corner (4.0f), isDragOver ? 2.0f : 1.0f);
+    // 8.368：レトロでは浮き出した板（Phase 356。ストリップと同じ）
+    if (isDragOver || ! AppColours::drawBevel (g, area, AppColours::Bevel::raised))
+    {
+        g.setColour (isDragOver ? AppColours::purple : AppColours::border);
+        g.drawRoundedRectangle (area.reduced (0.5f), AppColours::corner (4.0f), isDragOver ? 2.0f : 1.0f);
+    }
 }
 
 //==============================================================================

@@ -434,6 +434,17 @@ void PianoRollView::valueTreeChildRemoved (juce::ValueTree& parent, juce::ValueT
 void PianoRollView::paint (juce::Graphics& g)
 {
     g.fillAll (AppColours::background);
+
+    // 8.368：レトロでは、編集する面（目盛り・鍵盤とグリッド・下のレーン・横のスクロール）と
+    // 左のトラック一覧を**へこんだ窓**に収める（Phase 356）。縁は外側の余白に描く
+    if (AppColours::isRetro())
+    {
+        const auto editArea = header.getBounds().getUnion (viewport.getBounds())
+                                                .getUnion (horizontalScrollBar.getBounds());
+
+        AppColours::drawBevel (g, editArea.expanded (2), AppColours::Bevel::sunken);
+        AppColours::drawBevel (g, trackList.getBounds().expanded (2), AppColours::Bevel::sunken);
+    }
 }
 
 void PianoRollView::resized()

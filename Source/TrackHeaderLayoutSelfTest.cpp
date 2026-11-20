@@ -12,6 +12,8 @@
 #include "ExportOptions.h"    // 8.307：ステム一覧の見切れ（Phase 300）
 #include "EditorWindow.h"     // 8.328：Pop outの窓でもドラッグできるか（Phase 318）
 #include "IconAssets.h"       // 8.358：アイコンの見比べ（Phase 347）
+#include "MixerLookAndFeel.h" // 8.368：レトロのフェーダー（Phase 356）
+#include "ChordPadPanel.h"    // 8.369：コードパッドの大きさ（Phase 357）
 
 #include <juce_events/juce_events.h>
 #include <juce_graphics/juce_graphics.h>
@@ -1013,6 +1015,245 @@ namespace TrackHeaderLayoutSelfTest
             sg.reset();
 
             const auto file = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("icons_selftest.png");
+            juce::PNGImageFormat png;
+
+            if (auto stream = file.createOutputStream())
+            {
+                stream->setPosition (0);
+                stream->truncate();
+                png.writeImageToStream (sheet, *stream);
+                say ("        (a picture of them: " + file.getFullPathName() + ")");
+            }
+        }
+
+        //----------------------------------------------------------------------
+        // 8.369：**コードパッドの大きさは、Main と Related で同じ**（Phase 357／本人の要望
+        // 「MainとRelatedを切り替えるとパッドの大きさが変わってしまう。パッドの大きさは、Mainのものに統一。
+        // Relatedでは、下にスペースが空いてしまうが問題ない」）
+        say ("--- chord pad sizes (8.369)");
+        {
+            ProjectModel project;
+            SelectionState selection;
+            AudioEngine engineForPads (project);
+            ChordPadPanel panel (project, selection, engineForPads);
+            panel.setBounds (0, 0, 950, 480);
+
+            auto heights = [] (const std::vector<juce::Rectangle<int>>& areas)
+            {
+                juce::SortedSet<int> set;
+
+                for (const auto& a : areas)
+                    set.add (a.getHeight());
+
+                return set;
+            };
+
+            const auto mainPads = panel.getPadAreasForTesting();
+            panel.togglePageForTesting();
+            const auto relatedPads = panel.getPadAreasForTesting();
+            panel.togglePageForTesting();
+            const auto mainAgain = panel.getPadAreasForTesting();
+
+            const auto mainHeights = heights (mainPads);
+            const auto relatedHeights = heights (relatedPads);
+
+            check (! mainPads.empty() && ! relatedPads.empty(), "both pages have pads ("
+                     + juce::String ((int) mainPads.size()) + " / " + juce::String ((int) relatedPads.size()) + ")");
+            check (mainHeights.size() == 1 && relatedHeights.size() == 1 && mainHeights[0] == relatedHeights[0],
+                   "pads are the same height on Main and Related (" + juce::String (mainHeights[0]) + "px / "
+                     + juce::String (relatedHeights[0]) + "px)");
+
+            int mainBottom = 0, relatedBottom = 0;
+
+            for (const auto& a : mainPads)    mainBottom = juce::jmax (mainBottom, a.getBottom());
+            for (const auto& a : relatedPads) relatedBottom = juce::jmax (relatedBottom, a.getBottom());
+
+            check (relatedBottom <= mainBottom && mainBottom <= panel.getGridAreaForTesting().getBottom(),
+                   "Related leaves room below rather than stretching (bottom " + juce::String (relatedBottom)
+                     + " vs Main " + juce::String (mainBottom) + ")");
+            check (heights (mainAgain).size() == 1 && heights (mainAgain)[0] == mainHeights[0],
+                   "back on Main, the pads are as they were");
+        }
+
+        //----------------------------------------------------------------------
+        // 8.368：**レトロの配色**（Phase 356／本人の要望「配色にライト・ダークがあるけど、UIを全体的にWin95風に
+        // 切り替えられるようにすることは可能？ レトロ風なデザインで作曲したい気分に切り替えて使ってみたい」）。
+        //
+        // 見るのは3つ：**ライト／ダークは1画素も変わっていない**（縁の関数は何も描かない）・
+        // レトロの縁の向き（浮き出しは左上が白・右下が黒、へこみはその逆）・アプリの部品がその縁で描かれること。
+        // 見た目そのものは絵（`retro_selftest.png`）で見る。**設定ファイルには書きません**
+        say ("--- the retro look (8.368)");
+        {
+            const auto originalTheme = AppColours::getTheme();
+            const juce::Colour white (0xffffffff), black (0xff000000), light (0xffdfdfdf), shadow (0xff808080);
+
+            auto same = [] (juce::Colour a, juce::Colour b) { return a.getARGB() == b.getARGB(); };
+            auto name = [] (juce::Colour c) { return c.toDisplayString (true); };
+
+            // 設定に書く数と配色（古い版が書いた 0・1 は今までどおり。知らない数はライト）
+            check (AppColours::themeFromStoredValue (0) == AppColours::Theme::Light
+                     && AppColours::themeFromStoredValue (1) == AppColours::Theme::Dark
+                     && AppColours::themeFromStoredValue (2) == AppColours::Theme::Retro
+                     && AppColours::themeFromStoredValue (7) == AppColours::Theme::Light
+                     && AppColours::themeFromStoredValue (-1) == AppColours::Theme::Light,
+                   "stored theme numbers: 0 light, 1 dark, 2 retro, anything else light");
+            check ((int) AppColours::Theme::Light == 0 && (int) AppColours::Theme::Dark == 1 && (int) AppColours::Theme::Retro == 2,
+                   "the numbers written to the settings are the ones read back");
+
+            // ライト・ダークでは縁の関数は何も描かない（＝いままでの見た目のまま）
+            for (const auto theme : { AppColours::Theme::Light, AppColours::Theme::Dark })
+            {
+                AppColours::setTheme (theme);
+
+                juce::Image image (juce::Image::ARGB, 20, 20, true);
+                bool drew = true;
+                {
+                    juce::Graphics g (image);
+                    drew = AppColours::drawBevel (g, juce::Rectangle<int> (0, 0, 20, 20), AppColours::Bevel::raised);
+                }
+
+                check (! drew && image.getPixelAt (0, 0).getAlpha() == 0 && image.getPixelAt (19, 19).getAlpha() == 0,
+                       juce::String (theme == AppColours::Theme::Light ? "light" : "dark") + ": the bevel draws nothing");
+            }
+
+            AppColours::setTheme (AppColours::Theme::Retro);
+
+            check (AppColours::isRetro() && AppColours::getTheme() != AppColours::Theme::Dark,
+                   "retro is on, and anything that asks \"is it dark?\" hears no (plugins draw their light look)");
+            check (same (AppColours::background, juce::Colour (0xffc0c0c0)) && same (AppColours::panel, juce::Colour (0xffc0c0c0)),
+                   "retro: grey face " + name (AppColours::background));
+            check (same (AppColours::purple, juce::Colour (0xff000080)),
+                   "retro: selection is navy whatever the brand (" + name (AppColours::purple) + ")");
+            check (same (AppColours::canvas, white) && AppColours::canvasAlt.getBrightness() < AppColours::canvas.getBrightness(),
+                   "retro: white editing area, alternate rows darker");
+            check (same (AppColours::textPrimary, black), "retro: black text");
+
+            // 縁の向き
+            {
+                juce::Image raised (juce::Image::ARGB, 20, 20, true), sunken (juce::Image::ARGB, 20, 20, true);
+                {
+                    juce::Graphics g (raised);
+                    AppColours::drawBevel (g, juce::Rectangle<int> (0, 0, 20, 20), AppColours::Bevel::raised);
+                }
+                {
+                    juce::Graphics g (sunken);
+                    AppColours::drawBevel (g, juce::Rectangle<int> (0, 0, 20, 20), AppColours::Bevel::sunken);
+                }
+
+                check (same (raised.getPixelAt (0, 5), white) && same (raised.getPixelAt (1, 5), light)
+                         && same (raised.getPixelAt (19, 5), black) && same (raised.getPixelAt (18, 5), shadow),
+                       "raised: white / light grey on the top-left, black / grey on the bottom-right");
+                check (same (sunken.getPixelAt (5, 0), shadow) && same (sunken.getPixelAt (5, 1), black)
+                         && same (sunken.getPixelAt (5, 19), white) && same (sunken.getPixelAt (5, 18), light),
+                       "sunken: the other way round");
+                check (sunken.getPixelAt (10, 10).getAlpha() == 0, "the bevel leaves the inside alone");
+            }
+
+            // アプリの部品。**撮った絵を1枚に並べて残す**
+            auto lookAndFeel = AppColours::createLookAndFeel();
+            juce::Image sheet (juce::Image::RGB, 330, 240, true);
+            auto sg = std::make_unique<juce::Graphics> (sheet);
+            sg->fillAll (juce::Colour (0xffc0c0c0));
+
+            auto shoot = [&] (juce::Component& c, juce::LookAndFeel& laf, int x, int y)
+            {
+                c.setLookAndFeel (&laf);
+                juce::Image shot (juce::Image::ARGB, c.getWidth(), c.getHeight(), true);
+                {
+                    juce::Graphics g (shot);
+                    c.paintEntireComponent (g, true);
+                }
+                c.setLookAndFeel (nullptr);
+                sg->drawImageAt (shot, x, y);
+                return shot;
+            };
+
+            {
+                juce::TextButton button ("Button");
+                button.setBounds (0, 0, 80, 26);
+                const auto up = shoot (button, *lookAndFeel, 10, 10);
+
+                button.setToggleState (true, juce::dontSendNotification);
+                const auto in = shoot (button, *lookAndFeel, 100, 10);
+
+                check (same (up.getPixelAt (0, 10), white) && same (up.getPixelAt (79, 10), black),
+                       "a button stands out (left edge " + name (up.getPixelAt (0, 10)) + ", right edge " + name (up.getPixelAt (79, 10)) + ")");
+                check (same (in.getPixelAt (0, 10), shadow) && same (in.getPixelAt (79, 10), white),
+                       "a button that is on is pressed in (left edge " + name (in.getPixelAt (0, 10)) + ")");
+            }
+
+            {
+                juce::ComboBox box;
+                box.addItem ("1/16", 1);
+                box.setSelectedId (1, juce::dontSendNotification);
+                box.setBounds (0, 0, 120, 24);
+                const auto shot = shoot (box, *lookAndFeel, 190, 10);
+
+                check (same (shot.getPixelAt (0, 12), shadow) && same (shot.getPixelAt (8, 4), white),
+                       "a drop-down is a sunken white field (edge " + name (shot.getPixelAt (0, 12)) + ", inside " + name (shot.getPixelAt (8, 4)) + ")");
+
+                // 右端の押しボタン（`drawComboBox()`：内側2px の右16px）
+                const int buttonLeft = 120 - 2 - 16;
+                check (same (shot.getPixelAt (buttonLeft, 12), white) && same (shot.getPixelAt (120 - 3, 12), black),
+                       "...with a raised button on its right");
+            }
+
+            {
+                juce::ScrollBar scrollbar (true);
+                scrollbar.setAutoHide (false);
+                scrollbar.setRangeLimits (0.0, 1000.0);
+                scrollbar.setCurrentRange (0.0, 250.0);
+                scrollbar.setBounds (0, 0, 16, 180);
+                const auto shot = shoot (scrollbar, *lookAndFeel, 10, 50);
+
+                // つまみは上の 1/4。その下の溝は白と灰の市松
+                const auto trackA = shot.getPixelAt (8, 150), trackB = shot.getPixelAt (9, 150);
+                check (! same (trackA, trackB) && (same (trackA, white) || same (trackB, white)),
+                       "the scroll bar track is a white and grey checker");
+                check (same (shot.getPixelAt (0, 10), white), "the scroll bar thumb stands out");
+            }
+
+            {
+                MixerLookAndFeel mixerLookAndFeel;
+                juce::Slider fader (juce::Slider::LinearVertical, juce::Slider::NoTextBox);
+                fader.setRange (0.0, 1.0);
+                fader.setValue (0.5, juce::dontSendNotification);
+                fader.setBounds (0, 0, 30, 180);
+                const auto shot = shoot (fader, mixerLookAndFeel, 40, 50);
+
+                const auto thumbY = (int) std::round (fader.getPositionOfValue (0.5));
+                const auto thumb = juce::Rectangle<float> ((float) MixerLookAndFeel::thumbLongSide, (float) MixerLookAndFeel::thumbShortSide)
+                                       .withCentre ({ 15.0f, (float) thumbY }).toNearestInt();
+
+                check (same (shot.getPixelAt (thumb.getX(), thumb.getCentreY() - 2), white)
+                         && same (shot.getPixelAt (thumb.getRight() - 1, thumb.getCentreY() - 2), black),
+                       "a fader thumb stands out");
+                check (same (shot.getPixelAt (15, 20), white),
+                       "the fader groove is a white channel above the thumb (" + name (shot.getPixelAt (15, 20)) + ")");
+            }
+
+            // 比べ：同じボタンをライトで描くと、左端は白ではない（縁を付けていない）
+            {
+                AppColours::setTheme (AppColours::Theme::Light);
+                auto lightLookAndFeel = AppColours::createLookAndFeel();
+
+                juce::TextButton button ("Button");
+                button.setBounds (0, 0, 80, 26);
+                button.setLookAndFeel (lightLookAndFeel.get());
+                juce::Image shot (juce::Image::ARGB, 80, 26, true);
+                {
+                    juce::Graphics g (shot);
+                    button.paintEntireComponent (g, true);
+                }
+                button.setLookAndFeel (nullptr);
+
+                check (! same (shot.getPixelAt (0, 10), white), "light: the same button has no white bevel");
+            }
+
+            sg.reset();
+            AppColours::setTheme (originalTheme);
+
+            const auto file = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("retro_selftest.png");
             juce::PNGImageFormat png;
 
             if (auto stream = file.createOutputStream())

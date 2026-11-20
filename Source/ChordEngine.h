@@ -61,6 +61,11 @@ struct ChordScoreWeights
     float dominantResolution = 0.15f;  // 直前がドミナント系で5度下降して解決した
     float commonTone         = 0.04f;  // 共通音1つあたり
     int   maxCommonTones     = 3;      // 共通音の加点はここで頭打ち
+
+    // 8.369：**分数コードのベースの動き**（Phase 357／本人の要望）。
+    // **どちらかが分数コードのときだけ**足すので、分数でないコードどうしの点は今までと1つも変わらない
+    float bassStep  = 0.12f;  // ベースが半音・全音で動く（C→G/B→Am のようなベースライン）
+    float bassPedal = 0.06f;  // ベースが同じ音にとどまる（ペダル。C→F/C）
 };
 
 //==============================================================================
@@ -72,6 +77,18 @@ inline bool isChordDiatonic (const Chord& chord, const Scale& scale)
             return false;
 
     return true;
+}
+
+/** 8.369：分数コードか（ベースが指定されていて、ルートと違う）。 */
+inline bool isSlashChord (const Chord& chord)
+{
+    return chord.bass >= 0 && chord.bass != chord.root;
+}
+
+/** 8.369：鳴っているいちばん下の音（分数コードならベース、そうでなければルート）。 */
+inline int lowestPitchClass (const Chord& chord)
+{
+    return isSlashChord (chord) ? chord.bass : chord.root;
 }
 
 /** 直前のコードからの「繋がりやすさ」を0.0〜1.0で返す（仕様書5.11.2）。
@@ -92,8 +109,10 @@ inline float connectionScore (const Chord* previous,
 {
     float score = weights.base;
 
-    // ダイアトニックなコードは基本的に馴染みやすい
-    if (isChordDiatonic (candidate, scale))
+    // ダイアトニックなコードは基本的に馴染みやすい。
+    // 8.369：**分数コードはベースもスケールの中であること**（D/C# はスケールの外の音が鳴る）
+    if (isChordDiatonic (candidate, scale)
+         && (! isSlashChord (candidate) || scale.contains (candidate.bass)))
         score += weights.diatonic;
     else if (scale.contains (candidate.root))
         score += weights.rootInScale;   // ルートだけでもスケール内なら少し加点
@@ -121,6 +140,20 @@ inline float connectionScore (const Chord* previous,
             if (pitchClassA == pitchClassB) { ++commonTones; break; }
 
     score += weights.commonTone * (float) juce::jmin (commonTones, weights.maxCommonTones);
+
+    // 8.369：**分数コードは、ベースの動きも見る**（Phase 357）。
+    // ルートの動き（和声の働き）とは別に、いちばん下の音が滑らかに動くと繋がって聞こえる——
+    // C→G/B→Am は、ルートだけ見ると 5度上・全音上だが、ベースは C→B→A と1音ずつ下りている。
+    // 直前が分数コードの場合も同じ（G/B→C はベースが B→C と半音上がる）
+    if (isSlashChord (*previous) || isSlashChord (candidate))
+    {
+        const int bassMotion = (((lowestPitchClass (candidate) - lowestPitchClass (*previous)) % 12) + 12) % 12;
+
+        if (bassMotion == 0)
+            score += weights.bassPedal;
+        else if (bassMotion == 1 || bassMotion == 2 || bassMotion == 10 || bassMotion == 11)
+            score += weights.bassStep;
+    }
 
     return juce::jlimit (0.0f, 1.0f, score);
 }

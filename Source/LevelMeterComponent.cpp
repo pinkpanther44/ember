@@ -167,11 +167,24 @@ void LevelMeterComponent::paint (juce::Graphics& g)
 
     auto area = bounds.toFloat();
 
-    g.setColour (AppColours::background);
-    g.fillRoundedRectangle (area, AppColours::corner (3.0f));
+    // 8.368：レトロでは**へこんだ黒い窓に、緑・黄・赤の棒**（Phase 356）。
+    // 紺の地の上の紺の棒は見えないので、昔の機材のメーターの色にします。棒の位置と大きさは同じ
+    const bool retro = AppColours::isRetro();
 
-    g.setColour (AppColours::border);
-    g.drawRoundedRectangle (area.reduced (0.5f), AppColours::corner (3.0f), 1.0f);
+    if (retro)
+    {
+        g.setColour (juce::Colours::black);
+        g.fillRect (area);
+        AppColours::drawBevel (g, area, AppColours::Bevel::sunken);
+    }
+    else
+    {
+        g.setColour (AppColours::background);
+        g.fillRoundedRectangle (area, AppColours::corner (3.0f));
+
+        g.setColour (AppColours::border);
+        g.drawRoundedRectangle (area.reduced (0.5f), AppColours::corner (3.0f), 1.0f);
+    }
 
     const float barGap = 2.0f;
 
@@ -182,12 +195,13 @@ void LevelMeterComponent::paint (juce::Graphics& g)
 
         // 0dB付近（クリップ直前）はオレンジ、振り切りは赤で警告する（設計書2.6の配色ルール）
         const auto colour = levels[ch] >= 0.99f ? juce::Colours::red
-                                                 : (levels[ch] > 0.7f ? AppColours::orange : AppColours::purple);
+                                                 : (levels[ch] > 0.7f ? (retro ? juce::Colour (0xffffff00) : AppColours::orange)
+                                                                      : (retro ? juce::Colour (0xff00c000) : AppColours::purple));
 
         // ピークの印は、棒が0でも残る（「さっきどこまで出たか」を見るためのもの）
         const auto peakColour = peaks[ch] >= 0.99f ? juce::Colours::red
                                                     : (peaks[ch] > 0.7f ? AppColours::orange
-                                                                        : AppColours::textPrimary);
+                                                                        : (retro ? juce::Colours::white : AppColours::textPrimary));
 
         if (vertical)
         {

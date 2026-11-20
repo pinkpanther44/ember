@@ -674,6 +674,11 @@ void ChordPadPanel::rebuildGrid()
                         : Scale();
 
     grid = buildChordGrid (key, page, triadMode);
+
+    // 8.369：段の高さは Main に揃える（`rowSlots`の説明）
+    rowSlots = juce::jmax ((int) grid.rows.size(),
+                           (int) buildChordGrid (key, ChordGridPage::main, triadMode).rows.size());
+
     layoutPads();
 }
 
@@ -703,7 +708,7 @@ void ChordPadPanel::layoutPads()
 
     area.removeFromTop (columnHeaderHeight);   // 列見出し（ルートからの半音）
 
-    const int rowHeight = juce::jmax (1, area.getHeight() / (int) grid.rows.size());
+    const int rowHeight = juce::jmax (1, area.getHeight() / juce::jmax ((int) grid.rows.size(), rowSlots));
     const int padAreaWidth = area.getWidth() - rowLabelWidth;
 
     for (size_t r = 0; r < grid.rows.size(); ++r)
@@ -733,6 +738,16 @@ void ChordPadPanel::layoutPads()
             pads.push_back (pad);
         }
     }
+}
+
+std::vector<juce::Rectangle<int>> ChordPadPanel::getPadAreasForTesting() const
+{
+    std::vector<juce::Rectangle<int>> areas;
+
+    for (const auto& pad : pads)
+        areas.push_back (pad.area);
+
+    return areas;
 }
 
 int ChordPadPanel::getWriteAreaHeight() const

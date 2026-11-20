@@ -4667,8 +4667,13 @@ void TimelineComponent::drawHeaderChip (juce::Graphics& g, juce::Rectangle<int> 
 
     g.setColour (isOn ? fill : AppColours::background);
     g.fillRoundedRectangle (bounds.toFloat(), AppColours::corner (3.0f));
-    g.setColour (isOn ? fill : AppColours::border);
-    g.drawRoundedRectangle (bounds.toFloat(), AppColours::corner (3.0f), 1.0f);
+
+    // 8.368：レトロでは押しボタンの縁（Phase 356）。点いているものはへこむ
+    if (! AppColours::drawBevel (g, bounds, isOn ? AppColours::Bevel::sunken : AppColours::Bevel::raised))
+    {
+        g.setColour (isOn ? fill : AppColours::border);
+        g.drawRoundedRectangle (bounds.toFloat(), AppColours::corner (3.0f), 1.0f);
+    }
 
     // 塗りつぶしたときだけ白文字。**地の色に合わせて自動では決めない**
     // （パープル／オレンジの上は、ライトでもダークでも白が読みやすい。1.34）
@@ -4910,8 +4915,12 @@ void TimelineComponent::drawPinnedChordRow (juce::Graphics& g)
 
     g.setColour (isSelectedTrack ? AppColours::purple.withAlpha (0.18f) : AppColours::panel);
     g.fillRect (headerBounds);
-    g.setColour (isSelectedTrack ? AppColours::purple : AppColours::border);
-    g.drawRect (headerBounds, isSelectedTrack ? 2 : 1);
+
+    if (isSelectedTrack || ! AppColours::drawBevel (g, headerBounds, AppColours::Bevel::raised))   // 8.368
+    {
+        g.setColour (isSelectedTrack ? AppColours::purple : AppColours::border);
+        g.drawRect (headerBounds, isSelectedTrack ? 2 : 1);
+    }
 
     auto colourBand = headerBounds.removeFromLeft (headerColourBandWidth).reduced (0, 2);
     g.setColour (juce::Colour::fromString (track.getColourString()));
@@ -12444,8 +12453,12 @@ void TimelineComponent::paint (juce::Graphics& g)
             g.fillRect (headerBounds);
         }
 
-        g.setColour (isSelectedTrack ? AppColours::purple : AppColours::border);
-        g.drawRect (headerBounds, isSelectedTrack ? 2 : 1);
+        // 8.368：レトロでは1行ずつ浮き出した板（Phase 356）。選ばれている行の紺の枠はそのまま
+        if (isSelectedTrack || ! AppColours::drawBevel (g, headerBounds, AppColours::Bevel::raised))
+        {
+            g.setColour (isSelectedTrack ? AppColours::purple : AppColours::border);
+            g.drawRect (headerBounds, isSelectedTrack ? 2 : 1);
+        }
 
         // 設計書2.4：トラックカラーの色帯を左端に出す（Phase 17）。
         // 色はデータ層がARGBのhex文字列で持っている（ProjectModel.cppのTrack::create参照）
