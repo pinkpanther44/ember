@@ -6,6 +6,30 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.4.1] - 2026-11-20
+
+### Added
+
+- **A "Retro" theme** (Preferences > Theme), alongside Light and Dark: a
+  1990s desktop look with grey panels, navy selection, white editing areas
+  and raised or sunken edges on buttons, lists, faders and the Console.
+  Meters become green, yellow and red on black. Like the other themes, it
+  takes effect the next time Ember starts. Built-in plug-in windows keep
+  their light look
+
+### Changed
+
+- **Chord Pad: pads are the same size on the Main and Related pages.** The
+  Related page has fewer rows, so it now leaves room at the bottom instead
+  of stretching its pads
+- **Chord Pad: slash chords count their bass line** when shading how well a
+  chord follows the one before. A bass that moves by a step (C, G/B, Am) or
+  stays put (C, F/C) shades the pad more strongly, and a bass outside the
+  key counts against it. Changing the bass note in the custom chord row now
+  changes its shade. Chords without a bass note are shaded as before
+
+---
+
 ## [1.4.0] - 2026-10-27
 
 ### Added
